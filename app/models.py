@@ -87,6 +87,9 @@ class Topic(Base):
         server_default=func.now(),
         onupdate=utcnow,
     )
+    # High-water mark for arXiv ingestion: the next digest run only pulls papers
+    # published after this. NULL means "never run" -> pull everything.
+    last_checked_at = Column(DateTime(timezone=True), nullable=True)
 
     papers = relationship(
         "Paper", secondary=topic_paper_association, back_populates="topics"
@@ -152,6 +155,7 @@ class Digest(Base):
         index=True,
     )
     error = Column(Text, nullable=True)  # failure detail when status == failed
+    overview = Column(Text, nullable=True)  # LLM-synthesized paragraph across the batch
 
     topic = relationship("Topic", back_populates="digests")
     papers = relationship(

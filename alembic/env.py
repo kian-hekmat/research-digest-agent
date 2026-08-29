@@ -26,7 +26,13 @@ if config.config_file_name is not None:
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
 target_metadata = Base.metadata
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+
+# A caller (e.g. the test harness) may set the URL on the Alembic config
+# directly; only fall back to the app's DATABASE_URL if they haven't. The
+# `driver://user:pass@localhost/dbname` placeholder in alembic.ini counts as
+# "not set".
+if config.get_main_option("sqlalchemy.url", "").startswith("driver://"):
+    config.set_main_option("sqlalchemy.url", DATABASE_URL)
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

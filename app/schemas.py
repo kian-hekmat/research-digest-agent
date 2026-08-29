@@ -19,6 +19,7 @@ class TopicOut(BaseModel):
     name: str
     query: str
     created_at: datetime
+    last_checked_at: Optional[datetime] = None
 
 
 # ---------- Paper ----------
@@ -41,5 +42,6 @@ class DigestOut(BaseModel):
     topic_id: str
     generated_at: datetime
     status: DigestStatus
+    overview: Optional[str] = None
     error: Optional[str] = None
     papers: list[PaperOut] = []
