@@ -1,7 +1,19 @@
+import uuid
+
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
 from app import models, schemas
+
+
+def _is_valid_uuid(value: str) -> bool:
+    """IDs are stored as UUID strings; reject anything that isn't one so
+    lookups return a clean 404 instead of a DB DataError."""
+    try:
+        uuid.UUID(str(value))
+        return True
+    except (ValueError, TypeError):
+        return False
 
 
 def create_topic(db: Session, topic: schemas.TopicCreate) -> models.Topic:
@@ -17,6 +29,8 @@ def create_topic(db: Session, topic: schemas.TopicCreate) -> models.Topic:
 
 
 def get_topic(db: Session, topic_id: str) -> models.Topic | None:
+    if not _is_valid_uuid(topic_id):
+        return None
     return db.query(models.Topic).filter(models.Topic.id == topic_id).first()
 
 
@@ -54,7 +68,7 @@ def list_papers_for_topic(db: Session, topic_id: str) -> list[models.Paper]:
 
 
 def create_digest(db: Session, topic_id: str) -> models.Digest:
-    digest = models.Digest(topic_id=topic_id, status="pending")
+    digest = models.Digest(topic_id=topic_id, status=models.DigestStatus.pending)
     db.add(digest)
     db.commit()
     db.refresh(digest)
@@ -62,6 +76,8 @@ def create_digest(db: Session, topic_id: str) -> models.Digest:
 
 
 def get_digest(db: Session, digest_id: str) -> models.Digest | None:
+    if not _is_valid_uuid(digest_id):
+        return None
     return db.query(models.Digest).filter(models.Digest.id == digest_id).first()
 
 

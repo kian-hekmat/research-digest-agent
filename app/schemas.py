@@ -3,6 +3,8 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.models import DigestStatus
+
 
 # ---------- Topic ----------
 class TopicCreate(BaseModel):
@@ -38,5 +40,6 @@ class DigestOut(BaseModel):
     id: str
     topic_id: str
     generated_at: datetime
-    status: str
+    status: DigestStatus
+    error: Optional[str] = None
     papers: list[PaperOut] = []

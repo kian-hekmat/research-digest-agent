@@ -37,8 +37,14 @@ a daily schedule, with retry policies on the external API calls.
 **Data model:**
 - `Topic` — something you're tracking (name + arXiv search query)
 - `Paper` — an ingested arXiv paper, optionally summarized
-- `Digest` — a generated batch of papers for a topic, with a status (pending/completed/failed)
+- `Digest` — a generated batch of papers for a topic, with a `digest_status`
+  enum (`pending`/`completed`/`failed`) and an `error` column for failure detail
 - `topic_paper` — join table, since a paper can match more than one topic
+- `digest_paper` — join table, since a paper recurs across a topic's digests and re-runs
+
+All FKs are `ON DELETE CASCADE`; timestamps are timezone-aware with `created_at`/
+`updated_at` on every entity; FK and lookup columns (`digests.topic_id`,
+`digests.status`, `papers.published_at`) are indexed.
 
 ## Running locally
 
@@ -86,11 +92,3 @@ TEST_DATABASE_URL=postgresql+psycopg2://digest_user:digest_pass@localhost:5432/d
 
 CI runs this automatically against a fresh Postgres service container on every push.
 
-## What I'd do with more time
-
-- Phase 2/3 as described above — the Temporal workflow with a real retry policy
-  on the arXiv/LLM calls is the highest-signal piece of this project and the
-  main thing left to build.
-- Rate limiting on the digest-trigger endpoint.
-- Auth (currently open — fine for a portfolio project, not for anything real).
-- Pagination cursors instead of offset/limit once topic/paper counts grow.
