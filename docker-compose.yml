@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: digest_user
+      POSTGRES_PASSWORD: digest_pass
+      POSTGRES_DB: digest_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - digest_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U digest_user -d digest_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://digest_user:digest_pass@db:5432/digest_db
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/code
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  digest_pg_data:
