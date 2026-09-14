@@ -141,3 +141,81 @@ def get_digest(db: Session, digest_id: str) -> models.Digest | None:
 
 def list_digests(db: Session, skip: int = 0, limit: int = 50) -> list[models.Digest]:
     return db.query(models.Digest).offset(skip).limit(limit).all()
+
+
+def list_completed_digests_since(
+    db: Session, topic_id: str, since: datetime
+) -> list[models.Digest]:
+    """Completed digests for a topic generated after `since`, oldest first -
+    the window an email delivery covers."""
+    return (
+        db.query(models.Digest)
+        .filter(
+            models.Digest.topic_id == topic_id,
+            models.Digest.status == models.DigestStatus.completed,
+            models.Digest.generated_at > since,
+        )
+        .order_by(models.Digest.generated_at)
+        .all()
+    )
+
+
+# ---------- Subscriptions ----------
+def create_subscription(
+    db: Session, topic_id: str, email: str, cadence: models.SubscriptionCadence
+) -> models.Subscription:
+    sub = models.Subscription(topic_id=topic_id, email=email, cadence=cadence)
+    db.add(sub)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise ValueError(f"{email} is already subscribed to this topic")
+    db.refresh(sub)
+    return sub
+
+
+def list_subscriptions_for_topic(db: Session, topic_id: str) -> list[models.Subscription]:
+    topic = get_topic(db, topic_id)
+    if topic is None:
+        return []
+    return topic.subscriptions
+
+
+def get_subscription(db: Session, subscription_id: str) -> models.Subscription | None:
+    if not _is_valid_uuid(subscription_id):
+        return None
+    return (
+        db.query(models.Subscription)
+        .filter(models.Subscription.id == subscription_id)
+        .first()
+    )
+
+
+def delete_subscription(db: Session, subscription_id: str) -> bool:
+    sub = get_subscription(db, subscription_id)
+    if sub is None:
+        return False
+    db.delete(sub)
+    db.commit()
+    return True
+
+
+def list_due_subscriptions(db: Session, now: datetime) -> list[models.Subscription]:
+    """Active subscriptions whose cadence window has elapsed since their last
+    send. Filtered in Python, not SQL - the per-row interval depends on each
+    subscription's own cadence, and the table is small."""
+    subs = db.query(models.Subscription).filter(models.Subscription.active.is_(True)).all()
+    return [
+        s for s in subs if now - s.last_sent_at >= models.CADENCE_INTERVALS[s.cadence]
+    ]
+
+
+def mark_subscription_sent(
+    db: Session, subscription: models.Subscription, sent_at: datetime
+) -> None:
+    """Only call this after a confirmed send - mirrors advance_topic_watermark's
+    only-on-success rule, so a failed send is retried on the next run rather
+    than silently skipped."""
+    subscription.last_sent_at = sent_at
+    db.commit()

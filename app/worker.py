@@ -15,8 +15,13 @@ from temporalio.worker import Worker
 
 from app.config import get_settings
 from app.temporal import activities
-from app.temporal.schedule import ensure_daily_schedule
-from app.temporal.workflows import WORKFLOW_RUNNER, DigestWorkflow, RunAllTopicDigestsWorkflow
+from app.temporal.schedule import ensure_daily_schedule, ensure_weekly_email_schedule
+from app.temporal.workflows import (
+    WORKFLOW_RUNNER,
+    DigestWorkflow,
+    RunAllTopicDigestsWorkflow,
+    SendDigestEmailsWorkflow,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,6 +36,10 @@ ACTIVITIES = [
     activities.write_overview,
     activities.finalize_digest,
     activities.advance_watermark,
+    activities.list_due_subscriptions,
+    activities.gather_digest_content,
+    activities.send_digest_email,
+    activities.mark_subscription_sent,
 ]
 
 
@@ -50,12 +59,17 @@ async def main() -> None:
         "Daily digest schedule %s",
         "created" if created else "already exists",
     )
+    email_created = await ensure_weekly_email_schedule(client)
+    logger.info(
+        "Weekly digest email schedule %s",
+        "created" if email_created else "already exists",
+    )
 
     with ThreadPoolExecutor(max_workers=20) as activity_executor:
         worker = Worker(
             client,
             task_queue=settings.temporal_task_queue,
-            workflows=[DigestWorkflow, RunAllTopicDigestsWorkflow],
+            workflows=[DigestWorkflow, RunAllTopicDigestsWorkflow, SendDigestEmailsWorkflow],
             activities=ACTIVITIES,
             activity_executor=activity_executor,
             workflow_runner=WORKFLOW_RUNNER,

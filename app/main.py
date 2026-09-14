@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.routers import topics, papers, digests
+from app.routers import topics, papers, digests, subscriptions
 
 app = FastAPI(
     title="Research Digest & Alert Agent",
@@ -11,6 +11,7 @@ app = FastAPI(
 app.include_router(topics.router)
 app.include_router(papers.router)
 app.include_router(digests.router)
+app.include_router(subscriptions.router)
 
 
 @app.get("/health")

@@ -42,6 +42,7 @@ WORKFLOW_RUNNER = SandboxedWorkflowRunner(
         "app.config",
         "app.services.arxiv",
         "app.services.summarize",
+        "app.services.email",
         "sqlalchemy",
         "anthropic",
         "httpx",
@@ -62,6 +63,12 @@ _ARXIV_RETRY = RetryPolicy(
     maximum_interval=timedelta(seconds=60),
 )
 _LLM_RETRY = RetryPolicy(
+    maximum_attempts=3,
+    initial_interval=timedelta(seconds=2),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(seconds=30),
+)
+_EMAIL_RETRY = RetryPolicy(
     maximum_attempts=3,
     initial_interval=timedelta(seconds=2),
     backoff_coefficient=2.0,
@@ -223,3 +230,62 @@ class RunAllTopicDigestsWorkflow:
             ]
         )
         return len(digest_ids)
+
+
+@workflow.defn
+class SendDigestEmailsWorkflow:
+    """Scheduled entrypoint for email delivery (see app.temporal.schedule).
+
+    Fires weekly; each due subscription is judged individually against its own
+    cadence (weekly/biweekly) by `list_due_subscriptions`, since cron has no
+    native "every other week". Deliveries fan out concurrently, and one
+    subscriber's failure (or nothing-new skip) never blocks another's.
+    """
+
+    @workflow.run
+    async def run(self) -> int:
+        due: list[types.DueSubscription] = await workflow.execute_activity(
+            activities.list_due_subscriptions,
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=_DB_RETRY,
+        )
+        if not due:
+            return 0
+
+        results = await asyncio.gather(
+            *[self._deliver(sub) for sub in due],
+            return_exceptions=True,
+        )
+        return sum(1 for r in results if r is True)
+
+    async def _deliver(self, sub: types.DueSubscription) -> bool:
+        content = await workflow.execute_activity(
+            activities.gather_digest_content,
+            types.GatherContentInput(
+                topic_id=sub.topic_id,
+                topic_name=sub.topic_name,
+                since=sub.last_sent_at,
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=_DB_RETRY,
+        )
+        if content is None:
+            return False  # nothing new since last send - leave the watermark alone
+
+        sent_at = workflow.now()
+        await workflow.execute_activity(
+            activities.send_digest_email,
+            types.SendEmailInput(email=sub.email, content=content),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=_EMAIL_RETRY,
+        )
+        # Only advance the watermark on a confirmed send - a failed send (all
+        # _EMAIL_RETRY attempts exhausted) leaves it alone, so this subscriber
+        # is retried, with the same content, on the next scheduled run.
+        await workflow.execute_activity(
+            activities.mark_subscription_sent,
+            types.MarkSentInput(subscription_id=sub.subscription_id, sent_at=sent_at),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=_DB_RETRY,
+        )
+        return True

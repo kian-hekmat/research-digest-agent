@@ -37,6 +37,26 @@ retry policies on every external call, plus a daily schedule.
   server (no Docker needed for tests) — including retry-exhaustion and multi-topic
   fan-out, both of which finish in seconds despite minutes of simulated backoff
 
+**Phase 4 complete:** weekly/biweekly email delivery to subscribers.
+- [x] `Subscription` — an email + cadence (`weekly`/`biweekly`) attached to a topic,
+  with its own `last_sent_at` watermark (mirrors `Topic.last_checked_at`)
+- [x] `POST/GET /topics/{topic_id}/subscriptions`, `DELETE /subscriptions/{id}`
+- [x] `SendDigestEmailsWorkflow` — the scheduled entrypoint: judges every
+  subscription against its own cadence (cron has no native "every other week", so
+  it fires weekly and each subscription decides for itself whether it's due),
+  gathers everything completed since the subscriber's last email, and delivers it
+  by SMTP; one subscriber's failure never blocks another's, and a skip (nothing
+  new) leaves the watermark alone rather than silently dropping content
+- [x] `EmailSender` (`app/services/email.py`) — plain SMTP, swappable via a client
+  factory for tests, same injection pattern as `Summarizer`
+- [x] A weekly Temporal Schedule (Mondays 08:00 UTC), created idempotently
+- [x] Mailpit added to docker-compose as the local SMTP catcher — nothing sent by
+  `docker-compose up` reaches a real inbox unless `SMTP_HOST`/`SMTP_PORT` are
+  deliberately pointed elsewhere
+- [x] Verified live: a seeded due subscription + completed digest produced a real
+  email in Mailpit with correct subject/overview/paper content, the watermark
+  advanced, and a second run correctly sent nothing (not yet due again)
+
 ## Architecture
 
 ```
@@ -55,13 +75,14 @@ retry policies on every external call, plus a daily schedule.
                       ┌──────────────┐      ┌─────────────┐
                       │    worker    │─────▶│    arXiv    │
                       │ (app/worker) │      │  Anthropic  │
+                      │              │─────▶│  SMTP/Mailpit│
                       └──────────────┘      └─────────────┘
 ```
 
 The `api` and `worker` containers both run the same code against the same
 Postgres; `api` only ever talks to Temporal to start workflows and to Postgres
 to read/write topics and digests directly (fast, synchronous). All the slow,
-retryable, external work (arXiv, Anthropic) happens in `worker`'s Activities.
+retryable, external work (arXiv, Anthropic, email) happens in `worker`'s Activities.
 
 **Data model:**
 - `Topic` — something you're tracking (name + arXiv search query). `last_checked_at`
@@ -70,6 +91,8 @@ retryable, external work (arXiv, Anthropic) happens in `worker`'s Activities.
 - `Digest` — a generated batch of papers for a topic, with a `digest_status`
   enum (`pending`/`completed`/`failed`), an `overview` column (LLM-synthesized
   paragraph across the batch), and an `error` column for failure detail
+- `Subscription` — an email + cadence (`weekly`/`biweekly`) subscribed to a topic,
+  with its own `last_sent_at` delivery watermark
 - `topic_paper` — join table, since a paper can match more than one topic
 - `digest_paper` — join table, since a paper recurs across a topic's digests and re-runs
 
@@ -104,9 +127,32 @@ calls of its own, just a sequence of Activities (`app/temporal/activities.py`):
 `RunAllTopicDigestsWorkflow` (the scheduled entrypoint) lists every topic, creates
 a pending digest per topic, and runs a `DigestWorkflow` child for each, concurrently.
 
+## How email delivery runs
+
+`SendDigestEmailsWorkflow` fires weekly (Mondays 08:00 UTC), but each subscription
+is judged against its *own* cadence, not the schedule's:
+
+1. **list_due_subscriptions** — active subscriptions where
+   `now - last_sent_at >= 7 days` (weekly) or `>= 14 days` (biweekly).
+2. Per due subscription, concurrently:
+   - **gather_digest_content** — every completed digest for that topic generated
+     since the subscriber's `last_sent_at`, rendered into a subject + text/HTML
+     body. Nothing new → skip the send *and* leave the watermark alone, so the
+     subscriber never silently loses a week's content.
+   - **send_digest_email** — SMTP via `EmailSender`, retried a few times.
+   - **mark_subscription_sent** — only on a confirmed send, so a failed send
+     (retries exhausted) is retried in full on the next scheduled run rather than
+     skipped. One subscriber's failure never blocks another's delivery.
+
+Subscribe via `POST /topics/{topic_id}/subscriptions` (`{"email": "...", "cadence":
+"weekly"}`, cadence optional, defaults to weekly); list with `GET` on the same
+path; unsubscribe with `DELETE /subscriptions/{id}`.
+
 Configuration (`app/config.py`, env-driven — see `.env.example`): `ANTHROPIC_API_KEY`
 (required for real runs), `SUMMARY_MODEL`, `OVERVIEW_MODEL`, `ARXIV_MAX_RESULTS`,
-`ARXIV_PAGE_DELAY`, `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`, `TEMPORAL_TASK_QUEUE`.
+`ARXIV_PAGE_DELAY`, `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`, `TEMPORAL_TASK_QUEUE`,
+`SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`,
+`SMTP_FROM_ADDRESS`.
 
 ## Running locally
 
@@ -114,13 +160,16 @@ Configuration (`app/config.py`, env-driven — see `.env.example`): `ANTHROPIC_A
 docker-compose up --build
 ```
 
-This starts four containers: `db` (Postgres), `temporal` (Temporal dev server),
-`api` (FastAPI), and `worker` (the Temporal worker — polls the task queue and
-creates the daily schedule on startup, idempotently). Once healthy:
+This starts five containers: `db` (Postgres), `temporal` (Temporal dev server),
+`mailpit` (local SMTP catcher), `api` (FastAPI), and `worker` (the Temporal worker
+— polls the task queue and creates both schedules on startup, idempotently). Once
+healthy:
 - API docs: http://localhost:8000/docs
 - Health check: http://localhost:8000/health
-- Temporal Web UI: http://localhost:8233 — inspect workflow runs, retries, and
-  the `daily-topic-digests` schedule directly
+- Temporal Web UI: http://localhost:8233 — inspect workflow runs, retries, and the
+  `daily-topic-digests` / `weekly-digest-emails` schedules directly
+- Mailpit Web UI: http://localhost:8025 — every email the app sends locally lands
+  here, not in a real inbox
 
 Example flow:
 ```bash
@@ -169,11 +218,24 @@ schedule-creation test needs the full dev server (`start_local()` — the
 time-skipping server doesn't implement the Schedule API), which does download
 a small server binary on first use.
 
-arXiv and Anthropic are faked by monkeypatching `app.temporal.activities`
-directly; one `respx` test exercises the real Atom parser and one test asserts
-the `DigestStatus` enum and the plain string literals the workflow uses for it
-(`app/temporal/types.py`, kept dependency-free of SQLAlchemy) haven't drifted
-apart.
+arXiv, Anthropic, and email are faked by monkeypatching `app.temporal.activities`
+directly (`search_arxiv`, `Summarizer`, `EmailSender`); one `respx` test exercises
+the real Atom parser, one exercises `EmailSender`/`render_digest_email` against a
+fake SMTP client, and one test asserts the `DigestStatus` enum and the plain string
+literals the workflow uses for it (`app/temporal/types.py`, kept dependency-free of
+SQLAlchemy) haven't drifted apart.
+
+**A gotcha worth knowing if you add a new cross-boundary dataclass:**
+`app/temporal/types.py` deliberately does *not* use `from __future__ import
+annotations`. Temporal's payload converter resolves a dataclass's field types via
+`dataclasses.fields()`, which returns raw (unresolved) string annotations under
+postponed evaluation — this silently breaks `datetime` fields specifically (it
+needs the concrete type object) when that dataclass is returned nested inside a
+generic like `list[...]`. It doesn't raise; the workflow task just fails and
+Temporal retries it forever, which looks exactly like a hang. `DueSubscription`
+hit this first, since it was the first `list[...]`-returned dataclass with a
+`datetime` field. Python 3.10+'s `X | None` syntax works fine at runtime without
+the future import, so there's no downside to leaving it out in that file.
 
 ```bash
 # with docker-compose's db already running:

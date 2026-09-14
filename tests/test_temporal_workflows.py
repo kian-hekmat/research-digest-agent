@@ -15,6 +15,7 @@ about a second.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -24,7 +25,12 @@ from temporalio.worker import Worker
 from app import crud, models
 from app.temporal import activities as temporal_activities
 from app.temporal.schedule import DAILY_SCHEDULE_ID, ensure_daily_schedule
-from app.temporal.workflows import WORKFLOW_RUNNER, DigestWorkflow, RunAllTopicDigestsWorkflow
+from app.temporal.workflows import (
+    WORKFLOW_RUNNER,
+    DigestWorkflow,
+    RunAllTopicDigestsWorkflow,
+    SendDigestEmailsWorkflow,
+)
 from tests.conftest import make_result
 
 TASK_QUEUE = "test-digest-task-queue"
@@ -39,6 +45,10 @@ ALL_ACTIVITIES = [
     temporal_activities.write_overview,
     temporal_activities.finalize_digest,
     temporal_activities.advance_watermark,
+    temporal_activities.list_due_subscriptions,
+    temporal_activities.gather_digest_content,
+    temporal_activities.send_digest_email,
+    temporal_activities.mark_subscription_sent,
 ]
 
 
@@ -58,22 +68,42 @@ class FakeSummarizer:
         return f"Overview of {topic_name}: {len(summaries)} papers."
 
 
+class FakeEmailSender:
+    """Stands in for app.services.email.EmailSender. Like FakeSummarizer, the
+    activity calls `EmailSender()` with no args, so tests use class-level
+    state: `sent` (list of (to, content)) and `fail_for` (a set of addresses
+    whose send raises)."""
+
+    sent: list[tuple[str, object]] = []
+    fail_for: set[str] = set()
+
+    def send(self, to, content):
+        if to in type(self).fail_for:
+            raise RuntimeError(f"send failed for {to}")
+        type(self).sent.append((to, content))
+
+
 @pytest.fixture(autouse=True)
-def _reset_fake_summarizer():
+def _reset_fakes():
     FakeSummarizer.fail_titles = set()
+    FakeEmailSender.sent = []
+    FakeEmailSender.fail_for = set()
     yield
     FakeSummarizer.fail_titles = set()
+    FakeEmailSender.sent = []
+    FakeEmailSender.fail_for = set()
 
 
 @pytest_asyncio.fixture
 async def temporal_client(monkeypatch):
     monkeypatch.setattr(temporal_activities, "Summarizer", FakeSummarizer)
+    monkeypatch.setattr(temporal_activities, "EmailSender", FakeEmailSender)
     async with await WorkflowEnvironment.start_time_skipping() as env:
         with ThreadPoolExecutor(max_workers=8) as pool:
             async with Worker(
                 env.client,
                 task_queue=TASK_QUEUE,
-                workflows=[DigestWorkflow, RunAllTopicDigestsWorkflow],
+                workflows=[DigestWorkflow, RunAllTopicDigestsWorkflow, SendDigestEmailsWorkflow],
                 activities=ALL_ACTIVITIES,
                 activity_executor=pool,
                 workflow_runner=WORKFLOW_RUNNER,
@@ -258,6 +288,140 @@ async def test_run_all_topic_digests_with_no_topics_returns_zero(db_session, tem
     assert db_session.query(models.Digest).count() == 0
 
 
+# ---------- SendDigestEmailsWorkflow ----------
+def _make_subscription(db_session, topic, email, *, cadence="weekly", last_sent_at=None):
+    sub = crud.create_subscription(db_session, topic.id, email, models.SubscriptionCadence(cadence))
+    if last_sent_at is not None:
+        sub.last_sent_at = last_sent_at
+        db_session.commit()
+        db_session.refresh(sub)
+    return sub
+
+
+def _make_completed_digest(db_session, topic, *, generated_at, papers=()):
+    digest = models.Digest(
+        topic_id=topic.id,
+        status=models.DigestStatus.completed,
+        overview="Overview.",
+        generated_at=generated_at,
+    )
+    db_session.add(digest)
+    db_session.commit()
+    for title, summary in papers:
+        paper = models.Paper(arxiv_id=title, title=title, summary=summary)
+        db_session.add(paper)
+        db_session.commit()
+        digest.papers.append(paper)
+    db_session.commit()
+    return digest
+
+
+async def _run_send_emails(client, run_id: str) -> int:
+    return await client.execute_workflow(
+        SendDigestEmailsWorkflow.run, id=run_id, task_queue=TASK_QUEUE
+    )
+
+
+async def test_send_digest_emails_delivers_to_due_subscription(db_session, temporal_client):
+    topic = _make_topic(db_session)
+    eight_days_ago = datetime.now(timezone.utc) - timedelta(days=8)
+    sub = _make_subscription(db_session, topic, "reader@example.com", last_sent_at=eight_days_ago)
+    _make_completed_digest(
+        db_session, topic, generated_at=eight_days_ago + timedelta(hours=1),
+        papers=[("Paper One", "Summary one.")],
+    )
+
+    count = await _run_send_emails(temporal_client, "send-1")
+
+    assert count == 1
+    assert len(FakeEmailSender.sent) == 1
+    to, content = FakeEmailSender.sent[0]
+    assert to == "reader@example.com"
+    assert "Paper One" in content.text_body
+    assert "Summary one." in content.text_body
+
+    db_session.expire_all()
+    refreshed = db_session.get(models.Subscription, sub.id)
+    assert refreshed.last_sent_at > eight_days_ago
+
+
+async def test_send_digest_emails_skips_not_yet_due_subscription(db_session, temporal_client):
+    topic = _make_topic(db_session)
+    just_sent = datetime.now(timezone.utc) - timedelta(days=1)
+    _make_subscription(db_session, topic, "reader@example.com", last_sent_at=just_sent)
+    _make_completed_digest(db_session, topic, generated_at=just_sent, papers=[("P", "S")])
+
+    count = await _run_send_emails(temporal_client, "send-2")
+
+    assert count == 0
+    assert FakeEmailSender.sent == []
+
+
+async def test_send_digest_emails_skips_and_preserves_watermark_when_nothing_new(
+    db_session, temporal_client
+):
+    topic = _make_topic(db_session)
+    eight_days_ago = datetime.now(timezone.utc) - timedelta(days=8)
+    sub = _make_subscription(db_session, topic, "reader@example.com", last_sent_at=eight_days_ago)
+    # no completed digest since eight_days_ago
+
+    count = await _run_send_emails(temporal_client, "send-3")
+
+    assert count == 0
+    assert FakeEmailSender.sent == []
+    db_session.expire_all()
+    refreshed = db_session.get(models.Subscription, sub.id)
+    assert refreshed.last_sent_at == eight_days_ago  # untouched - not silently reset
+
+
+async def test_send_digest_emails_respects_weekly_vs_biweekly_cadence(db_session, temporal_client):
+    topic = _make_topic(db_session)
+    eight_days_ago = datetime.now(timezone.utc) - timedelta(days=8)
+    _make_subscription(
+        db_session, topic, "weekly@example.com", cadence="weekly", last_sent_at=eight_days_ago
+    )
+    _make_subscription(
+        db_session, topic, "biweekly@example.com", cadence="biweekly", last_sent_at=eight_days_ago
+    )
+    _make_completed_digest(
+        db_session, topic, generated_at=eight_days_ago + timedelta(hours=1),
+        papers=[("Paper One", "Summary one.")],
+    )
+
+    count = await _run_send_emails(temporal_client, "send-4")
+
+    assert count == 1
+    sent_to = {to for to, _ in FakeEmailSender.sent}
+    assert sent_to == {"weekly@example.com"}  # biweekly isn't due for another 6 days
+
+
+async def test_send_digest_emails_tolerates_one_subscriber_failing(db_session, temporal_client):
+    topic = _make_topic(db_session)
+    eight_days_ago = datetime.now(timezone.utc) - timedelta(days=8)
+    ok_sub = _make_subscription(db_session, topic, "ok@example.com", last_sent_at=eight_days_ago)
+    bad_sub = _make_subscription(db_session, topic, "bad@example.com", last_sent_at=eight_days_ago)
+    _make_completed_digest(
+        db_session, topic, generated_at=eight_days_ago + timedelta(hours=1),
+        papers=[("Paper One", "Summary one.")],
+    )
+    FakeEmailSender.fail_for = {"bad@example.com"}
+
+    count = await _run_send_emails(temporal_client, "send-5")
+
+    assert count == 1  # only the successful one counted
+    assert {to for to, _ in FakeEmailSender.sent} == {"ok@example.com"}
+
+    db_session.expire_all()
+    assert db_session.get(models.Subscription, ok_sub.id).last_sent_at > eight_days_ago
+    assert db_session.get(models.Subscription, bad_sub.id).last_sent_at == eight_days_ago
+
+
+async def test_send_digest_emails_with_nothing_due_returns_zero(db_session, temporal_client):
+    count = await _run_send_emails(temporal_client, "send-6")
+    assert count == 0
+    assert FakeEmailSender.sent == []
+
+
 # ---------- schedule + status-literal drift guard ----------
 def test_digest_status_literals_match_the_model_enum():
     from app.temporal import types
@@ -289,3 +453,21 @@ async def test_ensure_daily_schedule_is_idempotent(temporal_env_only):
     [calendar] = desc.schedule.spec.calendars
     assert calendar.hour[0].start == 6
     assert desc.schedule.action.workflow == "RunAllTopicDigestsWorkflow"
+
+
+async def test_ensure_weekly_email_schedule_is_idempotent(temporal_env_only):
+    from app.temporal.schedule import EMAIL_SCHEDULE_ID, ensure_weekly_email_schedule
+
+    client = temporal_env_only.client
+    created_first = await ensure_weekly_email_schedule(client)
+    created_second = await ensure_weekly_email_schedule(client)
+
+    assert created_first is True
+    assert created_second is False
+
+    handle = client.get_schedule_handle(EMAIL_SCHEDULE_ID)
+    desc = await handle.describe()
+    [calendar] = desc.schedule.spec.calendars
+    assert calendar.hour[0].start == 8
+    assert calendar.day_of_week[0].start == 1  # Monday
+    assert desc.schedule.action.workflow == "SendDigestEmailsWorkflow"

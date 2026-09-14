@@ -36,6 +36,19 @@ services:
       retries: 10
       start_period: 15s
 
+  mailpit:
+    image: axllent/mailpit:latest
+    # Local SMTP catcher: emails sent by the app land here, not in a real
+    # inbox, until SMTP_HOST/PORT are deliberately pointed at a real relay.
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI: http://localhost:8025
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8025/api/v1/info"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   api:
     build: .
     depends_on:
@@ -43,10 +56,15 @@ services:
         condition: service_healthy
       temporal:
         condition: service_healthy
+      mailpit:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg2://digest_user:digest_pass@db:5432/digest_db
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       TEMPORAL_ADDRESS: temporal:7233
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_FROM_ADDRESS: digest@example.com
     ports:
       - "8000:8000"
     volumes:
@@ -60,10 +78,15 @@ services:
         condition: service_healthy
       temporal:
         condition: service_healthy
+      mailpit:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg2://digest_user:digest_pass@db:5432/digest_db
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       TEMPORAL_ADDRESS: temporal:7233
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_FROM_ADDRESS: digest@example.com
     volumes:
       - .:/code
     command: python -m app.worker

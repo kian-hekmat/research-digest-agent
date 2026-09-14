@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     temporal_namespace: str = "default"
     temporal_task_queue: str = "digest-task-queue"
 
+    # --- email delivery (SMTP) ---
+    smtp_host: str = "localhost"
+    smtp_port: int = 1025  # Mailpit's default SMTP port locally
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_use_tls: bool = False
+    smtp_from_address: str = "digest@example.com"
+
 
 @lru_cache
 def get_settings() -> Settings:

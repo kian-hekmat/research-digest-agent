@@ -1,8 +1,9 @@
 import enum
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import (
+    Boolean,
     Column,
     String,
     Text,
@@ -10,6 +11,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Table,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -32,6 +34,23 @@ class DigestStatus(str, enum.Enum):
     pending = "pending"
     completed = "completed"
     failed = "failed"
+
+
+class SubscriptionCadence(str, enum.Enum):
+    """How often a subscriber gets an emailed roundup of a topic's digests."""
+
+    weekly = "weekly"
+    biweekly = "biweekly"
+
+
+# How far apart two emails to the same subscription should be. Cron has no
+# native "every other week" primitive, so the send schedule fires weekly and
+# each subscription's own cadence decides whether it's actually due - see
+# app.crud.list_due_subscriptions.
+CADENCE_INTERVALS: dict[SubscriptionCadence, timedelta] = {
+    SubscriptionCadence.weekly: timedelta(days=7),
+    SubscriptionCadence.biweekly: timedelta(days=14),
+}
 
 
 # Many-to-many: a paper can match several topics, a topic can match many papers.
@@ -100,6 +119,12 @@ class Topic(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    subscriptions = relationship(
+        "Subscription",
+        back_populates="topic",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class Paper(Base):
@@ -161,3 +186,42 @@ class Digest(Base):
     papers = relationship(
         "Paper", secondary=digest_paper_association, back_populates="digests"
     )
+
+
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+    __table_args__ = (
+        UniqueConstraint("topic_id", "email", name="uq_subscription_topic_email"),
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    topic_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("topics.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    email = Column(String, nullable=False)
+    cadence = Column(
+        Enum(SubscriptionCadence, name="subscription_cadence"),
+        nullable=False,
+        server_default=SubscriptionCadence.weekly.value,
+    )
+    active = Column(Boolean, nullable=False, server_default="true")
+    # High-water mark for delivery (mirrors Topic.last_checked_at): set to
+    # "now" at creation, so a new subscriber's first email lands on their
+    # first cadence boundary rather than dumping a historical backlog.
+    last_sent_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=utcnow,
+    )
+
+    topic = relationship("Topic", back_populates="subscriptions")

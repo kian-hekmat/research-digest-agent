@@ -1,9 +1,9 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.models import DigestStatus
+from app.models import DigestStatus, SubscriptionCadence
 
 
 # ---------- Topic ----------
@@ -45,3 +45,21 @@ class DigestOut(BaseModel):
     overview: Optional[str] = None
     error: Optional[str] = None
     papers: list[PaperOut] = []
+
+
+# ---------- Subscription ----------
+class SubscriptionCreate(BaseModel):
+    email: EmailStr
+    cadence: SubscriptionCadence = SubscriptionCadence.weekly
+
+
+class SubscriptionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    topic_id: str
+    email: str
+    cadence: SubscriptionCadence
+    active: bool
+    last_sent_at: datetime
+    created_at: datetime

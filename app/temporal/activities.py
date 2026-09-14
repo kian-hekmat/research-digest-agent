@@ -9,20 +9,28 @@ stay itself free of I/O.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from app import crud, models
 from app.database import SessionLocal
 from app.services.arxiv import search_arxiv
+from app.services.email import DigestForEmail, EmailSender, PaperForEmail, render_digest_email
 from app.services.summarize import Summarizer
 from app.temporal.types import (
     AdvanceWatermarkInput,
     DigestContext,
+    DigestEmailContent,
+    DueSubscription,
     FinalizeDigestInput,
+    GatherContentInput,
     IngestedPaper,
     IngestPapersInput,
+    MarkSentInput,
     PaperResult,
+    SendEmailInput,
     SummarizePaperInput,
     WriteOverviewInput,
 )
@@ -170,5 +178,67 @@ def advance_watermark(input: AdvanceWatermarkInput) -> None:
         topic = db.get(models.Topic, input.topic_id)
         if topic is not None:
             crud.advance_topic_watermark(db, topic, input.checked_at)
+    finally:
+        db.close()
+
+
+# ---------- email delivery ----------
+@activity.defn
+def list_due_subscriptions() -> list[DueSubscription]:
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        subs = crud.list_due_subscriptions(db, now)
+        return [
+            DueSubscription(
+                subscription_id=s.id,
+                topic_id=s.topic_id,
+                topic_name=s.topic.name,
+                email=s.email,
+                last_sent_at=s.last_sent_at,
+            )
+            for s in subs
+        ]
+    finally:
+        db.close()
+
+
+@activity.defn
+def gather_digest_content(input: GatherContentInput) -> DigestEmailContent | None:
+    """None means nothing completed since `since` - the workflow skips the
+    send and leaves the subscription's watermark untouched."""
+    db = SessionLocal()
+    try:
+        digests = crud.list_completed_digests_since(db, input.topic_id, input.since)
+        if not digests:
+            return None
+        batches = [
+            DigestForEmail(
+                generated_at=d.generated_at,
+                overview=d.overview,
+                papers=[
+                    PaperForEmail(title=p.title, summary=p.summary, arxiv_id=p.arxiv_id)
+                    for p in d.papers
+                ],
+            )
+            for d in digests
+        ]
+        return render_digest_email(input.topic_name, batches)
+    finally:
+        db.close()
+
+
+@activity.defn
+def send_digest_email(input: SendEmailInput) -> None:
+    EmailSender().send(input.email, input.content)
+
+
+@activity.defn
+def mark_subscription_sent(input: MarkSentInput) -> None:
+    db = SessionLocal()
+    try:
+        sub = db.get(models.Subscription, input.subscription_id)
+        if sub is not None:
+            crud.mark_subscription_sent(db, sub, input.sent_at)
     finally:
         db.close()
