@@ -32,7 +32,7 @@ ATOM = """<?xml version="1.0" encoding="UTF-8"?>
 
 @respx.mock
 def test_search_arxiv_parses_atom():
-    respx.get("http://export.arxiv.org/api/query").mock(
+    respx.get("https://export.arxiv.org/api/query").mock(
         return_value=httpx.Response(200, text=ATOM)
     )
 
@@ -46,7 +46,7 @@ def test_search_arxiv_parses_atom():
 
 @respx.mock
 def test_search_arxiv_since_filter_drops_older_entries():
-    respx.get("http://export.arxiv.org/api/query").mock(
+    respx.get("https://export.arxiv.org/api/query").mock(
         return_value=httpx.Response(200, text=ATOM)
     )
 
@@ -58,7 +58,7 @@ def test_search_arxiv_since_filter_drops_older_entries():
 
 @respx.mock
 def test_search_arxiv_raises_on_http_error():
-    respx.get("http://export.arxiv.org/api/query").mock(
+    respx.get("https://export.arxiv.org/api/query").mock(
         return_value=httpx.Response(503)
     )
 

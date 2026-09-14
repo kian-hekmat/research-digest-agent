@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     overview_model: str = "claude-sonnet-5"  # one synthesis call per digest
 
     # --- arXiv ingestion ---
-    arxiv_api_url: str = "http://export.arxiv.org/api/query"
+    arxiv_api_url: str = "https://export.arxiv.org/api/query"
     arxiv_max_results: int = 25
     arxiv_page_delay: float = 3.0  # arXiv asks clients to space requests out
 

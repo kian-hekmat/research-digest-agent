@@ -86,7 +86,7 @@ def search_arxiv(
     _throttle(delay)
 
     owns_client = client is None
-    client = client or httpx.Client(timeout=30.0)
+    client = client or httpx.Client(timeout=30.0, follow_redirects=True)
     try:
         resp = client.get(settings.arxiv_api_url, params=params)
         resp.raise_for_status()
