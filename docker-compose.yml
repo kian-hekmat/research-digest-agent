@@ -15,19 +15,58 @@ services:
       timeout: 5s
       retries: 5
 
+  temporal:
+    image: temporalio/admin-tools:latest
+    # In-memory persistence: fine for local dev (mirrors not persisting
+    # anything else here either). digest_db is the durable state; workflow
+    # history resets with the container, and the worker recreates the daily
+    # schedule idempotently on its next startup either way.
+    command: >
+      temporal server start-dev
+      --ip 0.0.0.0
+      --port 7233
+      --ui-port 8233
+    ports:
+      - "7233:7233"   # gRPC frontend (SDK/worker connects here)
+      - "8233:8233"   # Web UI: http://localhost:8233
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "localhost:7233"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
   api:
     build: .
     depends_on:
       db:
         condition: service_healthy
+      temporal:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg2://digest_user:digest_pass@db:5432/digest_db
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      TEMPORAL_ADDRESS: temporal:7233
     ports:
       - "8000:8000"
     volumes:
       - .:/code
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://digest_user:digest_pass@db:5432/digest_db
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      TEMPORAL_ADDRESS: temporal:7233
+    volumes:
+      - .:/code
+    command: python -m app.worker
 
 volumes:
   digest_pg_data:

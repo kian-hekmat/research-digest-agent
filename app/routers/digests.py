@@ -1,64 +1,43 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from temporalio.client import Client
 
 from app import crud, schemas
-from app.database import get_db, get_session_factory
-from app.services.arxiv import search_arxiv
-from app.services.digest import run_digest
-from app.services.summarize import Summarizer
+from app.config import get_settings
+from app.database import get_db
+from app.temporal.client import get_temporal_client
+from app.temporal.workflows import DigestWorkflow
 
 router = APIRouter(prefix="/digests", tags=["digests"])
 
 
-def get_arxiv_fetcher():
-    """Injectable so tests can supply a fake instead of hitting arXiv."""
-    return search_arxiv
-
-
-def get_summarizer() -> Summarizer:
-    """Injectable so tests can supply a fake instead of calling Anthropic."""
-    return Summarizer()
-
-
-def _run_digest_task(digest_id: str, session_factory, *, fetcher, summarizer) -> None:
-    """Background entrypoint: owns its own DB session (the request's is long gone
-    by the time this runs)."""
-    db = session_factory()
-    try:
-        run_digest(db, digest_id, fetcher=fetcher, summarizer=summarizer)
-    finally:
-        db.close()
-
-
 @router.post("/{topic_id}", response_model=schemas.DigestOut, status_code=201)
-def trigger_digest(
+async def trigger_digest(
     topic_id: str,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    session_factory=Depends(get_session_factory),
-    fetcher=Depends(get_arxiv_fetcher),
-    summarizer: Summarizer = Depends(get_summarizer),
+    temporal_client: Client = Depends(get_temporal_client),
 ):
     """Kick off a digest for a topic.
 
-    Returns immediately with a `pending` digest; a background task fetches new
-    arXiv papers, summarizes them, writes the overview, and flips the digest to
-    `completed` (or `failed` if the arXiv fetch errors).
+    Creates a `pending` digest and starts a `DigestWorkflow` for it on
+    Temporal, then returns immediately. Poll `GET /digests/{digest_id}` for
+    the result. The workflow id is `digest-{digest_id}`, so re-POSTing for a
+    digest that's already running (shouldn't normally happen - each call makes
+    a fresh digest) can't start a second run of it.
 
-    Phase 3: the background task becomes a Temporal workflow on a daily schedule,
-    with retry policies on the external calls.
+    The same `DigestWorkflow` also runs as a child workflow from the daily
+    schedule (`app.temporal.schedule`), fanned out per topic.
     """
     topic = crud.get_topic(db, topic_id)
     if topic is None:
         raise HTTPException(status_code=404, detail="Topic not found")
 
     digest = crud.create_digest(db, topic_id)
-    background_tasks.add_task(
-        _run_digest_task,
+    await temporal_client.start_workflow(
+        DigestWorkflow.run,
         digest.id,
-        session_factory,
-        fetcher=fetcher,
-        summarizer=summarizer,
+        id=f"digest-{digest.id}",
+        task_queue=get_settings().temporal_task_queue,
     )
     return digest
 

@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     arxiv_max_results: int = 25
     arxiv_page_delay: float = 3.0  # arXiv asks clients to space requests out
 
+    # --- Temporal ---
+    temporal_address: str = "localhost:7233"
+    temporal_namespace: str = "default"
+    temporal_task_queue: str = "digest-task-queue"
+
 
 @lru_cache
 def get_settings() -> Settings:

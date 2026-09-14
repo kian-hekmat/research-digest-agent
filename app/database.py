@@ -13,15 +13,14 @@ Base = declarative_base()
 
 
 def get_db():
-    """FastAPI dependency: yields a request-scoped DB session, always closed."""
+    """FastAPI dependency: yields a request-scoped DB session, always closed.
+
+    Temporal Activities (app/temporal/activities.py) don't go through this -
+    they're not part of a request, so each opens its own SessionLocal()
+    directly and closes it when done.
+    """
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
-
-
-def get_session_factory():
-    """FastAPI dependency: the session factory to use for work that outlives the
-    request (background tasks own their session). Overridable in tests."""
-    return SessionLocal

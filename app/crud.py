@@ -39,6 +39,12 @@ def list_topics(db: Session, skip: int = 0, limit: int = 50) -> list[models.Topi
     return db.query(models.Topic).offset(skip).limit(limit).all()
 
 
+def list_topic_ids(db: Session) -> list[str]:
+    """Every topic id, unpaginated - for the scheduled fan-out, which needs
+    all of them, not a page."""
+    return [row.id for row in db.query(models.Topic.id).all()]
+
+
 def delete_topic(db: Session, topic_id: str) -> bool:
     db_topic = get_topic(db, topic_id)
     if db_topic is None:
