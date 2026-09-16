@@ -58,6 +58,20 @@ def _parse_entry(entry) -> ArxivResult:
     )
 
 
+def _build_search_query(query: str) -> str:
+    """Wrap a free-text topic query as an exact-phrase search against arXiv's
+    `all:` field.
+
+    Sent unquoted, a multi-word query is tokenized and matched per-word -
+    effectively OR'd - so e.g. "reinforcement learning from human feedback"
+    pulls back any paper containing just "human" or "learning", with no floor
+    on relevance, sorted purely by date. Quoting the phrase requires it to
+    appear verbatim, which is what a topic name like that actually means.
+    """
+    phrase = query.strip().strip('"')
+    return f'all:"{phrase}"'
+
+
 def search_arxiv(
     query: str,
     max_results: int | None = None,
@@ -76,7 +90,7 @@ def search_arxiv(
     delay = settings.arxiv_page_delay if delay is None else delay
 
     params = {
-        "search_query": f"all:{query}",
+        "search_query": _build_search_query(query),
         "sortBy": "submittedDate",
         "sortOrder": "descending",
         "start": 0,
