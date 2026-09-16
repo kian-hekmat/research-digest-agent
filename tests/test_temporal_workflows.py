@@ -222,6 +222,35 @@ async def test_digest_workflow_tolerates_partial_summary_failure(
     assert refreshed.overview == "Overview of RLHF: 1 papers."
 
 
+async def test_digest_workflow_without_api_key_completes_with_no_summaries(
+    db_session, temporal_client, monkeypatch
+):
+    """Uses the REAL Summarizer (undoing the fixture's FakeSummarizer patch) to
+    prove the no-key path end-to-end: the test environment has no
+    ANTHROPIC_API_KEY set, so this exercises Summarizer's actual short-circuit,
+    not a stand-in for it."""
+    from app.services.summarize import Summarizer as RealSummarizer
+
+    monkeypatch.setattr(temporal_activities, "Summarizer", RealSummarizer)
+    monkeypatch.setattr(
+        temporal_activities,
+        "search_arxiv",
+        lambda query, since=None: [make_result("2408.0001", "Paper One")],
+    )
+    topic = _make_topic(db_session)
+    digest = crud.create_digest(db_session, topic.id)
+
+    await _run_digest(temporal_client, digest.id)
+
+    db_session.expire_all()
+    refreshed = db_session.get(models.Digest, digest.id)
+    assert refreshed.status == models.DigestStatus.completed
+    assert refreshed.error is None  # not a failure - deliberately disabled
+    assert refreshed.overview is None
+    assert refreshed.papers[0].summary is None
+    assert db_session.get(models.Topic, topic.id).last_checked_at is not None
+
+
 async def test_digest_workflow_rerun_dedupes_and_passes_watermark(
     db_session, temporal_client, monkeypatch
 ):

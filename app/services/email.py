@@ -34,12 +34,23 @@ class DigestForEmail:
     papers: list[PaperForEmail]
 
 
-def render_digest_email(topic_name: str, digests: list[DigestForEmail]) -> DigestEmailContent:
+def render_digest_email(
+    topic_name: str, digests: list[DigestForEmail], *, summaries_enabled: bool = True
+) -> DigestEmailContent:
     total_papers = sum(len(d.papers) for d in digests)
     subject = f"{topic_name}: {total_papers} new paper{'' if total_papers == 1 else 's'}"
 
     text_lines = [f"Your {topic_name} digest", ""]
     html_parts = [f"<h1>{topic_name}</h1>"]
+
+    if not summaries_enabled:
+        note = (
+            "AI-written summaries are currently disabled for this digest - "
+            "set ANTHROPIC_API_KEY to enable them."
+        )
+        text_lines.append(note)
+        text_lines.append("")
+        html_parts.append(f"<p><em>{note}</em></p>")
 
     for digest in digests:
         day = digest.generated_at.strftime("%B %-d, %Y")

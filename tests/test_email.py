@@ -32,7 +32,16 @@ class FakeSMTPClient:
 # ---------- EmailSender ----------
 def test_email_sender_sends_via_the_smtp_client():
     fake = FakeSMTPClient()
-    settings = Settings(smtp_from_address="digest@example.com")
+    # Pin every field this test asserts on explicitly - Settings reads a local
+    # .env for anything omitted, so relying on the class-level default here
+    # would make the test's outcome (and, worse, any assertion-failure message)
+    # depend on - and potentially print - the developer's real SMTP credentials.
+    settings = Settings(
+        smtp_from_address="digest@example.com",
+        smtp_use_tls=False,
+        smtp_username="",
+        smtp_password="",
+    )
     sender = EmailSender(settings=settings, smtp_client_factory=lambda: fake)
     content = DigestEmailContent(subject="Subj", text_body="a plain text body", html_body="<p>html</p>")
 
@@ -104,6 +113,37 @@ def test_render_digest_email_singular_paper_count_in_subject():
     content = render_digest_email("RLHF", digests)
 
     assert content.subject == "RLHF: 1 new paper"
+
+
+def test_render_digest_email_notes_when_summaries_are_disabled():
+    digests = [
+        DigestForEmail(
+            generated_at=datetime(2024, 8, 1, tzinfo=timezone.utc),
+            overview=None,
+            papers=[PaperForEmail(title="A Paper", summary=None, arxiv_id="2408.0001")],
+        )
+    ]
+
+    content = render_digest_email("RLHF", digests, summaries_enabled=False)
+
+    assert "ANTHROPIC_API_KEY" in content.text_body
+    assert "ANTHROPIC_API_KEY" in content.html_body
+    assert "A Paper" in content.text_body  # still lists papers, just no summary text
+
+
+def test_render_digest_email_omits_the_note_by_default():
+    digests = [
+        DigestForEmail(
+            generated_at=datetime(2024, 8, 1, tzinfo=timezone.utc),
+            overview=None,
+            papers=[PaperForEmail(title="A Paper", summary="A summary.", arxiv_id="2408.0001")],
+        )
+    ]
+
+    content = render_digest_email("RLHF", digests)  # summaries_enabled defaults to True
+
+    assert "ANTHROPIC_API_KEY" not in content.text_body
+    assert "ANTHROPIC_API_KEY" not in content.html_body
 
 
 def test_render_digest_email_spans_multiple_days():

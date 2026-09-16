@@ -62,9 +62,12 @@ services:
       DATABASE_URL: postgresql+psycopg2://digest_user:digest_pass@db:5432/digest_db
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       TEMPORAL_ADDRESS: temporal:7233
-      SMTP_HOST: mailpit
-      SMTP_PORT: 1025
-      SMTP_FROM_ADDRESS: digest@example.com
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-false}
+      SMTP_FROM_ADDRESS: ${SMTP_FROM_ADDRESS:-digest@example.com}
     ports:
       - "8000:8000"
     volumes:
@@ -84,9 +87,12 @@ services:
       DATABASE_URL: postgresql+psycopg2://digest_user:digest_pass@db:5432/digest_db
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       TEMPORAL_ADDRESS: temporal:7233
-      SMTP_HOST: mailpit
-      SMTP_PORT: 1025
-      SMTP_FROM_ADDRESS: digest@example.com
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-false}
+      SMTP_FROM_ADDRESS: ${SMTP_FROM_ADDRESS:-digest@example.com}
     volumes:
       - .:/code
     command: python -m app.worker

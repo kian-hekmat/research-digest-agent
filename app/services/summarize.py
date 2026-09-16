@@ -3,12 +3,18 @@
 `Summarizer` wraps the client so it can be injected as a FastAPI dependency and
 faked in tests. The Anthropic client is created lazily: importing this module
 and constructing `Summarizer()` never touches the network or needs a key.
+
+Without a configured key (`Settings.summaries_enabled` is False), both methods
+return `None` immediately - no network call, no retry/backoff, no error. This
+is a deliberate, intentional "no-summary mode": digests and emails still work,
+just without AI-written text. Set `ANTHROPIC_API_KEY` and it reverses itself
+automatically, no code changes needed.
 """
 from __future__ import annotations
 
 from anthropic import Anthropic
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 
 _PER_PAPER_SYSTEM = (
     "You summarize academic paper abstracts for a research alerting digest. "
@@ -34,18 +40,21 @@ def _first_text(message) -> str:
 
 
 class Summarizer:
-    def __init__(self, client: Anthropic | None = None) -> None:
+    def __init__(self, client: Anthropic | None = None, settings: Settings | None = None) -> None:
         self._client = client
+        self._settings = settings or get_settings()
 
     @property
     def client(self) -> Anthropic:
         if self._client is None:
-            self._client = Anthropic(api_key=get_settings().anthropic_api_key)
+            self._client = Anthropic(api_key=self._settings.anthropic_api_key)
         return self._client
 
-    def summarize_paper(self, title: str, abstract: str) -> str:
+    def summarize_paper(self, title: str, abstract: str) -> str | None:
+        if not self._settings.summaries_enabled:
+            return None
         message = self.client.messages.create(
-            model=get_settings().summary_model,
+            model=self._settings.summary_model,
             max_tokens=400,
             system=_PER_PAPER_SYSTEM,
             messages=[
@@ -57,10 +66,12 @@ class Summarizer:
         )
         return _first_text(message)
 
-    def write_overview(self, topic_name: str, summaries: list[str]) -> str:
+    def write_overview(self, topic_name: str, summaries: list[str]) -> str | None:
+        if not self._settings.summaries_enabled:
+            return None
         joined = "\n\n".join(f"{i}. {s}" for i, s in enumerate(summaries, 1))
         message = self.client.messages.create(
-            model=get_settings().overview_model,
+            model=self._settings.overview_model,
             max_tokens=500,
             system=_OVERVIEW_SYSTEM,
             messages=[

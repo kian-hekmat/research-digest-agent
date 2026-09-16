@@ -5,6 +5,7 @@ import httpx
 import pytest
 import respx
 
+from app.config import Settings
 from app.services.arxiv import search_arxiv
 from app.services.summarize import Summarizer
 
@@ -85,7 +86,8 @@ class _FakeAnthropic:
 
 def test_summarize_paper_calls_summary_model():
     fake = _FakeAnthropic("A tight summary.")
-    out = Summarizer(client=fake).summarize_paper("Some Title", "Some abstract.")
+    settings = Settings(anthropic_api_key="test-key")
+    out = Summarizer(client=fake, settings=settings).summarize_paper("Some Title", "Some abstract.")
 
     assert out == "A tight summary."
     call = fake.messages.calls[0]
@@ -96,10 +98,33 @@ def test_summarize_paper_calls_summary_model():
 
 def test_write_overview_numbers_the_summaries():
     fake = _FakeAnthropic("Synthesized overview.")
-    out = Summarizer(client=fake).write_overview("RLHF", ["first point", "second point"])
+    settings = Settings(anthropic_api_key="test-key")
+    out = Summarizer(client=fake, settings=settings).write_overview(
+        "RLHF", ["first point", "second point"]
+    )
 
     assert out == "Synthesized overview."
     call = fake.messages.calls[0]
     assert call["model"] == "claude-sonnet-5"
     content = call["messages"][0]["content"]
     assert "1. first point" in content and "2. second point" in content
+
+
+def test_summarize_paper_returns_none_without_api_key():
+    fake = _FakeAnthropic("should never be seen")
+    settings = Settings(anthropic_api_key="")
+
+    out = Summarizer(client=fake, settings=settings).summarize_paper("Title", "Abstract")
+
+    assert out is None
+    assert fake.messages.calls == []  # no network call attempted
+
+
+def test_write_overview_returns_none_without_api_key():
+    fake = _FakeAnthropic("should never be seen")
+    settings = Settings(anthropic_api_key="")
+
+    out = Summarizer(client=fake, settings=settings).write_overview("RLHF", ["a summary"])
+
+    assert out is None
+    assert fake.messages.calls == []

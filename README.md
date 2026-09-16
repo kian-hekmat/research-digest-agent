@@ -57,6 +57,14 @@ retry policies on every external call, plus a daily schedule.
   email in Mailpit with correct subject/overview/paper content, the watermark
   advanced, and a second run correctly sent nothing (not yet due again)
 
+**No-summary mode (current default):** no `ANTHROPIC_API_KEY` is set, by choice —
+API access is billed separately from a claude.ai subscription. `Summarizer`
+detects this (`Settings.summaries_enabled`) and returns `None` immediately, no
+network call, no retry/backoff, no error — digests and emails work normally,
+just without AI-written text; the email body says so explicitly rather than
+looking broken. Set a real key (env var only, no code changes) and it reverses
+itself the next run. See [How to add a real Anthropic key later](#how-to-add-a-real-anthropic-key-later).
+
 ## Architecture
 
 ```
@@ -149,10 +157,26 @@ Subscribe via `POST /topics/{topic_id}/subscriptions` (`{"email": "...", "cadenc
 path; unsubscribe with `DELETE /subscriptions/{id}`.
 
 Configuration (`app/config.py`, env-driven — see `.env.example`): `ANTHROPIC_API_KEY`
-(required for real runs), `SUMMARY_MODEL`, `OVERVIEW_MODEL`, `ARXIV_MAX_RESULTS`,
+(optional — see below), `SUMMARY_MODEL`, `OVERVIEW_MODEL`, `ARXIV_MAX_RESULTS`,
 `ARXIV_PAGE_DELAY`, `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`, `TEMPORAL_TASK_QUEUE`,
 `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`,
 `SMTP_FROM_ADDRESS`.
+
+## How to add a real Anthropic key later
+
+The Anthropic API is billed separately from a claude.ai subscription (pay-per-token,
+its own account at console.anthropic.com) — this project deliberately runs without
+one until you decide that's worth it. Nothing else needs to change:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...    # or add it to a .env file, no quotes
+docker-compose up -d --build worker api
+```
+
+The next digest run calls Anthropic for real; no flag, no migration, no code
+change. To go back to no-summary mode, unset it (or just don't set it) and
+rebuild — `Summarizer` re-checks `Settings.summaries_enabled` on every call, it
+doesn't cache the decision at startup.
 
 ## Running locally
 

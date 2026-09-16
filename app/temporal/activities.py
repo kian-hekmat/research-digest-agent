@@ -15,6 +15,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from app import crud, models
+from app.config import get_settings
 from app.database import SessionLocal
 from app.services.arxiv import search_arxiv
 from app.services.email import DigestForEmail, EmailSender, PaperForEmail, render_digest_email
@@ -133,9 +134,11 @@ def ingest_papers(input: IngestPapersInput) -> list[IngestedPaper]:
 
 
 @activity.defn
-def summarize_paper(input: SummarizePaperInput) -> str:
+def summarize_paper(input: SummarizePaperInput) -> str | None:
     """Summarize one paper and persist it immediately, so a later retry of a
-    *different* paper in the same run never redoes this one."""
+    *different* paper in the same run never redoes this one. Returns None
+    (persisted as no summary) when Summarizer is in no-key mode - not a
+    failure, so it's never counted as one in digest.error."""
     summary = Summarizer().summarize_paper(input.title, input.abstract or "")
     db = SessionLocal()
     try:
@@ -149,7 +152,7 @@ def summarize_paper(input: SummarizePaperInput) -> str:
 
 
 @activity.defn
-def write_overview(input: WriteOverviewInput) -> str:
+def write_overview(input: WriteOverviewInput) -> str | None:
     return Summarizer().write_overview(input.topic_name, input.summaries)
 
 
@@ -223,7 +226,9 @@ def gather_digest_content(input: GatherContentInput) -> DigestEmailContent | Non
             )
             for d in digests
         ]
-        return render_digest_email(input.topic_name, batches)
+        return render_digest_email(
+            input.topic_name, batches, summaries_enabled=get_settings().summaries_enabled
+        )
     finally:
         db.close()
 

@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     summary_model: str = "claude-haiku-4-5"  # per-paper summaries: short, high volume
     overview_model: str = "claude-sonnet-5"  # one synthesis call per digest
 
+    @property
+    def summaries_enabled(self) -> bool:
+        """Whether a real key is configured. Without one, Summarizer skips the
+        Anthropic call cleanly instead of failing/retrying - digests and emails
+        still work, just without AI-written summaries. Setting a real key here
+        (no code changes) turns summaries back on."""
+        return bool(self.anthropic_api_key)
+
     # --- arXiv ingestion ---
     arxiv_api_url: str = "https://export.arxiv.org/api/query"
     arxiv_max_results: int = 25
