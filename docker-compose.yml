@@ -17,18 +17,31 @@ services:
 
   temporal:
     image: temporalio/admin-tools:latest
-    # In-memory persistence: fine for local dev (mirrors not persisting
-    # anything else here either). digest_db is the durable state; workflow
-    # history resets with the container, and the worker recreates the daily
-    # schedule idempotently on its next startup either way.
+    # --db-filename persists Schedules (and their next-run bookkeeping) to the
+    # temporal_data volume, so a container restart - a laptop sleeping, colima
+    # stopping, `docker-compose down` - doesn't silently wipe and recreate the
+    # cron schedules from scratch. Without it, a restart resets each
+    # schedule's clock to "now", so any fire time that was supposed to happen
+    # while the container was down is lost with no error and no record - the
+    # worker's idempotent re-creation on startup only avoids a duplicate-
+    # schedule error, it doesn't restore what got missed. With persistence,
+    # Temporal's own catchup window (365d by default, unset here) means a
+    # schedule that comes back online after downtime fires its missed run
+    # immediately instead of waiting for the next cron time.
     command: >
       temporal server start-dev
       --ip 0.0.0.0
       --port 7233
       --ui-port 8233
+      --db-filename /home/temporal/temporal.db
     ports:
       - "7233:7233"   # gRPC frontend (SDK/worker connects here)
       - "8233:8233"   # Web UI: http://localhost:8233
+    volumes:
+      # /home/temporal is already owned by the image's non-root `temporal`
+      # user (uid 1000); a fresh named volume mounted elsewhere (e.g. /data)
+      # is created root-owned by Docker and the container can't write to it.
+      - temporal_data:/home/temporal
     healthcheck:
       test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "localhost:7233"]
       interval: 5s
@@ -99,3 +112,4 @@ services:
 
 volumes:
   digest_pg_data:
+  temporal_data:
