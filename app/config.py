@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     arxiv_api_url: str = "https://export.arxiv.org/api/query"
     arxiv_max_results: int = 25
     arxiv_page_delay: float = 3.0  # arXiv asks clients to space requests out
+    # A paper's `published` timestamp is its submission time, but it only
+    # appears in the API once announced - typically 1-3 days later (longer
+    # over weekends/holidays). Each fetch looks back this far past the topic's
+    # watermark so late-announced papers aren't dropped; already-ingested ones
+    # are skipped by arxiv_id.
+    arxiv_lookback_days: int = 7
 
     # --- Temporal ---
     temporal_address: str = "localhost:7233"

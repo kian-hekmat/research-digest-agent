@@ -57,6 +57,27 @@ def test_search_arxiv_since_filter_drops_older_entries():
     assert [r.arxiv_id for r in results] == ["2408.12345"]
 
 
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        ("reinforcement learning from human feedback", 'all:"reinforcement learning from human feedback"'),
+        ('"physics-informed neural networks"', 'all:"physics-informed neural networks"'),
+        # A field-prefixed query is sent as-is - how to track a whole category.
+        ("cat:math.NA", "cat:math.NA"),
+        ("  ti:transformer  ", "ti:transformer"),
+    ],
+)
+@respx.mock
+def test_search_arxiv_search_query(query, expected):
+    route = respx.get("https://export.arxiv.org/api/query").mock(
+        return_value=httpx.Response(200, text=ATOM)
+    )
+
+    search_arxiv(query, delay=0)
+
+    assert route.calls.last.request.url.params["search_query"] == expected
+
+
 @respx.mock
 def test_search_arxiv_raises_on_http_error():
     respx.get("https://export.arxiv.org/api/query").mock(

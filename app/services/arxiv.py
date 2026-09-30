@@ -17,6 +17,7 @@ import httpx
 from app.config import get_settings
 
 _VERSION_SUFFIX = re.compile(r"v\d+$")  # 2408.12345v2 -> 2408.12345 (stable dedupe key)
+_FIELD_PREFIX = re.compile(r"^(ti|au|abs|co|jr|cat|rn|id|all):")  # arXiv search fields
 _last_request_at = 0.0
 
 
@@ -67,8 +68,15 @@ def _build_search_query(query: str) -> str:
     pulls back any paper containing just "human" or "learning", with no floor
     on relevance, sorted purely by date. Quoting the phrase requires it to
     appear verbatim, which is what a topic name like that actually means.
+
+    A query that already starts with an arXiv field prefix (e.g.
+    `cat:math.NA`) is sent verbatim - that's the way to track a whole
+    category, whose papers rarely contain the category's name as a phrase.
     """
-    phrase = query.strip().strip('"')
+    query = query.strip()
+    if _FIELD_PREFIX.match(query):
+        return query
+    phrase = query.strip('"')
     return f'all:"{phrase}"'
 
 

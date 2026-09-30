@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Integer,
     Table,
     UniqueConstraint,
     func,
@@ -39,18 +40,28 @@ class DigestStatus(str, enum.Enum):
 class SubscriptionCadence(str, enum.Enum):
     """How often a subscriber gets an emailed roundup of a topic's digests."""
 
+    twice_weekly = "twice_weekly"
     weekly = "weekly"
     biweekly = "biweekly"
 
 
-# How far apart two emails to the same subscription should be. Cron has no
-# native "every other week" primitive, so the send schedule fires weekly and
-# each subscription's own cadence decides whether it's actually due - see
-# app.crud.list_due_subscriptions.
+# How far apart two emails to the same subscription should be. The send
+# schedule fires twice a week (Mon + Thu) and each subscription's own cadence
+# decides whether it's actually due - see app.crud.list_due_subscriptions.
+# twice_weekly's 3 days is the shorter Mon->Thu gap; Thu->Mon (4 days) clears
+# it trivially.
 CADENCE_INTERVALS: dict[SubscriptionCadence, timedelta] = {
+    SubscriptionCadence.twice_weekly: timedelta(days=3),
     SubscriptionCadence.weekly: timedelta(days=7),
     SubscriptionCadence.biweekly: timedelta(days=14),
 }
+
+# Slack subtracted from a cadence interval when judging due-ness. A send's
+# watermark is stamped a few seconds *after* the schedule fires, so the next
+# fire lands a few seconds *short* of a full interval - without slack, an exact
+# `>= 7 days` check would skip every other fire. It also absorbs a catch-up
+# fire at an odd hour (e.g. the laptop waking at 13:00 on a Monday).
+CADENCE_DUE_TOLERANCE = timedelta(hours=12)
 
 
 # Many-to-many: a paper can match several topics, a topic can match many papers.
@@ -205,9 +216,11 @@ class Subscription(Base):
     cadence = Column(
         Enum(SubscriptionCadence, name="subscription_cadence"),
         nullable=False,
-        server_default=SubscriptionCadence.weekly.value,
+        server_default=SubscriptionCadence.twice_weekly.value,
     )
     active = Column(Boolean, nullable=False, server_default="true")
+    # Cap on papers per topic in one email (newest first); NULL = no cap.
+    max_papers = Column(Integer, nullable=True)
     # High-water mark for delivery (mirrors Topic.last_checked_at): set to
     # "now" at creation, so a new subscriber's first email lands on their
     # first cadence boundary rather than dumping a historical backlog.

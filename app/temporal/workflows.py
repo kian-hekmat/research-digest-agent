@@ -236,10 +236,13 @@ class RunAllTopicDigestsWorkflow:
 class SendDigestEmailsWorkflow:
     """Scheduled entrypoint for email delivery (see app.temporal.schedule).
 
-    Fires weekly; each due subscription is judged individually against its own
-    cadence (weekly/biweekly) by `list_due_subscriptions`, since cron has no
-    native "every other week". Deliveries fan out concurrently, and one
-    subscriber's failure (or nothing-new skip) never blocks another's.
+    Fires twice a week; each subscription is judged individually against its
+    own cadence by `list_due_subscriptions`. A recipient's due subscriptions
+    are combined into ONE email with a section per topic, rather than one
+    email per topic. Deliveries to different recipients fan out concurrently,
+    and one recipient's failure (or nothing-new skip) never blocks another's.
+
+    Returns the number of emails sent.
     """
 
     @workflow.run
@@ -252,40 +255,59 @@ class SendDigestEmailsWorkflow:
         if not due:
             return 0
 
+        # dict preserves first-seen order, and `due` arrives oldest
+        # subscription first - so topics appear in the order subscribed.
+        by_recipient: dict[str, list[types.DueSubscription]] = {}
+        for sub in due:
+            by_recipient.setdefault(sub.email, []).append(sub)
+
         results = await asyncio.gather(
-            *[self._deliver(sub) for sub in due],
+            *[self._deliver(email, subs) for email, subs in by_recipient.items()],
             return_exceptions=True,
         )
         return sum(1 for r in results if r is True)
 
-    async def _deliver(self, sub: types.DueSubscription) -> bool:
-        content = await workflow.execute_activity(
+    async def _deliver(self, email: str, subs: list[types.DueSubscription]) -> bool:
+        gathered: types.GatheredContent | None = await workflow.execute_activity(
             activities.gather_digest_content,
             types.GatherContentInput(
-                topic_id=sub.topic_id,
-                topic_name=sub.topic_name,
-                since=sub.last_sent_at,
+                topics=[
+                    types.TopicWindow(
+                        subscription_id=s.subscription_id,
+                        topic_id=s.topic_id,
+                        topic_name=s.topic_name,
+                        since=s.last_sent_at,
+                        max_papers=s.max_papers,
+                    )
+                    for s in subs
+                ]
             ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=_DB_RETRY,
         )
-        if content is None:
-            return False  # nothing new since last send - leave the watermark alone
+        if gathered is None:
+            return False  # nothing new on any topic - leave every watermark alone
 
         sent_at = workflow.now()
         await workflow.execute_activity(
             activities.send_digest_email,
-            types.SendEmailInput(email=sub.email, content=content),
+            types.SendEmailInput(email=email, content=gathered.content),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=_EMAIL_RETRY,
         )
-        # Only advance the watermark on a confirmed send - a failed send (all
-        # _EMAIL_RETRY attempts exhausted) leaves it alone, so this subscriber
-        # is retried, with the same content, on the next scheduled run.
-        await workflow.execute_activity(
-            activities.mark_subscription_sent,
-            types.MarkSentInput(subscription_id=sub.subscription_id, sent_at=sent_at),
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=_DB_RETRY,
+        # Only advance watermarks on a confirmed send - a failed send (all
+        # _EMAIL_RETRY attempts exhausted) leaves them alone, so this recipient
+        # is retried, with the same content, on the next scheduled run. Topics
+        # that had nothing new weren't in the email, so theirs stay put too.
+        await asyncio.gather(
+            *[
+                workflow.execute_activity(
+                    activities.mark_subscription_sent,
+                    types.MarkSentInput(subscription_id=sub_id, sent_at=sent_at),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=_DB_RETRY,
+                )
+                for sub_id in gathered.subscription_ids
+            ]
         )
         return True

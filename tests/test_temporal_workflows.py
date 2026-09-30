@@ -251,17 +251,22 @@ async def test_digest_workflow_without_api_key_completes_with_no_summaries(
     assert db_session.get(models.Topic, topic.id).last_checked_at is not None
 
 
-async def test_digest_workflow_rerun_dedupes_and_passes_watermark(
+async def test_digest_workflow_rerun_skips_papers_the_topic_already_has(
     db_session, temporal_client, monkeypatch
 ):
+    """The lookback window means consecutive runs re-fetch overlapping
+    results; a paper already ingested for this topic must not land in the
+    next digest too (it'd be emailed twice)."""
     topic = _make_topic(db_session)
-    calls = []
 
-    def fetch(query, since=None):
-        calls.append(since)
-        return [make_result("2408.0001", "Paper One"), make_result("2408.0002", "Paper Two")]
-
-    monkeypatch.setattr(temporal_activities, "search_arxiv", fetch)
+    monkeypatch.setattr(
+        temporal_activities,
+        "search_arxiv",
+        lambda query, since=None: [
+            make_result("2408.0001", "Paper One"),
+            make_result("2408.0002", "Paper Two"),
+        ],
+    )
 
     first = crud.create_digest(db_session, topic.id)
     await _run_digest(temporal_client, first.id)
@@ -271,11 +276,107 @@ async def test_digest_workflow_rerun_dedupes_and_passes_watermark(
 
     db_session.expire_all()
     assert db_session.query(models.Paper).count() == 2  # deduped on arxiv_id
+    assert {p.title for p in db_session.get(models.Digest, first.id).papers} == {
+        "Paper One",
+        "Paper Two",
+    }
     second_refreshed = db_session.get(models.Digest, second.id)
-    assert {p.title for p in second_refreshed.papers} == {"Paper One", "Paper Two"}
+    assert second_refreshed.status == models.DigestStatus.completed
+    assert second_refreshed.papers == []
 
-    assert calls[0] is None  # first run: no watermark yet
-    assert calls[1] is not None  # second run: watermark from the first
+
+async def test_digest_workflow_rerun_still_ingests_a_new_paper_for_another_topic(
+    db_session, temporal_client, monkeypatch
+):
+    """The skip is per topic: a paper one topic already has is still new to
+    a different topic whose query matches it."""
+    rlhf = _make_topic(db_session, name="RLHF", query="rlhf")
+    other = _make_topic(db_session, name="Alignment", query="alignment")
+    monkeypatch.setattr(
+        temporal_activities, "search_arxiv", lambda query, since=None: [make_result("1", "Shared")]
+    )
+
+    await _run_digest(temporal_client, crud.create_digest(db_session, rlhf.id).id)
+    second = crud.create_digest(db_session, other.id)
+    await _run_digest(temporal_client, second.id)
+
+    db_session.expire_all()
+    assert [p.title for p in db_session.get(models.Digest, second.id).papers] == ["Shared"]
+
+
+async def test_digest_workflow_fetch_looks_back_past_the_watermark(
+    db_session, temporal_client, monkeypatch
+):
+    topic = _make_topic(db_session)
+    watermark = datetime(2026, 9, 27, 6, 0, tzinfo=timezone.utc)
+    topic.last_checked_at = watermark
+    db_session.commit()
+    calls = []
+
+    def fetch(query, since=None):
+        calls.append(since)
+        return []
+
+    monkeypatch.setattr(temporal_activities, "search_arxiv", fetch)
+
+    await _run_digest(temporal_client, crud.create_digest(db_session, topic.id).id)
+
+    assert calls == [watermark - timedelta(days=7)]
+
+
+async def test_digest_workflow_catches_a_paper_announced_after_the_watermark_passed_it(
+    db_session, temporal_client, monkeypatch
+):
+    """The bug behind two weeks of empty RLHF digests: a paper submitted at
+    05:03 isn't in the API until it's announced, a day or more later. The
+    06:00 run that day doesn't see it but moves the watermark to 06:00 - and
+    filtering strictly on `published > watermark`, every later run discarded
+    it forever. Goes through the real `search_arxiv` (only HTTP is faked), so
+    this exercises the actual `since` filter that dropped it."""
+    import httpx
+    import respx
+
+    from app.services.arxiv import search_arxiv as real_search_arxiv
+
+    now = datetime.now(timezone.utc)
+    submitted = now - timedelta(days=2)
+    entry = f"""<entry>
+      <id>http://arxiv.org/abs/2609.33221v1</id>
+      <published>{submitted:%Y-%m-%dT%H:%M:%SZ}</published>
+      <title>RMB: Reward Model Boosting Mitigates Reward Hacking</title>
+      <summary>...</summary>
+    </entry>"""
+    feed = '<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">{}</feed>'
+    announced = {"yet": False}
+
+    monkeypatch.setattr(
+        temporal_activities,
+        "search_arxiv",
+        lambda query, since=None: real_search_arxiv(query, since=since, delay=0),
+    )
+    topic = _make_topic(db_session)
+    topic.last_checked_at = now - timedelta(days=3)
+    db_session.commit()
+
+    with respx.mock:
+        respx.get("https://export.arxiv.org/api/query").mock(
+            side_effect=lambda request: httpx.Response(
+                200, text=feed.format(entry if announced["yet"] else "")
+            )
+        )
+
+        # Run before announcement: sees nothing, moves the watermark past it.
+        await _run_digest(temporal_client, crud.create_digest(db_session, topic.id).id)
+        db_session.expire_all()
+        assert db_session.get(models.Topic, topic.id).last_checked_at > submitted
+
+        # Now announced; the next run must still pick it up.
+        announced["yet"] = True
+        later = crud.create_digest(db_session, topic.id)
+        await _run_digest(temporal_client, later.id)
+
+    db_session.expire_all()
+    assert [p.arxiv_id for p in db_session.get(models.Digest, later.id).papers] == ["2609.33221"]
 
 
 # ---------- RunAllTopicDigestsWorkflow ----------
@@ -318,8 +419,12 @@ async def test_run_all_topic_digests_with_no_topics_returns_zero(db_session, tem
 
 
 # ---------- SendDigestEmailsWorkflow ----------
-def _make_subscription(db_session, topic, email, *, cadence="weekly", last_sent_at=None):
-    sub = crud.create_subscription(db_session, topic.id, email, models.SubscriptionCadence(cadence))
+def _make_subscription(
+    db_session, topic, email, *, cadence="weekly", last_sent_at=None, max_papers=None
+):
+    sub = crud.create_subscription(
+        db_session, topic.id, email, models.SubscriptionCadence(cadence), max_papers
+    )
     if last_sent_at is not None:
         sub.last_sent_at = last_sent_at
         db_session.commit()
@@ -327,7 +432,7 @@ def _make_subscription(db_session, topic, email, *, cadence="weekly", last_sent_
     return sub
 
 
-def _make_completed_digest(db_session, topic, *, generated_at, papers=()):
+def _make_completed_digest(db_session, topic, *, generated_at, papers=(), published_at=None):
     digest = models.Digest(
         topic_id=topic.id,
         status=models.DigestStatus.completed,
@@ -336,8 +441,14 @@ def _make_completed_digest(db_session, topic, *, generated_at, papers=()):
     )
     db_session.add(digest)
     db_session.commit()
-    for title, summary in papers:
-        paper = models.Paper(arxiv_id=title, title=title, summary=summary)
+    for i, (title, summary) in enumerate(papers):
+        paper = models.Paper(
+            arxiv_id=title,
+            title=title,
+            summary=summary,
+            # Distinct, descending submission times so "newest N" is well defined.
+            published_at=(published_at or generated_at) - timedelta(minutes=i),
+        )
         db_session.add(paper)
         db_session.commit()
         digest.papers.append(paper)
@@ -451,6 +562,134 @@ async def test_send_digest_emails_with_nothing_due_returns_zero(db_session, temp
     assert FakeEmailSender.sent == []
 
 
+async def test_send_digest_emails_combines_a_recipients_topics_into_one_capped_email(
+    db_session, temporal_client
+):
+    """The real setup: one address subscribed to RLHF (max 10), PINNs (max 5)
+    and numerical analysis (max 5) gets ONE email with a section per topic,
+    each cut to its own cap, and every contributing watermark advances."""
+    last_sent = datetime.now(timezone.utc) - timedelta(days=4)
+    topics_and_caps = [("RLHF", 10, 14), ("PINNs", 5, 7), ("Numerical Analysis", 5, 30)]
+    subs = []
+    for name, cap, available in topics_and_caps:
+        topic = _make_topic(db_session, name=name, query=name.lower())
+        subs.append(
+            _make_subscription(
+                db_session, topic, "me@example.com",
+                cadence="twice_weekly", last_sent_at=last_sent, max_papers=cap,
+            )
+        )
+        _make_completed_digest(
+            db_session, topic, generated_at=last_sent + timedelta(days=1),
+            papers=[(f"{name} paper {i}", f"Summary {i}.") for i in range(available)],
+        )
+
+    count = await _run_send_emails(temporal_client, "send-combined")
+
+    assert count == 1
+    [(to, content)] = FakeEmailSender.sent
+    assert to == "me@example.com"
+    assert content.subject == "Research digest: 20 new papers (RLHF, PINNs, Numerical Analysis)"
+    text = content.text_body
+    assert text.index("RLHF - 10 new papers") < text.index("PINNs - 5 new papers")
+    assert text.index("PINNs - 5 new papers") < text.index("Numerical Analysis - 5 new papers")
+    assert text.count("https://arxiv.org/abs/") == 20
+    # Newest kept, oldest cut: paper 0 is the newest of each topic.
+    assert "RLHF paper 0\n" in text and "RLHF paper 13\n" not in text
+    assert "+ 4 more RLHF papers not shown" in text
+    assert "+ 25 more Numerical Analysis papers not shown" in text
+
+    db_session.expire_all()
+    for sub in subs:
+        assert db_session.get(models.Subscription, sub.id).last_sent_at > last_sent
+
+
+async def test_send_digest_emails_leaves_out_a_topic_with_nothing_new(
+    db_session, temporal_client
+):
+    last_sent = datetime.now(timezone.utc) - timedelta(days=4)
+    rlhf = _make_topic(db_session, name="RLHF", query="rlhf")
+    quiet = _make_topic(db_session, name="PINNs", query="pinns")
+    rlhf_sub = _make_subscription(
+        db_session, rlhf, "me@example.com", cadence="twice_weekly", last_sent_at=last_sent
+    )
+    quiet_sub = _make_subscription(
+        db_session, quiet, "me@example.com", cadence="twice_weekly", last_sent_at=last_sent
+    )
+    _make_completed_digest(
+        db_session, rlhf, generated_at=last_sent + timedelta(days=1), papers=[("R1", "S.")]
+    )
+    # PINNs ran, but every run came back empty.
+    _make_completed_digest(db_session, quiet, generated_at=last_sent + timedelta(days=1))
+
+    await _run_send_emails(temporal_client, "send-partial")
+
+    [(_, content)] = FakeEmailSender.sent
+    assert content.subject == "RLHF: 1 new paper"
+    assert "PINNs" not in content.text_body
+
+    db_session.expire_all()
+    assert db_session.get(models.Subscription, rlhf_sub.id).last_sent_at > last_sent
+    assert db_session.get(models.Subscription, quiet_sub.id).last_sent_at == last_sent
+
+
+async def test_send_digest_emails_stamps_email_dates_from_paper_submission(
+    db_session, temporal_client
+):
+    """End-to-end version of the date regression: several same-day runs, one
+    with papers submitted the day before - the email heading is the
+    submission day, once."""
+    last_sent = datetime(2026, 9, 14, 19, 11, tzinfo=timezone.utc)
+    topic = _make_topic(db_session)
+    _make_subscription(db_session, topic, "me@example.com", last_sent_at=last_sent)
+    for hour in (1, 5, 6):
+        _make_completed_digest(
+            db_session, topic, generated_at=datetime(2026, 9, 16, hour, tzinfo=timezone.utc)
+        )
+    _make_completed_digest(
+        db_session, topic,
+        generated_at=datetime(2026, 9, 16, 1, 18, tzinfo=timezone.utc),
+        papers=[(f"P{i}", None) for i in range(3)],
+        published_at=datetime(2026, 9, 15, 17, tzinfo=timezone.utc),
+    )
+
+    await _run_send_emails(temporal_client, "send-dates")
+
+    [(_, content)] = FakeEmailSender.sent
+    assert content.text_body.count("September 15, 2026") == 1
+    assert "September 16" not in content.text_body
+
+
+# ---------- cadence due-ness ----------
+@pytest.mark.parametrize(
+    "cadence, since_last_send, due",
+    [
+        # The schedule fires at 08:00:00 but the watermark is stamped a few
+        # seconds later, so the next fire is a few seconds short of a full
+        # interval - these must still count as due.
+        ("twice_weekly", timedelta(days=3) - timedelta(seconds=5), True),   # Mon -> Thu
+        ("twice_weekly", timedelta(days=4) - timedelta(seconds=5), True),   # Thu -> Mon
+        ("twice_weekly", timedelta(days=1), False),
+        ("weekly", timedelta(days=7) - timedelta(seconds=5), True),
+        ("weekly", timedelta(days=3), False),                               # skips Thursday
+        ("weekly", timedelta(days=4), False),                               # skips Monday after a Thursday send
+        ("biweekly", timedelta(days=14) - timedelta(seconds=5), True),
+        ("biweekly", timedelta(days=7), False),
+        # A catch-up send at 13:17 Monday (laptop asleep at 08:00) must not
+        # push the next weekly send out a whole extra week.
+        ("weekly", timedelta(days=6, hours=18, minutes=43), True),
+    ],
+)
+def test_list_due_subscriptions_cadence(db_session, cadence, since_last_send, due):
+    now = datetime(2026, 10, 1, 8, 0, 1, tzinfo=timezone.utc)
+    topic = _make_topic(db_session)
+    _make_subscription(
+        db_session, topic, "me@example.com", cadence=cadence, last_sent_at=now - since_last_send
+    )
+
+    assert bool(crud.list_due_subscriptions(db_session, now)) is due
+
+
 # ---------- schedule + status-literal drift guard ----------
 def test_digest_status_literals_match_the_model_enum():
     from app.temporal import types
@@ -469,11 +708,8 @@ async def temporal_env_only():
 
 async def test_ensure_daily_schedule_is_idempotent(temporal_env_only):
     client = temporal_env_only.client
-    created_first = await ensure_daily_schedule(client)
-    created_second = await ensure_daily_schedule(client)
-
-    assert created_first is True
-    assert created_second is False
+    assert await ensure_daily_schedule(client) == "created"
+    assert await ensure_daily_schedule(client) == "unchanged"
 
     handle = client.get_schedule_handle(DAILY_SCHEDULE_ID)
     desc = await handle.describe()
@@ -484,19 +720,56 @@ async def test_ensure_daily_schedule_is_idempotent(temporal_env_only):
     assert desc.schedule.action.workflow == "RunAllTopicDigestsWorkflow"
 
 
-async def test_ensure_weekly_email_schedule_is_idempotent(temporal_env_only):
-    from app.temporal.schedule import EMAIL_SCHEDULE_ID, ensure_weekly_email_schedule
+def _days_of_week(calendar) -> set[int]:
+    return {
+        day
+        for r in calendar.day_of_week
+        for day in range(r.start, (r.end or r.start) + 1, r.step or 1)
+    }
+
+
+async def test_ensure_email_schedule_fires_monday_and_thursday(temporal_env_only):
+    from app.temporal.schedule import EMAIL_SCHEDULE_ID, ensure_email_schedule
 
     client = temporal_env_only.client
-    created_first = await ensure_weekly_email_schedule(client)
-    created_second = await ensure_weekly_email_schedule(client)
+    assert await ensure_email_schedule(client) == "created"
+    assert await ensure_email_schedule(client) == "unchanged"
 
-    assert created_first is True
-    assert created_second is False
-
-    handle = client.get_schedule_handle(EMAIL_SCHEDULE_ID)
-    desc = await handle.describe()
+    desc = await client.get_schedule_handle(EMAIL_SCHEDULE_ID).describe()
     [calendar] = desc.schedule.spec.calendars
     assert calendar.hour[0].start == 8
-    assert calendar.day_of_week[0].start == 1  # Monday
+    assert _days_of_week(calendar) == {1, 4}  # Monday, Thursday
     assert desc.schedule.action.workflow == "SendDigestEmailsWorkflow"
+
+
+async def test_ensure_email_schedule_updates_an_existing_schedule_in_place(temporal_env_only):
+    """Temporal state persists across restarts now, so the schedule created
+    back when sends were Monday-only still exists. A create-if-missing check
+    alone would leave it Monday-only forever - it must be updated in place."""
+    from temporalio.client import (
+        Schedule,
+        ScheduleActionStartWorkflow,
+        ScheduleSpec,
+    )
+
+    from app.temporal.schedule import EMAIL_SCHEDULE_ID, ensure_email_schedule
+
+    client = temporal_env_only.client
+    # Exactly how the old code created it: Mondays only, no note.
+    await client.create_schedule(
+        EMAIL_SCHEDULE_ID,
+        Schedule(
+            action=ScheduleActionStartWorkflow(
+                SendDigestEmailsWorkflow.run, id="scheduled-digest-emails", task_queue=TASK_QUEUE
+            ),
+            spec=ScheduleSpec(cron_expressions=["0 8 * * 1"]),
+        ),
+    )
+
+    assert await ensure_email_schedule(client) == "updated"
+    assert await ensure_email_schedule(client) == "unchanged"
+
+    desc = await client.get_schedule_handle(EMAIL_SCHEDULE_ID).describe()
+    [calendar] = desc.schedule.spec.calendars
+    assert _days_of_week(calendar) == {1, 4}
+    assert desc.schedule.action.workflow == "SendDigestEmailsWorkflow"  # action untouched

@@ -9,7 +9,7 @@ stay itself free of I/O.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -18,15 +18,22 @@ from app import crud, models
 from app.config import get_settings
 from app.database import SessionLocal
 from app.services.arxiv import search_arxiv
-from app.services.email import DigestForEmail, EmailSender, PaperForEmail, render_digest_email
+from app.services.email import (
+    DigestForEmail,
+    EmailSender,
+    PaperForEmail,
+    TopicSection,
+    build_topic_section,
+    render_digest_email,
+)
 from app.services.summarize import Summarizer
 from app.temporal.types import (
     AdvanceWatermarkInput,
     DigestContext,
-    DigestEmailContent,
     DueSubscription,
     FinalizeDigestInput,
     GatherContentInput,
+    GatheredContent,
     IngestedPaper,
     IngestPapersInput,
     MarkSentInput,
@@ -85,8 +92,17 @@ def get_digest_context(digest_id: str) -> DigestContext:
 def fetch_arxiv(ctx: DigestContext) -> list[PaperResult]:
     """The one network call to arXiv. Left to raise on failure - the workflow's
     retry policy governs backoff/attempts, matching what we saw arXiv actually
-    do in practice (redirects, 429s, slow responses)."""
-    results = search_arxiv(ctx.query, since=ctx.since)
+    do in practice (redirects, 429s, slow responses).
+
+    Looks back `arxiv_lookback_days` past the watermark: filtering strictly on
+    `published > last_checked_at` silently and permanently dropped every paper
+    announced after a run that had already moved the watermark past its
+    submission time (see Settings.arxiv_lookback_days). Re-fetched papers the
+    topic already has are skipped in `ingest_papers`."""
+    since = ctx.since
+    if since is not None:
+        since = since - timedelta(days=get_settings().arxiv_lookback_days)
+    results = search_arxiv(ctx.query, since=since)
     return [
         PaperResult(
             arxiv_id=r.arxiv_id,
@@ -100,16 +116,24 @@ def fetch_arxiv(ctx: DigestContext) -> list[PaperResult]:
 
 @activity.defn
 def ingest_papers(input: IngestPapersInput) -> list[IngestedPaper]:
-    """Upsert + link fetched papers to the topic and this digest."""
+    """Upsert + link fetched papers to the topic and this digest. Papers the
+    topic already has (from an earlier run's overlapping lookback window) are
+    skipped, so each paper lands in exactly one of a topic's digests and is
+    never emailed twice."""
     db = SessionLocal()
     try:
         digest = crud.get_digest(db, input.digest_id)
         if digest is None:
             raise ApplicationError(f"Digest {input.digest_id} not found", non_retryable=True)
         topic = digest.topic
+        already_ingested = crud.arxiv_ids_linked_to_topic(
+            db, topic.id, [r.arxiv_id for r in input.results]
+        )
 
         ingested = []
         for r in input.results:
+            if r.arxiv_id in already_ingested:
+                continue
             paper = crud.get_or_create_paper(
                 db,
                 arxiv_id=r.arxiv_id,
@@ -199,6 +223,7 @@ def list_due_subscriptions() -> list[DueSubscription]:
                 topic_name=s.topic.name,
                 email=s.email,
                 last_sent_at=s.last_sent_at,
+                max_papers=s.max_papers,
             )
             for s in subs
         ]
@@ -207,28 +232,44 @@ def list_due_subscriptions() -> list[DueSubscription]:
 
 
 @activity.defn
-def gather_digest_content(input: GatherContentInput) -> DigestEmailContent | None:
-    """None means nothing completed since `since` - the workflow skips the
-    send and leaves the subscription's watermark untouched."""
+def gather_digest_content(input: GatherContentInput) -> GatheredContent | None:
+    """Render one email covering every topic in `input.topics` that has at
+    least one new paper. None means none of them do - the workflow skips the
+    send and leaves every watermark untouched. A topic with nothing new is
+    left out of the email (and out of `subscription_ids`), so its watermark
+    stays put too."""
     db = SessionLocal()
     try:
-        digests = crud.list_completed_digests_since(db, input.topic_id, input.since)
-        if not digests:
+        sections: list[TopicSection] = []
+        included: list[str] = []
+        for window in input.topics:
+            digests = crud.list_completed_digests_since(db, window.topic_id, window.since)
+            batches = [
+                DigestForEmail(
+                    generated_at=d.generated_at,
+                    overview=d.overview,
+                    papers=[
+                        PaperForEmail(
+                            title=p.title,
+                            summary=p.summary,
+                            arxiv_id=p.arxiv_id,
+                            published_at=p.published_at,
+                        )
+                        for p in d.papers
+                    ],
+                )
+                for d in digests
+            ]
+            section = build_topic_section(window.topic_name, batches, window.max_papers)
+            if section is not None:
+                sections.append(section)
+                included.append(window.subscription_id)
+        if not sections:
             return None
-        batches = [
-            DigestForEmail(
-                generated_at=d.generated_at,
-                overview=d.overview,
-                papers=[
-                    PaperForEmail(title=p.title, summary=p.summary, arxiv_id=p.arxiv_id)
-                    for p in d.papers
-                ],
-            )
-            for d in digests
-        ]
-        return render_digest_email(
-            input.topic_name, batches, summaries_enabled=get_settings().summaries_enabled
+        content = render_digest_email(
+            sections, summaries_enabled=get_settings().summaries_enabled
         )
+        return GatheredContent(content=content, subscription_ids=included)
     finally:
         db.close()
 

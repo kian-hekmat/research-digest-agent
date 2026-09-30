@@ -88,6 +88,24 @@ def get_or_create_paper(
     return paper
 
 
+def arxiv_ids_linked_to_topic(
+    db: Session, topic_id: str, arxiv_ids: list[str]
+) -> set[str]:
+    """Which of `arxiv_ids` this topic has already ingested."""
+    if not arxiv_ids:
+        return set()
+    rows = (
+        db.query(models.Paper.arxiv_id)
+        .join(models.topic_paper_association)
+        .filter(
+            models.topic_paper_association.c.topic_id == topic_id,
+            models.Paper.arxiv_id.in_(arxiv_ids),
+        )
+        .all()
+    )
+    return {row.arxiv_id for row in rows}
+
+
 def link_paper_to_digest(digest: models.Digest, paper: models.Paper) -> None:
     if paper not in digest.papers:
         digest.papers.append(paper)
@@ -162,9 +180,15 @@ def list_completed_digests_since(
 
 # ---------- Subscriptions ----------
 def create_subscription(
-    db: Session, topic_id: str, email: str, cadence: models.SubscriptionCadence
+    db: Session,
+    topic_id: str,
+    email: str,
+    cadence: models.SubscriptionCadence,
+    max_papers: int | None = None,
 ) -> models.Subscription:
-    sub = models.Subscription(topic_id=topic_id, email=email, cadence=cadence)
+    sub = models.Subscription(
+        topic_id=topic_id, email=email, cadence=cadence, max_papers=max_papers
+    )
     db.add(sub)
     try:
         db.commit()
@@ -192,6 +216,16 @@ def get_subscription(db: Session, subscription_id: str) -> models.Subscription |
     )
 
 
+def update_subscription(
+    db: Session, subscription: models.Subscription, changes: dict
+) -> models.Subscription:
+    for field, value in changes.items():
+        setattr(subscription, field, value)
+    db.commit()
+    db.refresh(subscription)
+    return subscription
+
+
 def delete_subscription(db: Session, subscription_id: str) -> bool:
     sub = get_subscription(db, subscription_id)
     if sub is None:
@@ -203,11 +237,21 @@ def delete_subscription(db: Session, subscription_id: str) -> bool:
 
 def list_due_subscriptions(db: Session, now: datetime) -> list[models.Subscription]:
     """Active subscriptions whose cadence window has elapsed since their last
-    send. Filtered in Python, not SQL - the per-row interval depends on each
+    send (less CADENCE_DUE_TOLERANCE - see its comment), oldest subscription
+    first so a recipient's topics appear in the order they subscribed.
+    Filtered in Python, not SQL - the per-row interval depends on each
     subscription's own cadence, and the table is small."""
-    subs = db.query(models.Subscription).filter(models.Subscription.active.is_(True)).all()
+    subs = (
+        db.query(models.Subscription)
+        .filter(models.Subscription.active.is_(True))
+        .order_by(models.Subscription.created_at)
+        .all()
+    )
     return [
-        s for s in subs if now - s.last_sent_at >= models.CADENCE_INTERVALS[s.cadence]
+        s
+        for s in subs
+        if now - s.last_sent_at
+        >= models.CADENCE_INTERVALS[s.cadence] - models.CADENCE_DUE_TOLERANCE
     ]
 
 

@@ -15,7 +15,7 @@ def test_create_subscription(client):
     assert "last_sent_at" in body
 
 
-def test_create_subscription_defaults_to_weekly(client):
+def test_create_subscription_defaults_to_twice_weekly_with_no_cap(client):
     topic = client.post("/topics", json={"name": "RLHF", "query": "rlhf"}).json()
 
     resp = client.post(
@@ -23,7 +23,81 @@ def test_create_subscription_defaults_to_weekly(client):
     )
 
     assert resp.status_code == 201
-    assert resp.json()["cadence"] == "weekly"
+    assert resp.json()["cadence"] == "twice_weekly"
+    assert resp.json()["max_papers"] is None
+
+
+def test_create_subscription_with_max_papers(client):
+    topic = client.post("/topics", json={"name": "RLHF", "query": "rlhf"}).json()
+
+    resp = client.post(
+        f"/topics/{topic['id']}/subscriptions",
+        json={"email": "reader@example.com", "max_papers": 10},
+    )
+
+    assert resp.status_code == 201
+    assert resp.json()["max_papers"] == 10
+
+
+def test_create_subscription_rejects_non_positive_max_papers(client):
+    topic = client.post("/topics", json={"name": "RLHF", "query": "rlhf"}).json()
+
+    resp = client.post(
+        f"/topics/{topic['id']}/subscriptions",
+        json={"email": "reader@example.com", "max_papers": 0},
+    )
+
+    assert resp.status_code == 422
+
+
+def _subscribe(client, **fields):
+    topic = client.post("/topics", json={"name": "RLHF", "query": "rlhf"}).json()
+    return client.post(
+        f"/topics/{topic['id']}/subscriptions", json={"email": "reader@example.com", **fields}
+    ).json()
+
+
+def test_update_subscription_cadence_and_cap(client):
+    sub = _subscribe(client, cadence="weekly")
+
+    resp = client.patch(
+        f"/subscriptions/{sub['id']}", json={"cadence": "twice_weekly", "max_papers": 10}
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["cadence"] == "twice_weekly"
+    assert resp.json()["max_papers"] == 10
+
+
+def test_update_subscription_only_touches_fields_sent(client):
+    sub = _subscribe(client, cadence="biweekly", max_papers=5)
+
+    resp = client.patch(f"/subscriptions/{sub['id']}", json={"active": False})
+
+    body = resp.json()
+    assert body["active"] is False
+    assert body["cadence"] == "biweekly"
+    assert body["max_papers"] == 5
+    assert body["last_sent_at"] == sub["last_sent_at"]  # delivery watermark untouched
+
+
+def test_update_subscription_explicit_null_removes_cap(client):
+    sub = _subscribe(client, max_papers=5)
+
+    resp = client.patch(f"/subscriptions/{sub['id']}", json={"max_papers": None})
+
+    assert resp.status_code == 200
+    assert resp.json()["max_papers"] is None
+
+
+def test_update_subscription_rejects_null_cadence(client):
+    sub = _subscribe(client)
+
+    assert client.patch(f"/subscriptions/{sub['id']}", json={"cadence": None}).status_code == 422
+
+
+def test_update_missing_subscription_returns_404(client):
+    assert client.patch("/subscriptions/does-not-exist", json={"max_papers": 3}).status_code == 404
 
 
 def test_create_subscription_for_missing_topic_returns_404(client):

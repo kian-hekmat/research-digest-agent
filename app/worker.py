@@ -15,7 +15,7 @@ from temporalio.worker import Worker
 
 from app.config import get_settings
 from app.temporal import activities
-from app.temporal.schedule import ensure_daily_schedule, ensure_weekly_email_schedule
+from app.temporal.schedule import ensure_daily_schedule, ensure_email_schedule
 from app.temporal.workflows import (
     WORKFLOW_RUNNER,
     DigestWorkflow,
@@ -54,16 +54,8 @@ async def main() -> None:
         settings.temporal_namespace,
     )
 
-    created = await ensure_daily_schedule(client)
-    logger.info(
-        "Daily digest schedule %s",
-        "created" if created else "already exists",
-    )
-    email_created = await ensure_weekly_email_schedule(client)
-    logger.info(
-        "Weekly digest email schedule %s",
-        "created" if email_created else "already exists",
-    )
+    logger.info("Daily digest schedule: %s", await ensure_daily_schedule(client))
+    logger.info("Digest email schedule: %s", await ensure_email_schedule(client))
 
     with ThreadPoolExecutor(max_workers=20) as activity_executor:
         worker = Worker(

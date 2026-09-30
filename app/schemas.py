@@ -50,7 +50,19 @@ class DigestOut(BaseModel):
 # ---------- Subscription ----------
 class SubscriptionCreate(BaseModel):
     email: EmailStr
-    cadence: SubscriptionCadence = SubscriptionCadence.weekly
+    cadence: SubscriptionCadence = SubscriptionCadence.twice_weekly
+    max_papers: Optional[int] = Field(
+        None, ge=1, description="Most papers from this topic per email (newest first); omit for no cap"
+    )
+
+
+class SubscriptionUpdate(BaseModel):
+    """Partial update - only fields actually sent are changed, so an explicit
+    `"max_papers": null` removes the cap while omitting it leaves it alone."""
+
+    cadence: Optional[SubscriptionCadence] = None
+    max_papers: Optional[int] = Field(None, ge=1)
+    active: Optional[bool] = None
 
 
 class SubscriptionOut(BaseModel):
@@ -60,6 +72,7 @@ class SubscriptionOut(BaseModel):
     topic_id: str
     email: str
     cadence: SubscriptionCadence
+    max_papers: Optional[int] = None
     active: bool
     last_sent_at: datetime
     created_at: datetime

@@ -99,13 +99,24 @@ class DueSubscription:
     topic_name: str
     email: str
     last_sent_at: datetime
+    max_papers: int | None = None
+
+
+@dataclass
+class TopicWindow:
+    """One subscription's slice of a recipient's email: this topic's completed
+    digests since `since`, capped at `max_papers`."""
+
+    subscription_id: str
+    topic_id: str
+    topic_name: str
+    since: datetime
+    max_papers: int | None = None
 
 
 @dataclass
 class GatherContentInput:
-    topic_id: str
-    topic_name: str
-    since: datetime
+    topics: list[TopicWindow] = field(default_factory=list)
 
 
 @dataclass
@@ -113,6 +124,15 @@ class DigestEmailContent:
     subject: str
     text_body: str
     html_body: str
+
+
+@dataclass
+class GatheredContent:
+    """A rendered email plus which subscriptions actually contributed papers
+    to it - only those get their watermark advanced after the send."""
+
+    content: DigestEmailContent
+    subscription_ids: list[str] = field(default_factory=list)
 
 
 @dataclass

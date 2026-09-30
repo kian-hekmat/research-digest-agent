@@ -49,7 +49,10 @@ retry policies on every external call, plus a daily schedule.
   new) leaves the watermark alone rather than silently dropping content
 - [x] `EmailSender` (`app/services/email.py`) — plain SMTP, swappable via a client
   factory for tests, same injection pattern as `Summarizer`
-- [x] A weekly Temporal Schedule (Mondays 08:00 UTC), created idempotently
+- [x] A Temporal Schedule (Mondays + Thursdays 08:00 UTC), created idempotently and
+  updated in place if its cron changes
+- [x] `twice_weekly` cadence (the default), per-subscription `max_papers` cap, and
+  `PATCH /subscriptions/{id}`; a recipient's due topics arrive as one combined email
 - [x] Mailpit added to docker-compose as the local SMTP catcher — nothing sent by
   `docker-compose up` reaches a real inbox unless `SMTP_HOST`/`SMTP_PORT` are
   deliberately pointed elsewhere
@@ -99,8 +102,9 @@ retryable, external work (arXiv, Anthropic, email) happens in `worker`'s Activit
 - `Digest` — a generated batch of papers for a topic, with a `digest_status`
   enum (`pending`/`completed`/`failed`), an `overview` column (LLM-synthesized
   paragraph across the batch), and an `error` column for failure detail
-- `Subscription` — an email + cadence (`weekly`/`biweekly`) subscribed to a topic,
-  with its own `last_sent_at` delivery watermark
+- `Subscription` — an email + cadence (`twice_weekly`/`weekly`/`biweekly`) subscribed
+  to a topic, with an optional `max_papers` cap and its own `last_sent_at` delivery
+  watermark
 - `topic_paper` — join table, since a paper can match more than one topic
 - `digest_paper` — join table, since a paper recurs across a topic's digests and re-runs
 
@@ -120,10 +124,16 @@ calls of its own, just a sequence of Activities (`app/temporal/activities.py`):
 
 1. **get_digest_context** — load the topic (query, `last_checked_at`) behind the digest.
 2. **fetch_arxiv** — `search_arxiv(query, since=...)`, newest submission first.
+   `since` is the watermark minus `ARXIV_LOOKBACK_DAYS` (default 7): arXiv papers
+   only appear in the API once announced, 1–3 days after their submission
+   timestamp, so a strict `published > watermark` filter permanently drops them.
+   A free-text query is sent as an exact phrase (`all:"..."`); a query that starts
+   with an arXiv field prefix (e.g. `cat:math.NA`) is sent verbatim.
    Retried up to 5x with backoff (5s→10s→20s→40s). If every attempt fails: digest
    → `failed`, watermark untouched (so the next run gets the same window).
 3. **ingest_papers** — each result upserted by `arxiv_id` (version suffix stripped)
-   and linked to the topic and this digest.
+   and linked to the topic and this digest — unless the topic already has it from
+   an earlier run's overlapping window, so no paper lands in two digests.
 4. **summarize_paper** — one Activity call per paper without a summary yet, run
    *concurrently*; each retried independently. A paper whose summary ultimately
    fails is kept without one, and the count lands in `digest.error` — the digest
@@ -137,28 +147,35 @@ a pending digest per topic, and runs a `DigestWorkflow` child for each, concurre
 
 ## How email delivery runs
 
-`SendDigestEmailsWorkflow` fires weekly (Mondays 08:00 UTC), but each subscription
-is judged against its *own* cadence, not the schedule's:
+`SendDigestEmailsWorkflow` fires twice a week (Mondays and Thursdays 08:00 UTC),
+but each subscription is judged against its *own* cadence, not the schedule's:
 
-1. **list_due_subscriptions** — active subscriptions where
-   `now - last_sent_at >= 7 days` (weekly) or `>= 14 days` (biweekly).
-2. Per due subscription, concurrently:
-   - **gather_digest_content** — every completed digest for that topic generated
-     since the subscriber's `last_sent_at`, rendered into a subject + text/HTML
-     body. Nothing new → skip the send *and* leave the watermark alone, so the
-     subscriber never silently loses a week's content.
+1. **list_due_subscriptions** — active subscriptions where `now - last_sent_at` is
+   at least 3 days (`twice_weekly`), 7 (`weekly`) or 14 (`biweekly`), less 12 hours
+   of slack — the watermark is stamped a few seconds *after* a fire, so without
+   slack the next fire would land just short and be skipped.
+2. Due subscriptions are grouped by email address; per recipient, concurrently:
+   - **gather_digest_content** — for each of the recipient's due topics, every
+     completed digest generated since that subscription's `last_sent_at`. Papers
+     are de-duplicated, ordered newest first, cut to `max_papers`, and grouped
+     under their own arXiv *submission* date (not the date the digest ran). One
+     email, one section per topic; a topic with nothing new is left out. Nothing
+     new on any topic → skip the send *and* leave the watermarks alone.
    - **send_digest_email** — SMTP via `EmailSender`, retried a few times.
-   - **mark_subscription_sent** — only on a confirmed send, so a failed send
-     (retries exhausted) is retried in full on the next scheduled run rather than
-     skipped. One subscriber's failure never blocks another's delivery.
+   - **mark_subscription_sent** — only on a confirmed send, and only for the
+     topics that were in the email, so a failed send (retries exhausted) is
+     retried in full on the next scheduled run rather than skipped. One
+     recipient's failure never blocks another's delivery.
 
 Subscribe via `POST /topics/{topic_id}/subscriptions` (`{"email": "...", "cadence":
-"weekly"}`, cadence optional, defaults to weekly); list with `GET` on the same
-path; unsubscribe with `DELETE /subscriptions/{id}`.
+"twice_weekly", "max_papers": 10}`; cadence defaults to `twice_weekly`, `max_papers`
+to no cap); list with `GET` on the same path; change cadence/cap/active with
+`PATCH /subscriptions/{id}` (only the fields sent; `"max_papers": null` removes the
+cap); unsubscribe with `DELETE /subscriptions/{id}`.
 
 Configuration (`app/config.py`, env-driven — see `.env.example`): `ANTHROPIC_API_KEY`
 (optional — see below), `SUMMARY_MODEL`, `OVERVIEW_MODEL`, `ARXIV_MAX_RESULTS`,
-`ARXIV_PAGE_DELAY`, `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`, `TEMPORAL_TASK_QUEUE`,
+`ARXIV_PAGE_DELAY`, `ARXIV_LOOKBACK_DAYS`, `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`, `TEMPORAL_TASK_QUEUE`,
 `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`,
 `SMTP_FROM_ADDRESS`.
 
@@ -212,9 +229,10 @@ curl -X POST localhost:8000/digests/<topic_id>
 curl localhost:8000/digests/<digest_id>
 ```
 
-The `temporal` container uses in-memory persistence (matches not persisting
-Postgres data outside its named volume either) — workflow history resets on
-restart, and the worker recreates the daily schedule on its next startup.
+The `temporal` container persists its state (schedules, their next-fire
+bookkeeping, workflow history) to SQLite on the `temporal_data` volume via
+`--db-filename`, so a restart doesn't silently reset the schedules and lose any
+fire that was due while it was down — a missed fire runs as soon as it's back.
 
 ## Running migrations
 
