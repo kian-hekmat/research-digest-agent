@@ -68,6 +68,10 @@ _LLM_RETRY = RetryPolicy(
     backoff_coefficient=2.0,
     maximum_interval=timedelta(seconds=30),
 )
+# Generous enough for a local model on its first call of a session, when
+# Ollama also has to load it into memory.
+_LLM_TIMEOUT = timedelta(seconds=180)
+_MAX_CONCURRENT_SUMMARIES = 4
 _EMAIL_RETRY = RetryPolicy(
     maximum_attempts=3,
     initial_interval=timedelta(seconds=2),
@@ -124,19 +128,26 @@ class DigestWorkflow:
         )
 
         # --- 3. summarize papers that don't have a summary yet, concurrently --
+        # At most _MAX_CONCURRENT_SUMMARIES in flight: a local Ollama server
+        # works through requests a few at a time, and each activity's timeout
+        # clock runs while it waits in that queue - firing all 25 at once
+        # would time out the back of the queue and retry work already done.
         to_summarize = [p for p in papers if not p.existing_summary]
-        summary_results = await asyncio.gather(
-            *[
-                workflow.execute_activity(
+        summary_slots = asyncio.Semaphore(_MAX_CONCURRENT_SUMMARIES)
+
+        async def summarize(p: types.IngestedPaper) -> str | None:
+            async with summary_slots:
+                return await workflow.execute_activity(
                     activities.summarize_paper,
                     types.SummarizePaperInput(
                         paper_id=p.paper_id, title=p.title, abstract=p.abstract or ""
                     ),
-                    start_to_close_timeout=timedelta(seconds=60),
+                    start_to_close_timeout=_LLM_TIMEOUT,
                     retry_policy=_LLM_RETRY,
                 )
-                for p in to_summarize
-            ],
+
+        summary_results = await asyncio.gather(
+            *[summarize(p) for p in to_summarize],
             return_exceptions=True,
         )
         summary_failures = sum(1 for r in summary_results if isinstance(r, BaseException))
@@ -152,7 +163,7 @@ class DigestWorkflow:
                     types.WriteOverviewInput(
                         topic_name=ctx.topic_name, summaries=all_summaries
                     ),
-                    start_to_close_timeout=timedelta(seconds=60),
+                    start_to_close_timeout=_LLM_TIMEOUT,
                     retry_policy=_LLM_RETRY,
                 )
             except ActivityError:

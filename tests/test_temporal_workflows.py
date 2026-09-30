@@ -14,6 +14,8 @@ about a second.
 """
 from __future__ import annotations
 
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
@@ -58,11 +60,25 @@ class FakeSummarizer:
     test configures failures by mutating the class, not an instance)."""
 
     fail_titles: set[str] = set()
+    # Concurrency tracking: summarize_paper runs on the activity thread pool.
+    delay: float = 0.0
+    in_flight = 0
+    max_in_flight = 0
+    _lock = threading.Lock()
 
     def summarize_paper(self, title, abstract):
-        if title in type(self).fail_titles:
-            raise RuntimeError(f"summary failed for {title}")
-        return f"Summary of {title}."
+        cls = type(self)
+        with cls._lock:
+            cls.in_flight += 1
+            cls.max_in_flight = max(cls.max_in_flight, cls.in_flight)
+        try:
+            time.sleep(cls.delay)
+            if title in cls.fail_titles:
+                raise RuntimeError(f"summary failed for {title}")
+            return f"Summary of {title}."
+        finally:
+            with cls._lock:
+                cls.in_flight -= 1
 
     def write_overview(self, topic_name, summaries):
         return f"Overview of {topic_name}: {len(summaries)} papers."
@@ -83,15 +99,20 @@ class FakeEmailSender:
         type(self).sent.append((to, content))
 
 
+def _reset_fake_state():
+    FakeSummarizer.fail_titles = set()
+    FakeSummarizer.delay = 0.0
+    FakeSummarizer.in_flight = 0
+    FakeSummarizer.max_in_flight = 0
+    FakeEmailSender.sent = []
+    FakeEmailSender.fail_for = set()
+
+
 @pytest.fixture(autouse=True)
 def _reset_fakes():
-    FakeSummarizer.fail_titles = set()
-    FakeEmailSender.sent = []
-    FakeEmailSender.fail_for = set()
+    _reset_fake_state()
     yield
-    FakeSummarizer.fail_titles = set()
-    FakeEmailSender.sent = []
-    FakeEmailSender.fail_for = set()
+    _reset_fake_state()
 
 
 @pytest_asyncio.fixture
@@ -220,6 +241,30 @@ async def test_digest_workflow_tolerates_partial_summary_failure(
     assert by_title["Paper Two"].summary is None
     # overview is still written from whatever did summarize
     assert refreshed.overview == "Overview of RLHF: 1 papers."
+
+
+async def test_digest_workflow_caps_concurrent_summaries(db_session, temporal_client, monkeypatch):
+    """A local Ollama server handles a few requests at a time and each
+    activity's timeout runs while it queues - so the workflow must never have
+    more than _MAX_CONCURRENT_SUMMARIES in flight, and still summarize all."""
+    from app.temporal.workflows import _MAX_CONCURRENT_SUMMARIES
+
+    topic = _make_topic(db_session)
+    digest = crud.create_digest(db_session, topic.id)
+    monkeypatch.setattr(
+        temporal_activities,
+        "search_arxiv",
+        lambda query, since=None: [make_result(f"2409.{i:04d}", f"Paper {i}") for i in range(12)],
+    )
+    FakeSummarizer.delay = 0.1  # long enough that uncapped calls would overlap
+
+    await _run_digest(temporal_client, digest.id)
+
+    assert FakeSummarizer.max_in_flight == _MAX_CONCURRENT_SUMMARIES
+    db_session.expire_all()
+    refreshed = db_session.get(models.Digest, digest.id)
+    assert len(refreshed.papers) == 12
+    assert all(p.summary for p in refreshed.papers)
 
 
 async def test_digest_workflow_without_api_key_completes_with_no_summaries(

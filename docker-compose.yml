@@ -74,6 +74,11 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://digest_user:digest_pass@db:5432/digest_db
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SUMMARY_BACKEND: ${SUMMARY_BACKEND:-anthropic}
+      # Ollama runs natively on the Mac (GPU), bound to 127.0.0.1 only;
+      # colima routes host.docker.internal to the Mac's loopback.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:12b}
       TEMPORAL_ADDRESS: temporal:7233
       SMTP_HOST: ${SMTP_HOST:-mailpit}
       SMTP_PORT: ${SMTP_PORT:-1025}
@@ -99,6 +104,11 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://digest_user:digest_pass@db:5432/digest_db
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SUMMARY_BACKEND: ${SUMMARY_BACKEND:-anthropic}
+      # Ollama runs natively on the Mac (GPU), bound to 127.0.0.1 only;
+      # colima routes host.docker.internal to the Mac's loopback.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:12b}
       TEMPORAL_ADDRESS: temporal:7233
       SMTP_HOST: ${SMTP_HOST:-mailpit}
       SMTP_PORT: ${SMTP_PORT:-1025}

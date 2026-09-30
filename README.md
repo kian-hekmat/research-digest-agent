@@ -1,7 +1,7 @@
 # Research Digest & Alert Agent
 
-A service that tracks research topics on arXiv, summarizes new papers with Claude,
-and generates digests on a schedule. Built to rehearse a realistic backend/agent
+A service that tracks research topics on arXiv, summarizes new papers with an LLM
+(a free local model via Ollama, or Claude), and generates digests on a schedule. Built to rehearse a realistic backend/agent
 stack: FastAPI, PostgreSQL, and Temporal-orchestrated workflows.
 
 ## Status
@@ -60,13 +60,16 @@ retry policies on every external call, plus a daily schedule.
   email in Mailpit with correct subject/overview/paper content, the watermark
   advanced, and a second run correctly sent nothing (not yet due again)
 
-**No-summary mode (current default):** no `ANTHROPIC_API_KEY` is set, by choice —
-API access is billed separately from a claude.ai subscription. `Summarizer`
-detects this (`Settings.summaries_enabled`) and returns `None` immediately, no
-network call, no retry/backoff, no error — digests and emails work normally,
-just without AI-written text; the email body says so explicitly rather than
-looking broken. Set a real key (env var only, no code changes) and it reverses
-itself the next run. See [How to add a real Anthropic key later](#how-to-add-a-real-anthropic-key-later).
+**Summaries: free and local by default.** `SUMMARY_BACKEND=ollama` runs summaries
+and overviews on a local open-weights model (`gemma3:12b`) served by Ollama on the
+Mac itself — no API key, no per-call cost. See [Free local summaries with
+Ollama](#free-local-summaries-with-ollama). The paid Anthropic API remains available
+as `SUMMARY_BACKEND=anthropic` + `ANTHROPIC_API_KEY`.
+
+**No-summary mode:** with neither configured, `Summarizer` detects it
+(`Settings.summaries_enabled`) and returns `None` immediately, no network call, no
+retry/backoff, no error — digests and emails work normally, just without
+AI-written text; the email body says so explicitly rather than looking broken.
 
 ## Architecture
 
@@ -135,7 +138,9 @@ calls of its own, just a sequence of Activities (`app/temporal/activities.py`):
    and linked to the topic and this digest — unless the topic already has it from
    an earlier run's overlapping window, so no paper lands in two digests.
 4. **summarize_paper** — one Activity call per paper without a summary yet, run
-   *concurrently*; each retried independently. A paper whose summary ultimately
+   concurrently but at most 4 at a time (a local Ollama server works through a few
+   requests at once, and each activity's timeout runs while it queues); each
+   retried independently. A paper whose summary ultimately
    fails is kept without one, and the count lands in `digest.error` — the digest
    still completes.
 5. **write_overview** — a 5–6 sentence synthesis across the batch's summaries.
@@ -178,6 +183,33 @@ Configuration (`app/config.py`, env-driven — see `.env.example`): `ANTHROPIC_A
 `ARXIV_PAGE_DELAY`, `ARXIV_LOOKBACK_DAYS`, `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`, `TEMPORAL_TASK_QUEUE`,
 `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`,
 `SMTP_FROM_ADDRESS`.
+
+## Free local summaries with Ollama
+
+Ollama runs natively on macOS so it can use the GPU — the colima VM has neither
+the GPU nor the memory. It listens on `127.0.0.1:11434` only (not exposed to the
+network); containers reach it at `host.docker.internal`, which colima forwards to
+the Mac's loopback.
+
+```bash
+brew install ollama
+brew services start ollama          # background service, restarts at login
+ollama pull gemma3:12b              # ~8 GB
+echo 'SUMMARY_BACKEND=ollama' >> .env
+docker-compose up -d worker api     # recreate so they pick up the new env
+```
+
+Papers ingested while summaries were off keep no summary (a paper is never
+re-ingested for the same topic). To fill in the ones not yet emailed:
+
+```bash
+docker-compose exec worker python -m app.backfill_summaries
+```
+
+Settings: `SUMMARY_BACKEND` (`ollama`/`anthropic`), `OLLAMA_MODEL`,
+`OLLAMA_BASE_URL`, `OLLAMA_TIMEOUT`. If the Ollama server is down, summary calls
+fail and are retried like any other outage; the digest still completes, with the
+failure count in `digest.error`.
 
 ## How to add a real Anthropic key later
 

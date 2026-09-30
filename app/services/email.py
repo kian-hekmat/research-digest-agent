@@ -129,7 +129,7 @@ def render_digest_email(
     if not summaries_enabled:
         note = (
             "AI-written summaries are currently disabled for this digest - "
-            "set ANTHROPIC_API_KEY to enable them."
+            "set SUMMARY_BACKEND=ollama (free, local) or an ANTHROPIC_API_KEY to enable them."
         )
         text_lines += [note, ""]
         html_parts.append(f"<p><em>{escape(note)}</em></p>")

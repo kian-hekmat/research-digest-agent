@@ -1,17 +1,22 @@
-"""LLM summarization via the Anthropic SDK.
+"""LLM summarization, via a local Ollama model or the Anthropic API.
 
-`Summarizer` wraps the client so it can be injected as a FastAPI dependency and
-faked in tests. The Anthropic client is created lazily: importing this module
-and constructing `Summarizer()` never touches the network or needs a key.
+`Summarizer` wraps both backends so it can be injected as a FastAPI dependency
+and faked in tests. Which one is used is `Settings.summary_backend`:
 
-Without a configured key (`Settings.summaries_enabled` is False), both methods
-return `None` immediately - no network call, no retry/backoff, no error. This
-is a deliberate, intentional "no-summary mode": digests and emails still work,
-just without AI-written text. Set `ANTHROPIC_API_KEY` and it reverses itself
-automatically, no code changes needed.
+- "ollama" - a model served by Ollama on this machine (no per-call cost).
+  Plain HTTP via httpx; the client is swappable via `http_client`.
+- "anthropic" - the paid Anthropic API. The client is created lazily, so
+  importing this module and constructing `Summarizer()` never touches the
+  network or needs a key; it's swappable via `client`.
+
+When summarization isn't configured (`Settings.summaries_enabled` is False),
+both methods return `None` immediately - no network call, no retry/backoff, no
+error. This is a deliberate "no-summary mode": digests and emails still work,
+just without AI-written text.
 """
 from __future__ import annotations
 
+import httpx
 from anthropic import Anthropic
 
 from app.config import Settings, get_settings
@@ -40,9 +45,15 @@ def _first_text(message) -> str:
 
 
 class Summarizer:
-    def __init__(self, client: Anthropic | None = None, settings: Settings | None = None) -> None:
+    def __init__(
+        self,
+        client: Anthropic | None = None,
+        settings: Settings | None = None,
+        http_client: httpx.Client | None = None,
+    ) -> None:
         self._client = client
         self._settings = settings or get_settings()
+        self._http_client = http_client
 
     @property
     def client(self) -> Anthropic:
@@ -53,32 +64,58 @@ class Summarizer:
     def summarize_paper(self, title: str, abstract: str) -> str | None:
         if not self._settings.summaries_enabled:
             return None
-        message = self.client.messages.create(
-            model=self._settings.summary_model,
-            max_tokens=400,
+        return self._complete(
             system=_PER_PAPER_SYSTEM,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"Title: {title}\n\nAbstract: {abstract}",
-                }
-            ],
+            user=f"Title: {title}\n\nAbstract: {abstract}",
+            anthropic_model=self._settings.summary_model,
+            max_tokens=400,
         )
-        return _first_text(message)
 
     def write_overview(self, topic_name: str, summaries: list[str]) -> str | None:
         if not self._settings.summaries_enabled:
             return None
         joined = "\n\n".join(f"{i}. {s}" for i, s in enumerate(summaries, 1))
-        message = self.client.messages.create(
-            model=self._settings.overview_model,
-            max_tokens=500,
+        return self._complete(
             system=_OVERVIEW_SYSTEM,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"Topic: {topic_name}\n\nPaper summaries:\n{joined}",
-                }
-            ],
+            user=f"Topic: {topic_name}\n\nPaper summaries:\n{joined}",
+            anthropic_model=self._settings.overview_model,
+            max_tokens=500,
+        )
+
+    def _complete(self, *, system: str, user: str, anthropic_model: str, max_tokens: int) -> str:
+        if self._settings.summary_backend == "ollama":
+            return self._complete_ollama(system, user, max_tokens)
+        message = self.client.messages.create(
+            model=anthropic_model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user}],
         )
         return _first_text(message)
+
+    def _complete_ollama(self, system: str, user: str, max_tokens: int) -> str:
+        """One non-streaming /api/chat call. Left to raise on failure
+        (server down, model not pulled, timeout) - the activity's retry
+        policy governs attempts, same as for the Anthropic backend."""
+        owns_client = self._http_client is None
+        client = self._http_client or httpx.Client(timeout=self._settings.ollama_timeout)
+        try:
+            resp = client.post(
+                f"{self._settings.ollama_base_url.rstrip('/')}/api/chat",
+                json={
+                    "model": self._settings.ollama_model,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    "stream": False,
+                    # Low temperature: summaries should track the abstract,
+                    # not get creative with it.
+                    "options": {"num_predict": max_tokens, "temperature": 0.2},
+                },
+            )
+            resp.raise_for_status()
+        finally:
+            if owns_client:
+                client.close()
+        return resp.json()["message"]["content"].strip()

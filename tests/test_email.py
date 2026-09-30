@@ -335,13 +335,14 @@ def test_render_notes_when_summaries_are_disabled():
         [_section("RLHF", [_paper("a", day=1, summary=None)])], summaries_enabled=False
     )
 
-    assert "ANTHROPIC_API_KEY" in content.text_body
-    assert "ANTHROPIC_API_KEY" in content.html_body
+    for body in (content.text_body, content.html_body):
+        assert "summaries are currently disabled" in body
+        assert "SUMMARY_BACKEND=ollama" in body  # points at the free option
     assert "Paper a" in content.text_body  # still lists papers, just no summary text
 
 
 def test_render_omits_the_note_by_default():
     content = render_digest_email([_section("RLHF", [_paper("a", day=1)])])
 
-    assert "ANTHROPIC_API_KEY" not in content.text_body
-    assert "ANTHROPIC_API_KEY" not in content.html_body
+    assert "summaries are currently disabled" not in content.text_body
+    assert "summaries are currently disabled" not in content.html_body
