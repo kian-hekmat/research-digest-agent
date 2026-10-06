@@ -248,6 +248,19 @@ def test_ollama_server_down_raises():
         Summarizer(settings=_ollama_settings()).summarize_paper("T", "A")
 
 
+def test_test_session_never_reads_the_local_env_file():
+    """conftest disables .env loading; it once did so only after
+    app.database had already cached a .env-loaded Settings, so tests ran with
+    the developer's real SMTP credentials and SUMMARY_BACKEND (and called
+    their real local model). Every field below is set only in .env, never by
+    the test harness, so a default here proves the cached Settings is clean."""
+    from app.config import get_settings
+
+    settings = get_settings()
+    assert settings.summary_backend == "anthropic"
+    assert settings.smtp_password == ""
+
+
 def test_summaries_enabled_by_backend():
     assert Settings(summary_backend="ollama", anthropic_api_key="").summaries_enabled is True
     assert Settings(summary_backend="anthropic", anthropic_api_key="").summaries_enabled is False

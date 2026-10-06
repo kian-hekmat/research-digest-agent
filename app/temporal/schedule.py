@@ -26,8 +26,14 @@ from temporalio.service import RPCError, RPCStatusCode
 from app.config import get_settings
 from app.temporal.workflows import RunAllTopicDigestsWorkflow, SendDigestEmailsWorkflow
 
+# Both crons are in SCHEDULE_TIME_ZONE (DST-aware), set to the owner's waking
+# hours. This runs on a laptop: at the old 06:00/08:00 UTC (11pm/1am Pacific)
+# it was usually asleep, so nearly every run was a catch-up fired on wake -
+# and one interrupted mid-summarization when it slept again.
+SCHEDULE_TIME_ZONE = "America/Los_Angeles"
+
 DAILY_SCHEDULE_ID = "daily-topic-digests"
-DAILY_CRON = "0 6 * * *"  # 06:00 UTC daily
+DAILY_CRON = "0 7 * * *"  # 07:00 daily
 
 # The id predates the move to twice-weekly sends; it's kept so existing
 # deployments update their schedule in place instead of gaining a second one.
@@ -35,17 +41,22 @@ EMAIL_SCHEDULE_ID = "weekly-digest-emails"
 # SendDigestEmailsWorkflow judges each subscription against its own
 # twice_weekly/weekly/biweekly cadence internally (see that workflow's
 # docstring) - the schedule just needs to fire at least as often as the
-# most frequent cadence.
-EMAIL_CRON = "0 8 * * 1,4"  # Mondays and Thursdays 08:00 UTC
+# most frequent cadence. An hour after the daily run, though the email
+# workflow refreshes digests itself regardless.
+EMAIL_CRON = "0 8 * * 1,4"  # Mondays and Thursdays 08:00
 
 EnsureResult = Literal["created", "updated", "unchanged"]
+
+
+def _spec(cron: str) -> ScheduleSpec:
+    return ScheduleSpec(cron_expressions=[cron], time_zone_name=SCHEDULE_TIME_ZONE)
 
 
 def _cron_note(cron: str) -> str:
     # The server normalizes cron strings into calendar specs rather than
     # echoing them back, so the cron a schedule was built from is recorded
     # in its note to compare against on the next startup.
-    return f"cron: {cron}"
+    return f"cron: {cron} ({SCHEDULE_TIME_ZONE})"
 
 
 async def _ensure_schedule(
@@ -71,7 +82,7 @@ async def _ensure_schedule(
 
         def _updater(input: ScheduleUpdateInput) -> ScheduleUpdate:
             schedule = input.description.schedule
-            schedule.spec = ScheduleSpec(cron_expressions=[cron])
+            schedule.spec = _spec(cron)
             schedule.state.note = _cron_note(cron)
             return ScheduleUpdate(schedule=schedule)
 
@@ -85,7 +96,7 @@ async def _ensure_schedule(
             action=ScheduleActionStartWorkflow(
                 workflow, id=action_id, task_queue=settings.temporal_task_queue
             ),
-            spec=ScheduleSpec(cron_expressions=[cron]),
+            spec=_spec(cron),
             policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
             state=ScheduleState(note=_cron_note(cron)),
         ),

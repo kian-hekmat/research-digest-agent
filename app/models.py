@@ -191,6 +191,11 @@ class Digest(Base):
         index=True,
     )
     error = Column(Text, nullable=True)  # failure detail when status == failed
+    # When the run finished as completed. Email delivery keys off this, not
+    # generated_at: a digest still running when an email goes out must land
+    # in the *next* email - keyed on generated_at it would fall behind the
+    # new watermark and never be sent at all.
+    completed_at = Column(DateTime(timezone=True), nullable=True, index=True)
     overview = Column(Text, nullable=True)  # LLM-synthesized paragraph across the batch
 
     topic = relationship("Topic", back_populates="digests")

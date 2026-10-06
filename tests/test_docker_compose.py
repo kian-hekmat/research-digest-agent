@@ -47,6 +47,15 @@ def test_temporal_service_persists_state_via_db_filename():
     )
 
 
+def test_every_service_restarts_with_docker():
+    """Missed send 2026-10-05: a reboot stopped every container, and with no
+    restart policy they stayed down after Docker came back - nothing ran at
+    Monday's send time."""
+    text = COMPOSE_PATH.read_text()
+    for service in ("db", "temporal", "mailpit", "api", "worker"):
+        assert "restart: unless-stopped" in _service_block(text, service), service
+
+
 def test_worker_receives_the_summarization_settings():
     """The worker is what runs summarize_paper. Settings it isn't passed fall
     back to their defaults silently - summaries just stay off, or it looks for

@@ -72,6 +72,9 @@ _LLM_RETRY = RetryPolicy(
 # Ollama also has to load it into memory.
 _LLM_TIMEOUT = timedelta(seconds=180)
 _MAX_CONCURRENT_SUMMARIES = 4
+# Before an email send: wait up to 20 x 30s = 10 min for in-flight digests.
+_PENDING_WAIT_POLLS = 20
+_PENDING_WAIT_INTERVAL = timedelta(seconds=30)
 _EMAIL_RETRY = RetryPolicy(
     maximum_attempts=3,
     initial_interval=timedelta(seconds=2),
@@ -253,11 +256,21 @@ class SendDigestEmailsWorkflow:
     email per topic. Deliveries to different recipients fan out concurrently,
     and one recipient's failure (or nothing-new skip) never blocks another's.
 
+    Before gathering, it brings content up to date itself instead of trusting
+    that the daily digest run happened: it runs a digest pass as a child, then
+    waits (bounded) for any other digest runs still in flight - e.g. the daily
+    run firing at the same moment on a laptop-wake catch-up, or one resuming
+    after a restart. A refresh failure never blocks the send; it goes out
+    with whatever completed.
+
     Returns the number of emails sent.
     """
 
     @workflow.run
     async def run(self) -> int:
+        await self._refresh_digests()
+        await self._wait_for_in_flight_digests()
+
         due: list[types.DueSubscription] = await workflow.execute_activity(
             activities.list_due_subscriptions,
             start_to_close_timeout=timedelta(seconds=30),
@@ -277,6 +290,34 @@ class SendDigestEmailsWorkflow:
             return_exceptions=True,
         )
         return sum(1 for r in results if r is True)
+
+    async def _refresh_digests(self) -> None:
+        try:
+            await workflow.execute_child_workflow(
+                RunAllTopicDigestsWorkflow.run,
+                id=f"{workflow.info().workflow_id}-refresh",
+                task_queue=workflow.info().task_queue,
+            )
+        except Exception:
+            # Same principle as a failed summary: degrade, don't block. Content
+            # that did complete still goes out; the rest lands next time.
+            workflow.logger.warning("Digest refresh before send failed", exc_info=True)
+
+    async def _wait_for_in_flight_digests(self) -> None:
+        """Poll until no digest is pending, for at most _PENDING_WAIT_POLLS x
+        _PENDING_WAIT_INTERVAL. Giving up is safe: delivery keys off
+        completed_at, so anything still pending goes out with the next email
+        rather than being lost - this wait only keeps it from being late."""
+        for _ in range(_PENDING_WAIT_POLLS):
+            pending = await workflow.execute_activity(
+                activities.count_pending_digests,
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=_DB_RETRY,
+            )
+            if not pending:
+                return
+            await workflow.sleep(_PENDING_WAIT_INTERVAL)
+        workflow.logger.warning("Sending with digests still pending; they'll go out next time")
 
     async def _deliver(self, email: str, subs: list[types.DueSubscription]) -> bool:
         gathered: types.GatheredContent | None = await workflow.execute_activity(
@@ -299,7 +340,6 @@ class SendDigestEmailsWorkflow:
         if gathered is None:
             return False  # nothing new on any topic - leave every watermark alone
 
-        sent_at = workflow.now()
         await workflow.execute_activity(
             activities.send_digest_email,
             types.SendEmailInput(email=email, content=gathered.content),
@@ -314,7 +354,7 @@ class SendDigestEmailsWorkflow:
             *[
                 workflow.execute_activity(
                     activities.mark_subscription_sent,
-                    types.MarkSentInput(subscription_id=sub_id, sent_at=sent_at),
+                    types.MarkSentInput(subscription_id=sub_id, sent_at=gathered.as_of),
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=_DB_RETRY,
                 )

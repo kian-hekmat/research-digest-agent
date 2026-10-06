@@ -132,6 +132,7 @@ class GatheredContent:
     to it - only those get their watermark advanced after the send."""
 
     content: DigestEmailContent
+    as_of: datetime  # snapshot time - becomes the contributing subscriptions' watermark
     subscription_ids: list[str] = field(default_factory=list)
 
 

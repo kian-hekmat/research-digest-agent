@@ -16,17 +16,24 @@ import pytest  # noqa: E402
 from alembic import command  # noqa: E402
 from alembic.config import Config  # noqa: E402
 
-from app.config import Settings  # noqa: E402
+from app.config import Settings, get_settings  # noqa: E402
+
+# Settings would otherwise silently pick up whatever real .env the developer
+# has locally for every field a test doesn't override - a real credential
+# could end up in an assertion and from there in a failure message, and a
+# setting like SUMMARY_BACKEND=ollama makes "real Summarizer" tests call the
+# developer's actual local model. Environment variables (like DATABASE_URL
+# above) are unaffected - only the local .env file is disabled, process-wide.
+#
+# This must happen BEFORE anything below is imported: app.database calls
+# get_settings() at import time, and get_settings is cached - disabling the
+# .env afterwards (as this file used to) leaves the cached, .env-loaded
+# Settings in place for the whole session.
+Settings.model_config["env_file"] = None
+get_settings.cache_clear()
+
 from app.database import SessionLocal, get_db  # noqa: E402
 from app.main import app  # noqa: E402
-
-# A test constructing a bare Settings(...) (e.g. to test EmailSender/Summarizer
-# with specific fields) would otherwise silently pick up whatever real .env
-# the developer has locally for every field it doesn't override - which can
-# mean a real credential ends up in an assertion, and from there in a failure
-# message. Environment variables (like DATABASE_URL above) are unaffected -
-# only the local .env file is disabled, process-wide, for the test session.
-Settings.model_config["env_file"] = None
 from app.services.arxiv import ArxivResult  # noqa: E402
 from app.temporal.client import get_temporal_client  # noqa: E402
 

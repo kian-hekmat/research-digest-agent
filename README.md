@@ -28,7 +28,7 @@ retry policies on every external call, plus a daily schedule.
   policy; orchestration itself does no I/O
 - [x] `RunAllTopicDigestsWorkflow` — the scheduled entrypoint: fans out a
   `DigestWorkflow` child per topic
-- [x] A daily Temporal Schedule (06:00 UTC), created idempotently by the worker on
+- [x] A daily Temporal Schedule (07:00 Pacific), created idempotently by the worker on
   startup — `overlap_policy=SKIP` so a slow run is never doubled up
 - [x] `POST /digests/{topic_id}` now starts a `DigestWorkflow` instead of a FastAPI
   background task — same immediate-`pending`-then-poll contract as before
@@ -49,7 +49,7 @@ retry policies on every external call, plus a daily schedule.
   new) leaves the watermark alone rather than silently dropping content
 - [x] `EmailSender` (`app/services/email.py`) — plain SMTP, swappable via a client
   factory for tests, same injection pattern as `Summarizer`
-- [x] A Temporal Schedule (Mondays + Thursdays 08:00 UTC), created idempotently and
+- [x] A Temporal Schedule (Mondays + Thursdays 08:00 Pacific), created idempotently and
   updated in place if its cron changes
 - [x] `twice_weekly` cadence (the default), per-subscription `max_papers` cap, and
   `PATCH /subscriptions/{id}`; a recipient's due topics arrive as one combined email
@@ -152,8 +152,15 @@ a pending digest per topic, and runs a `DigestWorkflow` child for each, concurre
 
 ## How email delivery runs
 
-`SendDigestEmailsWorkflow` fires twice a week (Mondays and Thursdays 08:00 UTC),
-but each subscription is judged against its *own* cadence, not the schedule's:
+`SendDigestEmailsWorkflow` fires twice a week (Mondays and Thursdays 08:00
+Pacific; both schedules use `America/Los_Angeles`, DST-aware, so they run while
+the laptop is normally awake), but each subscription is judged against its *own*
+cadence, not the schedule's:
+
+0. **Refresh first** — it runs a full digest pass (`RunAllTopicDigestsWorkflow` as
+   a child) rather than trusting that the daily run happened, then waits up to 10
+   minutes for any other digest still `pending` (e.g. the daily run catching up at
+   the same moment after the laptop wakes). A refresh failure never blocks the send.
 
 1. **list_due_subscriptions** — active subscriptions where `now - last_sent_at` is
    at least 3 days (`twice_weekly`), 7 (`weekly`) or 14 (`biweekly`), less 12 hours
@@ -161,7 +168,9 @@ but each subscription is judged against its *own* cadence, not the schedule's:
    slack the next fire would land just short and be skipped.
 2. Due subscriptions are grouped by email address; per recipient, concurrently:
    - **gather_digest_content** — for each of the recipient's due topics, every
-     completed digest generated since that subscription's `last_sent_at`. Papers
+     digest that *completed* (`completed_at`) since that subscription's `last_sent_at` —
+     keyed on completion, not start, so a digest still running during one send goes
+     out with the next instead of being skipped forever. Papers
      are de-duplicated, ordered newest first, cut to `max_papers`, and grouped
      under their own arXiv *submission* date (not the date the digest ran). One
      email, one section per topic; a topic with nothing new is left out. Nothing
@@ -232,6 +241,10 @@ doesn't cache the decision at startup.
 ```bash
 docker-compose up --build
 ```
+
+Every service has `restart: unless-stopped`, so the stack comes back on its own
+whenever Docker does. For that to survive a reboot, colima itself must start at
+login: `brew services start colima`.
 
 This starts five containers: `db` (Postgres), `temporal` (Temporal dev server),
 `mailpit` (local SMTP catcher), `api` (FastAPI), and `worker` (the Temporal worker

@@ -237,7 +237,12 @@ def gather_digest_content(input: GatherContentInput) -> GatheredContent | None:
     least one new paper. None means none of them do - the workflow skips the
     send and leaves every watermark untouched. A topic with nothing new is
     left out of the email (and out of `subscription_ids`), so its watermark
-    stays put too."""
+    stays put too.
+
+    `as_of` (returned for use as the new watermark) is taken *before* reading:
+    a digest completing mid-gather has completed_at > as_of, so it's picked
+    up by the next email instead of slipping between the read and the stamp."""
+    as_of = datetime.now(timezone.utc)
     db = SessionLocal()
     try:
         sections: list[TopicSection] = []
@@ -269,7 +274,16 @@ def gather_digest_content(input: GatherContentInput) -> GatheredContent | None:
         content = render_digest_email(
             sections, summaries_enabled=get_settings().summaries_enabled
         )
-        return GatheredContent(content=content, subscription_ids=included)
+        return GatheredContent(content=content, as_of=as_of, subscription_ids=included)
+    finally:
+        db.close()
+
+
+@activity.defn
+def count_pending_digests() -> int:
+    db = SessionLocal()
+    try:
+        return crud.count_pending_digests(db)
     finally:
         db.close()
 

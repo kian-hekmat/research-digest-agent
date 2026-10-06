@@ -35,6 +35,7 @@ def _digest(db, topic, generated_at, titles, *, summary=None, overview=None):
         topic_id=topic.id,
         status=models.DigestStatus.completed,
         generated_at=generated_at,
+        completed_at=generated_at,
         overview=overview,
     )
     db.add(digest)

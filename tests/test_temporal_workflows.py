@@ -51,6 +51,7 @@ ALL_ACTIVITIES = [
     temporal_activities.gather_digest_content,
     temporal_activities.send_digest_email,
     temporal_activities.mark_subscription_sent,
+    temporal_activities.count_pending_digests,
 ]
 
 
@@ -119,6 +120,10 @@ def _reset_fakes():
 async def temporal_client(monkeypatch):
     monkeypatch.setattr(temporal_activities, "Summarizer", FakeSummarizer)
     monkeypatch.setattr(temporal_activities, "EmailSender", FakeEmailSender)
+    # Safe default: every email send now runs a digest refresh first, which
+    # must never reach the real arXiv from a test. Tests needing results
+    # re-patch this.
+    monkeypatch.setattr(temporal_activities, "search_arxiv", lambda query, since=None: [])
     async with await WorkflowEnvironment.start_time_skipping() as env:
         with ThreadPoolExecutor(max_workers=8) as pool:
             async with Worker(
@@ -483,6 +488,7 @@ def _make_completed_digest(db_session, topic, *, generated_at, papers=(), publis
         status=models.DigestStatus.completed,
         overview="Overview.",
         generated_at=generated_at,
+        completed_at=generated_at,
     )
     db_session.add(digest)
     db_session.commit()
@@ -705,6 +711,127 @@ async def test_send_digest_emails_stamps_email_dates_from_paper_submission(
     assert "September 16" not in content.text_body
 
 
+# ---------- delivery robustness (missed 2026-10-05 send) ----------
+async def test_send_refreshes_digests_before_gathering(db_session, temporal_client, monkeypatch):
+    """The send must not depend on the daily run having happened: a paper
+    only on arXiv right now (no digest run yet) still makes this email."""
+    topic = _make_topic(db_session)
+    _make_subscription(
+        db_session, topic, "me@example.com", cadence="twice_weekly",
+        last_sent_at=datetime.now(timezone.utc) - timedelta(days=4),
+    )
+    monkeypatch.setattr(
+        temporal_activities, "search_arxiv",
+        lambda query, since=None: [make_result("2610.0001", "Fresh Paper")],
+    )
+
+    count = await _run_send_emails(temporal_client, "send-refresh")
+
+    assert count == 1
+    [(_, content)] = FakeEmailSender.sent
+    assert "Fresh Paper" in content.text_body
+    assert "Summary of Fresh Paper." in content.text_body  # summarized during the refresh
+
+
+async def test_send_still_goes_out_when_the_refresh_fails(db_session, temporal_client, monkeypatch):
+    last_sent = datetime.now(timezone.utc) - timedelta(days=4)
+    topic = _make_topic(db_session)
+    _make_subscription(db_session, topic, "me@example.com", cadence="twice_weekly", last_sent_at=last_sent)
+    _make_completed_digest(
+        db_session, topic, generated_at=last_sent + timedelta(days=1), papers=[("Already Here", "S.")]
+    )
+
+    def arxiv_down(query, since=None):
+        raise RuntimeError("arxiv is down")
+
+    monkeypatch.setattr(temporal_activities, "search_arxiv", arxiv_down)
+
+    assert await _run_send_emails(temporal_client, "send-refresh-fails") == 1
+    [(_, content)] = FakeEmailSender.sent
+    assert "Already Here" in content.text_body
+
+
+async def test_digest_still_running_during_a_send_goes_out_with_the_next_one(
+    db_session, temporal_client
+):
+    """Delivery used to key off generated_at: a digest *started* before a
+    send but completed after it fell behind the new watermark and was never
+    emailed. (The two Oct 2 digests stuck pending across the reboot were
+    exactly this shape.) It must land in the next email instead."""
+    topic = _make_topic(db_session)
+    sent_before = datetime.now(timezone.utc) - timedelta(days=4)
+    sub = _make_subscription(
+        db_session, topic, "me@example.com", cadence="twice_weekly", last_sent_at=sent_before
+    )
+    # Started before the previous send...
+    straggler = _make_completed_digest(
+        db_session, topic, generated_at=sent_before - timedelta(hours=1),
+        papers=[("Straggler", "S.")],
+    )
+    # ...but only completed after it.
+    straggler.completed_at = sent_before + timedelta(hours=1)
+    db_session.commit()
+
+    assert await _run_send_emails(temporal_client, "send-straggler") == 1
+    [(_, content)] = FakeEmailSender.sent
+    assert "Straggler" in content.text_body
+    db_session.expire_all()
+    assert db_session.get(models.Subscription, sub.id).last_sent_at > straggler.completed_at
+
+
+async def test_send_waits_for_in_flight_digests(db_session, temporal_client, monkeypatch):
+    pending_answers = iter([2, 1, 0])
+    calls = []
+
+    def fake_count(db):
+        calls.append(1)
+        return next(pending_answers)
+
+    monkeypatch.setattr(crud, "count_pending_digests", fake_count)
+
+    await _run_send_emails(temporal_client, "send-waits")
+
+    assert len(calls) == 3  # polled until nothing was pending, then stopped
+
+
+async def test_send_gives_up_waiting_and_sends_anyway(db_session, temporal_client, monkeypatch):
+    """A digest stuck pending forever must delay the send by at most the
+    bounded wait, never block it."""
+    from app.temporal.workflows import _PENDING_WAIT_POLLS
+
+    last_sent = datetime.now(timezone.utc) - timedelta(days=4)
+    topic = _make_topic(db_session)
+    _make_subscription(db_session, topic, "me@example.com", cadence="twice_weekly", last_sent_at=last_sent)
+    _make_completed_digest(
+        db_session, topic, generated_at=last_sent + timedelta(days=1), papers=[("Ready", "S.")]
+    )
+    db_session.add(models.Digest(topic_id=topic.id, status=models.DigestStatus.pending))
+    db_session.commit()
+    calls = []
+    real_count = crud.count_pending_digests
+    monkeypatch.setattr(
+        crud, "count_pending_digests", lambda db: (calls.append(1), real_count(db))[1]
+    )
+
+    assert await _run_send_emails(temporal_client, "send-gives-up") == 1
+    assert len(calls) == _PENDING_WAIT_POLLS
+    assert "Ready" in FakeEmailSender.sent[0][1].text_body
+
+
+def test_finalize_stamps_completed_at_only_on_completion(db_session):
+    topic = _make_topic(db_session)
+    done = crud.finalize_digest(
+        db_session, crud.create_digest(db_session, topic.id), status=models.DigestStatus.completed
+    )
+    failed = crud.finalize_digest(
+        db_session, crud.create_digest(db_session, topic.id),
+        status=models.DigestStatus.failed, error="x",
+    )
+
+    assert done.completed_at is not None
+    assert failed.completed_at is None
+
+
 # ---------- cadence due-ness ----------
 @pytest.mark.parametrize(
     "cadence, since_last_send, due",
@@ -761,7 +888,8 @@ async def test_ensure_daily_schedule_is_idempotent(temporal_env_only):
     # The server normalizes the cron string into a calendar spec rather than
     # echoing it back verbatim - check the parsed hour instead of the string.
     [calendar] = desc.schedule.spec.calendars
-    assert calendar.hour[0].start == 6
+    assert calendar.hour[0].start == 7
+    assert desc.schedule.spec.time_zone_name == "America/Los_Angeles"
     assert desc.schedule.action.workflow == "RunAllTopicDigestsWorkflow"
 
 
@@ -784,6 +912,7 @@ async def test_ensure_email_schedule_fires_monday_and_thursday(temporal_env_only
     [calendar] = desc.schedule.spec.calendars
     assert calendar.hour[0].start == 8
     assert _days_of_week(calendar) == {1, 4}  # Monday, Thursday
+    assert desc.schedule.spec.time_zone_name == "America/Los_Angeles"
     assert desc.schedule.action.workflow == "SendDigestEmailsWorkflow"
 
 

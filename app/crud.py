@@ -122,6 +122,8 @@ def finalize_digest(
     digest.status = status
     digest.overview = overview
     digest.error = error
+    if status == models.DigestStatus.completed:
+        digest.completed_at = models.utcnow()
     db.commit()
     db.refresh(digest)
     return digest
@@ -164,17 +166,26 @@ def list_digests(db: Session, skip: int = 0, limit: int = 50) -> list[models.Dig
 def list_completed_digests_since(
     db: Session, topic_id: str, since: datetime
 ) -> list[models.Digest]:
-    """Completed digests for a topic generated after `since`, oldest first -
-    the window an email delivery covers."""
+    """Digests for a topic that *completed* after `since`, oldest first - the
+    window an email delivery covers. Keyed on completed_at, not generated_at,
+    so a digest still running during one send goes out with the next."""
     return (
         db.query(models.Digest)
         .filter(
             models.Digest.topic_id == topic_id,
             models.Digest.status == models.DigestStatus.completed,
-            models.Digest.generated_at > since,
+            models.Digest.completed_at > since,
         )
-        .order_by(models.Digest.generated_at)
+        .order_by(models.Digest.completed_at)
         .all()
+    )
+
+
+def count_pending_digests(db: Session) -> int:
+    return (
+        db.query(models.Digest)
+        .filter(models.Digest.status == models.DigestStatus.pending)
+        .count()
     )
 
 

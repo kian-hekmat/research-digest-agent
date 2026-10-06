@@ -40,6 +40,7 @@ ACTIVITIES = [
     activities.gather_digest_content,
     activities.send_digest_email,
     activities.mark_subscription_sent,
+    activities.count_pending_digests,
 ]
 
 
