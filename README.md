@@ -1,364 +1,333 @@
-# Research Digest & Alert Agent
+# Research Digest Agent
 
-A service that tracks research topics on arXiv, summarizes new papers with an LLM
-(a free local model via Ollama, or Claude), and generates digests on a schedule. Built to rehearse a realistic backend/agent
-stack: FastAPI, PostgreSQL, and Temporal-orchestrated workflows.
+[![CI](https://github.com/kian-hekmat/research-digest-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/kian-hekmat/research-digest-agent/actions/workflows/ci.yml)
 
-## Status
+**A self-hosted research alerting service.** It watches arXiv for new papers on
+topics you choose, summarizes and scores each paper with a locally hosted LLM
+(Gemma 3 via Ollama), ranks them, and emails you one combined digest twice a week.
+Everything is orchestrated as durable Temporal workflows, so a crash, reboot, or
+sleeping laptop delays a digest instead of losing it.
 
-**Phase 1 complete:** core API and data model.
-- [x] FastAPI app with a real resource model: topics, papers, digests
-- [x] PostgreSQL persistence with a proper schema (many-to-many topics↔papers, FK on digests)
-- [x] Alembic migrations
-- [x] Pydantic validation + meaningful error responses (404s, 409 on duplicate topic)
-- [x] Dockerized (docker-compose: app + Postgres)
-- [x] Automated tests (pytest, hitting a real test DB)
-- [x] CI (GitHub Actions) running tests on every push
+> Built as a realistic backend/AI engineering project: an HTTP API, a relational
+> schema with migrations, durable workflow orchestration, external API
+> integration, local LLM inference, scheduled email delivery, and a 162-test
+> suite running in CI.
 
-**Phase 2 complete:** arXiv ingestion + LLM summarization.
-- [x] `search_arxiv()` — arXiv Atom API client (newest-first, `since` watermark filter, request throttling)
-- [x] `Summarizer` — per-paper summaries (`claude-haiku-4-5`) + a synthesized digest overview (`claude-sonnet-5`), via the Anthropic SDK
-- [x] Per-topic `last_checked_at` high-water mark, advanced only on a successful run
-- [x] Tests build the schema from migrations (not `create_all`); one `respx` test over the real Atom parser
+---
 
-**Phase 3 complete:** ingestion/summarization moved into Temporal workflows, with
-retry policies on every external call, plus a daily schedule.
-- [x] `DigestWorkflow` — Phase 2's pipeline, split into Activities (fetch / ingest
-  / summarize / overview / finalize / advance watermark), each with its own retry
-  policy; orchestration itself does no I/O
-- [x] `RunAllTopicDigestsWorkflow` — the scheduled entrypoint: fans out a
-  `DigestWorkflow` child per topic
-- [x] A daily Temporal Schedule (07:00 Pacific), created idempotently by the worker on
-  startup — `overlap_policy=SKIP` so a slow run is never doubled up
-- [x] `POST /digests/{topic_id}` now starts a `DigestWorkflow` instead of a FastAPI
-  background task — same immediate-`pending`-then-poll contract as before
-- [x] A dedicated `worker` container running `python -m app.worker`
-- [x] Tests run the real workflows against Temporal's ephemeral, time-skipping test
-  server (no Docker needed for tests) — including retry-exhaustion and multi-topic
-  fan-out, both of which finish in seconds despite minutes of simulated backoff
+## At a glance
 
-**Phase 4 complete:** weekly/biweekly email delivery to subscribers.
-- [x] `Subscription` — an email + cadence (`weekly`/`biweekly`) attached to a topic,
-  with its own `last_sent_at` watermark (mirrors `Topic.last_checked_at`)
-- [x] `POST/GET /topics/{topic_id}/subscriptions`, `DELETE /subscriptions/{id}`
-- [x] `SendDigestEmailsWorkflow` — the scheduled entrypoint: judges every
-  subscription against its own cadence (cron has no native "every other week", so
-  it fires weekly and each subscription decides for itself whether it's due),
-  gathers everything completed since the subscriber's last email, and delivers it
-  by SMTP; one subscriber's failure never blocks another's, and a skip (nothing
-  new) leaves the watermark alone rather than silently dropping content
-- [x] `EmailSender` (`app/services/email.py`) — plain SMTP, swappable via a client
-  factory for tests, same injection pattern as `Summarizer`
-- [x] A Temporal Schedule (Mondays + Thursdays 08:00 Pacific), created idempotently and
-  updated in place if its cron changes
-- [x] `twice_weekly` cadence (the default), per-subscription `max_papers` cap, and
-  `PATCH /subscriptions/{id}`; a recipient's due topics arrive as one combined email
-- [x] Mailpit added to docker-compose as the local SMTP catcher — nothing sent by
-  `docker-compose up` reaches a real inbox unless `SMTP_HOST`/`SMTP_PORT` are
-  deliberately pointed elsewhere
-- [x] Verified live: a seeded due subscription + completed digest produced a real
-  email in Mailpit with correct subject/overview/paper content, the watermark
-  advanced, and a second run correctly sent nothing (not yet due again)
+| | |
+|---|---|
+| **What it does** | arXiv → LLM summary + relevance rating → ranked, per-topic email digests |
+| **Backend** | Python 3.12, FastAPI, Pydantic, SQLAlchemy 2, PostgreSQL 16, Alembic |
+| **Orchestration** | Temporal (workflows, activities, retry policies, cron schedules) |
+| **AI / LLM** | Gemma 3 12B (`gemma3:12b`) served locally by Ollama: no API key, no per-call cost |
+| **External data** | arXiv Atom API, OpenAlex / Semantic Scholar (author h-index) |
+| **Email** | SMTP (Gmail or any relay), Mailpit for local development |
+| **Infrastructure** | Docker Compose (5 services), colima on macOS, GitHub Actions CI |
+| **Testing** | pytest, real Postgres, Temporal time-skipping test server, respx HTTP mocking |
 
-**Ranked caps:** when `max_papers` cuts a topic down, the papers kept are the
-highest-scoring rather than the newest (`app/services/ranking.py`):
-- **60% relevance**: how central the paper is to the topic, rated 1–10 by the LLM
-  in the same call that writes its summary. Relevance is stored per topic on
-  `topic_paper`, since one paper can match several topics.
-- **40% author standing**: the highest author h-index, log-scaled. It comes from
-  Semantic Scholar if `SEMANTIC_SCHOLAR_API_KEY` is set, else from OpenAlex (no key
-  needed). OpenAlex indexes new arXiv papers a few days later than Semantic Scholar,
-  so more of the newest papers go without this signal.
-- **Up to +8% venue bonus**: the arXiv comment or journal-ref says it was accepted
-  somewhere; a workshop gets half.
+## What a digest looks like
 
-A missing signal (no LLM configured, a paper not indexed for h-index yet, a
-failed lookup) counts as the batch median, so the paper neither sinks nor rises on
-it. With no signals at all, every paper ties and the cap falls back to newest first.
-Kept papers are still grouped by submission day, best first within each day.
+```
+Subject: Research digest: 20 new papers (RLHF, PINNs, Numerical Analysis)
 
-**Summaries: free and local by default.** `SUMMARY_BACKEND=ollama` runs summaries
-and overviews on a local open-weights model (`gemma3:12b`) served by Ollama on the
-Mac itself — no API key, no per-call cost. See [Free local summaries with
-Ollama](#free-local-summaries-with-ollama). The paid Anthropic API remains available
-as `SUMMARY_BACKEND=anthropic` + `ANTHROPIC_API_KEY`.
+===================
+RLHF - 10 new papers
+===================
+<LLM-written overview of the batch's common threads and tensions>
 
-**No-summary mode:** with neither configured, `Summarizer` detects it
-(`Settings.summaries_enabled`) and returns `None` immediately, no network call, no
-retry/backoff, no error — digests and emails work normally, just without
-AI-written text; the email body says so explicitly rather than looking broken.
+September 28, 2026
+------------------
+* Using Context Is Not Enough: Test-Time Training for Personalized Reward Modeling
+  <3–4 sentence summary: problem, approach, headline result>
+  https://arxiv.org/abs/2609.35109
+...
++ 4 more RLHF papers not shown (showing the top 10).
+```
+
+Each subscriber chooses topics, a cadence (twice weekly, weekly or biweekly), and
+a cap on papers per topic. When the cap cuts a topic down, the papers kept are the
+highest-ranked, not just the newest.
+
+---
+
+## Skills demonstrated
+
+**Backend & API design**
+- REST API with FastAPI: typed request/response models, validation, meaningful
+  status codes (201/204/404/409/422), partial updates via `PATCH`
+- Dependency injection throughout (DB session, Temporal client, SMTP client, LLM
+  HTTP client), so every external boundary can be faked in tests
+
+**Data modeling**
+- Normalized PostgreSQL schema: many-to-many join tables carrying data
+  (per-topic relevance on `topic_paper`), native enums, cascading foreign keys,
+  timezone-aware timestamps, indexed lookup columns
+- 8 hand-reviewed Alembic migrations, including a Postgres enum change that has
+  to commit outside the migration's transaction, and a reversible downgrade that
+  rebuilds the enum type
+
+**Distributed workflows (Temporal)**
+- Deterministic workflow code with all I/O isolated in activities, each with its
+  own timeout and retry policy (arXiv, LLM, DB and SMTP each tuned separately)
+- Fan-out with child workflows, bounded concurrency (semaphore-capped LLM calls),
+  and per-recipient failure isolation
+- Cron schedules in a DST-aware time zone, reconciled in place on deploy, with
+  catch-up of missed runs after downtime
+
+**Applied AI / LLM engineering**
+- Local inference with Ollama (Gemma 3 12B on Apple Silicon), reached from
+  containers via the host gateway
+- Prompt design for structured output: a summary plus a 1–10 relevance rating
+  in one call, with a tolerant parser that never loses a summary over a
+  malformed rating
+- Multi-signal ranking: LLM relevance (60%), author h-index (40%, log-scaled),
+  and a venue-acceptance bonus, with median imputation for missing signals
+
+**Reliability engineering**
+- Watermark-based incremental ingestion and delivery, advanced only on
+  confirmed success, so a failure retries instead of silently dropping content
+- Diagnosed and fixed real production-style incidents (see
+  [Problems solved](#problems-solved)): non-durable scheduler state, data lost
+  to API publication lag, race conditions between concurrent workflows, and
+  test-environment leakage
+
+**Testing & CI**
+- 162 tests against a real Postgres built by running the migrations, so model
+  and migration drift fails the suite
+- Workflows run end to end against Temporal's time-skipping server, so minutes
+  of retry backoff finish in about a second
+- Regression tests for each incident, mutation-checked: each was confirmed to
+  fail with its fix removed
+
+---
 
 ## Architecture
 
 ```
-┌─────────────┐      ┌──────────────┐      ┌─────────────┐
-│   Client    │─────▶│   FastAPI    │─────▶│  PostgreSQL │
-└─────────────┘      │   (app/)     │      └──────┬──────┘
-                      └──────┬───────┘             │
-                              │ start_workflow       │ SessionLocal()
-                              ▼                      │ (each Activity
-                      ┌──────────────┐               │  opens its own)
-                      │   Temporal   │◀──────────────┘
-                      │    server    │
-                      └──────┬───────┘
-                              │ polls digest-task-queue
-                              ▼
-                      ┌──────────────┐      ┌─────────────┐
-                      │    worker    │─────▶│    arXiv    │
-                      │ (app/worker) │      │  Anthropic  │
-                      │              │─────▶│  SMTP/Mailpit│
-                      └──────────────┘      └─────────────┘
+               ┌──────────────┐  start workflows   ┌─────────────────┐
+  HTTP client ─▶│   FastAPI    │───────────────────▶│ Temporal server │
+               │    (api)     │                     │ (durable state) │
+               └──────┬───────┘                     └────────┬────────┘
+                      │ read/write                           │ task queue
+                      ▼                                      ▼
+               ┌──────────────┐   activities open   ┌─────────────────┐
+               │  PostgreSQL  │◀────own sessions────│ Temporal worker │
+               └──────────────┘                     └──┬──────┬────┬──┘
+                                                       │      │    │
+                       ┌───────────────────────────────┘      │    └──────────┐
+                       ▼                                      ▼               ▼
+              ┌──────────────────┐              ┌──────────────────┐   ┌────────────┐
+              │ arXiv API        │              │ Ollama (on host) │   │ SMTP relay │
+              │ OpenAlex /       │              │ gemma3:12b       │   │ / Mailpit  │
+              │ Semantic Scholar │              └──────────────────┘   └────────────┘
+              └──────────────────┘
 ```
 
-The `api` and `worker` containers both run the same code against the same
-Postgres; `api` only ever talks to Temporal to start workflows and to Postgres
-to read/write topics and digests directly (fast, synchronous). All the slow,
-retryable, external work (arXiv, Anthropic, email) happens in `worker`'s Activities.
+- **`api`** is fast and synchronous: CRUD on topics and subscriptions, and
+  starting workflows. It never does slow external work itself.
+- **`worker`** runs every workflow and activity. All external calls (arXiv, the
+  LLM, scholarly APIs, SMTP) happen here, each behind a retry policy.
+- **Ollama runs natively on the Mac**, not in Docker, so Gemma can use the Apple
+  Silicon GPU. Containers reach it at `host.docker.internal`; it stays bound to
+  localhost and isn't exposed to the network.
+- **Temporal persists its state** to a volume, so schedules and in-flight
+  workflows survive restarts and resume where they stopped.
 
-**Data model:**
-- `Topic` — something you're tracking (name + arXiv search query). `last_checked_at`
-  is the ingestion high-water mark (NULL = never run → pull everything)
-- `Paper` — an ingested arXiv paper; `summary` is the LLM per-paper summary;
-  `comment`/`journal_ref` are arXiv's (refreshed on re-fetch); `max_author_h_index`
-  is filled in from Semantic Scholar or OpenAlex at send time
-- `Digest` — a generated batch of papers for a topic, with a `digest_status`
-  enum (`pending`/`completed`/`failed`), an `overview` column (LLM-synthesized
-  paragraph across the batch), and an `error` column for failure detail
-- `Subscription` — an email + cadence (`twice_weekly`/`weekly`/`biweekly`) subscribed
-  to a topic, with an optional `max_papers` cap and its own `last_sent_at` delivery
-  watermark
-- `topic_paper` — join table, since a paper can match more than one topic; carries
-  the paper's LLM-rated `relevance` (1–10) to that topic
-- `digest_paper` — join table, since a paper recurs across a topic's digests and re-runs
+---
 
-All FKs are `ON DELETE CASCADE`; timestamps are timezone-aware with `created_at`/
-`updated_at` on every entity; FK and lookup columns (`digests.topic_id`,
-`digests.status`, `papers.published_at`) are indexed.
+## How it works
 
-## How a digest runs
+### 1. Daily digest pipeline (`DigestWorkflow`)
+Runs daily at 07:00 Pacific for every topic, and on demand via `POST /digests/{topic_id}`.
 
-`POST /digests/{topic_id}` creates a `pending` digest, starts a `DigestWorkflow`
-for it (workflow id `digest-{digest_id}`), and returns immediately. Poll
-`GET /digests/{digest_id}` for the result. The same workflow also runs as a
-child of `RunAllTopicDigestsWorkflow`, fired daily by the Temporal Schedule.
+1. **Fetch** new papers from arXiv. Free-text topics are sent as exact-phrase
+   searches; queries like `cat:math.NA` track a whole arXiv category.
+2. **Ingest**: upsert papers by arXiv id and skip any the topic already has.
+3. **Summarize and rate** each new paper with Gemma, at most 4 calls at a time.
+   One call returns both the summary and a 1–10 relevance rating.
+4. **Overview**: one LLM-written paragraph synthesizing the batch.
+5. **Finalize**: mark the digest completed and advance the topic's watermark.
 
-`DigestWorkflow` (`app/temporal/workflows.py`) is pure orchestration — no DB/HTTP
-calls of its own, just a sequence of Activities (`app/temporal/activities.py`):
+### 2. Email delivery (`SendDigestEmailsWorkflow`)
+Runs Mondays and Thursdays at 08:00 Pacific.
 
-1. **get_digest_context** — load the topic (query, `last_checked_at`) behind the digest.
-2. **fetch_arxiv** — `search_arxiv(query, since=...)`, newest submission first.
-   `since` is the watermark minus `ARXIV_LOOKBACK_DAYS` (default 7): arXiv papers
-   only appear in the API once announced, 1–3 days after their submission
-   timestamp, so a strict `published > watermark` filter permanently drops them.
-   A free-text query is sent as an exact phrase (`all:"..."`); a query that starts
-   with an arXiv field prefix (e.g. `cat:math.NA`) is sent verbatim.
-   Retried up to 5x with backoff (5s→10s→20s→40s). If every attempt fails: digest
-   → `failed`, watermark untouched (so the next run gets the same window).
-3. **ingest_papers** — each result upserted by `arxiv_id` (version suffix stripped)
-   and linked to the topic and this digest — unless the topic already has it from
-   an earlier run's overlapping window, so no paper lands in two digests.
-4. **summarize_paper** — one Activity call per paper without a summary yet. A single
-   LLM call writes the summary and rates the paper's relevance to the topic. A paper
-   another topic already summarized gets a short **rate_relevance** call instead.
-   These calls are run
-   concurrently but at most 4 at a time (a local Ollama server works through a few
-   requests at once, and each activity's timeout runs while it queues); each
-   retried independently. A paper whose summary ultimately
-   fails is kept without one, and the count lands in `digest.error` — the digest
-   still completes.
-5. **write_overview** — a 5–6 sentence synthesis across the batch's summaries.
-6. **finalize_digest** / **advance_watermark** — status → `completed`, watermark
-   moves to when the run started.
+1. **Refresh first**: run a digest pass and wait for any in-flight digests, so
+   the email never goes out before fresh content is ready.
+2. **Find due subscriptions**, each judged against its own cadence.
+3. **Enrich**: look up author h-indices (Semantic Scholar with a key, OpenAlex
+   without), done at send time because both lag arXiv by a day or more.
+4. **Rank, cap and render** one email per recipient, with a section per topic
+   and papers grouped by arXiv submission date.
+5. **Send, then advance watermarks**, only for topics that were actually in a
+   confirmed send.
 
-`RunAllTopicDigestsWorkflow` (the scheduled entrypoint) lists every topic, creates
-a pending digest per topic, and runs a `DigestWorkflow` child for each, concurrently.
+### 3. Ranking (`app/services/ranking.py`)
+`score = 0.6 × relevance + 0.4 × log-scaled max author h-index (+ up to 0.08 venue bonus)`
 
-## How email delivery runs
+A missing signal is replaced with the batch median, so a paper too new to be
+indexed neither sinks nor rises. With no signals at all, the order falls back to
+newest first.
 
-`SendDigestEmailsWorkflow` fires twice a week (Mondays and Thursdays 08:00
-Pacific; both schedules use `America/Los_Angeles`, DST-aware, so they run while
-the laptop is normally awake), but each subscription is judged against its *own*
-cadence, not the schedule's:
+---
 
-0. **Refresh first** — it runs a full digest pass (`RunAllTopicDigestsWorkflow` as
-   a child) rather than trusting that the daily run happened, then waits up to 10
-   minutes for any other digest still `pending` (e.g. the daily run catching up at
-   the same moment after the laptop wakes). A refresh failure never blocks the send.
+## Problems solved
 
-1. **list_due_subscriptions** — active subscriptions where `now - last_sent_at` is
-   at least 3 days (`twice_weekly`), 7 (`weekly`) or 14 (`biweekly`), less 12 hours
-   of slack — the watermark is stamped a few seconds *after* a fire, so without
-   slack the next fire would land just short and be skipped.
-2. **enrich_author_h_index** — looks up the max author h-index of every paper any
-   due subscription could receive that doesn't have one yet. With a key, that's one
-   Semantic Scholar request per 500 papers; without one, two OpenAlex requests per
-   100 papers (works, then their authors), well inside OpenAlex's keyless 1000/day.
-   It runs at send time on purpose: both sources lag arXiv by a day or more, so more
-   papers are indexed by the send than at ingest. Retried 4x; if every attempt
-   fails, emails go out ranked without it.
-3. Due subscriptions are grouped by email address; per recipient, concurrently:
-   - **gather_digest_content** — for each of the recipient's due topics, every
-     digest that *completed* (`completed_at`) since that subscription's `last_sent_at` —
-     keyed on completion, not start, so a digest still running during one send goes
-     out with the next instead of being skipped forever. Papers
-     are de-duplicated, cut to the `max_papers` highest-ranked (see "Ranked caps"
-     above), and grouped
-     under their own arXiv *submission* date (not the date the digest ran). One
-     email, one section per topic; a topic with nothing new is left out. Nothing
-     new on any topic → skip the send *and* leave the watermarks alone.
-   - **send_digest_email** — SMTP via `EmailSender`, retried a few times.
-   - **mark_subscription_sent** — only on a confirmed send, and only for the
-     topics that were in the email, so a failed send (retries exhausted) is
-     retried in full on the next scheduled run rather than skipped. One
-     recipient's failure never blocks another's delivery.
+Real failures found while running this day to day, each fixed with a
+regression test:
 
-Subscribe via `POST /topics/{topic_id}/subscriptions` (`{"email": "...", "cadence":
-"twice_weekly", "max_papers": 10}`; cadence defaults to `twice_weekly`, `max_papers`
-to no cap); list with `GET` on the same path; change cadence/cap/active with
-`PATCH /subscriptions/{id}` (only the fields sent; `"max_papers": null` removes the
-cap); unsubscribe with `DELETE /subscriptions/{id}`.
+| Symptom | Root cause | Fix |
+|---|---|---|
+| A scheduled digest silently never sent | Temporal's dev server kept schedules in memory, so every container restart reset them with no record of missed runs | Persisted Temporal state to a volume; missed runs now catch up automatically |
+| Topics went weeks without new papers | arXiv publishes papers 1–3 days after their timestamp, and a strict "newer than last run" filter dropped them permanently | Look back 7 days past the watermark and de-duplicate by arXiv id |
+| Emails repeated one date many times and misdated papers | Papers were grouped by when the job ran, not when they were published | Group by each paper's own submission date; de-duplicate across runs |
+| Papers could be skipped forever | Delivery keyed on when a digest *started*, so one still running during a send fell behind the new watermark | Key delivery on completion time, snapshotted before reading |
+| Catch-up emails went out half-empty | After a laptop woke, the missed digest and email runs fired at the same moment and raced | The email workflow refreshes and waits for in-flight digests before sending |
+| A reboot left everything down | No container restart policies | `restart: unless-stopped` on every service, colima started at login |
+| Tests called the developer's real LLM | A cached settings object loaded the local `.env` before the test harness disabled it | Fixed load order; a guard test asserts the session is isolated |
 
-Configuration (`app/config.py`, env-driven — see `.env.example`): `ANTHROPIC_API_KEY`
-(optional — see below), `SUMMARY_MODEL`, `OVERVIEW_MODEL`, `ARXIV_MAX_RESULTS`,
-`ARXIV_PAGE_DELAY`, `ARXIV_LOOKBACK_DAYS`, `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`, `TEMPORAL_TASK_QUEUE`,
-`SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`,
-`SMTP_FROM_ADDRESS`, `SEMANTIC_SCHOLAR_API_KEY` (optional; without it h-indices come
-from OpenAlex instead).
+---
 
-## Free local summaries with Ollama
-
-Ollama runs natively on macOS so it can use the GPU — the colima VM has neither
-the GPU nor the memory. It listens on `127.0.0.1:11434` only (not exposed to the
-network); containers reach it at `host.docker.internal`, which colima forwards to
-the Mac's loopback.
+## Testing
 
 ```bash
-brew install ollama
-brew services start ollama          # background service, restarts at login
-ollama pull gemma3:12b              # ~8 GB
-echo 'SUMMARY_BACKEND=ollama' >> .env
-docker-compose up -d worker api     # recreate so they pick up the new env
+venv/bin/python3 -m pytest -q        # 162 tests
 ```
 
-Papers ingested while summaries were off keep no summary (a paper is never
-re-ingested for the same topic). To fill in the ones not yet emailed:
+| Layer | How |
+|---|---|
+| Database | Real PostgreSQL; schema built by running the Alembic migrations, torn down per test |
+| Workflows | Real workflows and activities on Temporal's **time-skipping** test server, so retry backoff is fast-forwarded |
+| Schedules | Temporal's local dev server (the time-skipping server has no Schedule API) |
+| HTTP integrations | `respx` mocks for arXiv, Ollama, OpenAlex and Semantic Scholar; no test reaches a real external service |
+| Email | Full MIME output checked (multipart parts, UTF-8 round trip, well-formed HTML, escaping) |
+| Config | Static checks on `docker-compose.yml`: persistence, restart policies, worker env |
 
+CI (GitHub Actions) runs the full suite against a fresh Postgres service
+container on every push.
+
+---
+
+## Running locally
+
+**Prerequisites:** Docker (colima on macOS) and [Ollama](https://ollama.com).
+
+```bash
+# 1. Local LLM (runs natively for GPU access)
+brew install ollama
+brew services start ollama
+ollama pull gemma3:12b            # ~8 GB
+
+# 2. Configure
+cp .env.example .env              # defaults work out of the box; email goes to Mailpit
+
+# 3. Start the stack: Postgres, Temporal, Mailpit, API, worker
+docker-compose up -d --build
+docker-compose exec api alembic upgrade head
+```
+
+| URL | What |
+|---|---|
+| http://localhost:8000/docs | Interactive API docs (Swagger) |
+| http://localhost:8233 | Temporal UI: workflow runs, retries, schedules |
+| http://localhost:8025 | Mailpit: every email sent locally lands here |
+
+### Example
+
+```bash
+# Track a topic (exact phrase), or a whole arXiv category with "cat:math.NA"
+curl -X POST localhost:8000/topics -H 'Content-Type: application/json' \
+  -d '{"name": "RLHF", "query": "reinforcement learning from human feedback"}'
+
+# Subscribe: twice weekly, the 10 best papers per email
+curl -X POST localhost:8000/topics/<topic_id>/subscriptions -H 'Content-Type: application/json' \
+  -d '{"email": "you@example.com", "cadence": "twice_weekly", "max_papers": 10}'
+
+# Run a digest now, then poll it (pending -> completed)
+curl -X POST localhost:8000/digests/<topic_id>
+curl localhost:8000/digests/<digest_id>
+```
+
+### API
+
+| Method & path | Purpose |
+|---|---|
+| `POST /topics`, `GET /topics`, `GET /topics/{id}`, `DELETE /topics/{id}` | Manage tracked topics |
+| `POST /digests/{topic_id}`, `GET /digests`, `GET /digests/{id}` | Trigger and inspect digest runs |
+| `GET /papers/by-topic/{topic_id}` | Papers ingested for a topic |
+| `POST`/`GET /topics/{id}/subscriptions` | Subscribe to a topic, list subscribers |
+| `PATCH`/`DELETE /subscriptions/{id}` | Change cadence, cap or active flag; unsubscribe |
+| `GET /health` | Health check |
+
+---
+
+## Configuration
+
+All settings are environment variables (see [`.env.example`](.env.example)).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SUMMARY_BACKEND` | `ollama` | `ollama` for Gemma summaries; `none` to send digests without AI text |
+| `OLLAMA_MODEL` | `gemma3:12b` | Model for summaries, ratings and overviews |
+| `OLLAMA_BASE_URL` | `http://host.docker.internal:11434` (in Docker) | Where the worker reaches Ollama |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_USE_TLS` / `SMTP_FROM_ADDRESS` | Mailpit | Outgoing email |
+| `SEMANTIC_SCHOLAR_API_KEY` | unset | Optional; without it, h-indices come from OpenAlex |
+| `ARXIV_MAX_RESULTS` / `ARXIV_LOOKBACK_DAYS` | `25` / `7` | Fetch size and publication-lag window |
+
+---
+
+## Project structure
+
+```
+app/
+├── main.py                 FastAPI app
+├── routers/                topics, papers, digests, subscriptions endpoints
+├── models.py, schemas.py   SQLAlchemy models, Pydantic schemas
+├── crud.py                 database access
+├── services/
+│   ├── arxiv.py            arXiv Atom API client
+│   ├── summarize.py        Gemma via Ollama: summaries, ratings, overviews
+│   ├── ranking.py          multi-signal paper scoring (pure functions)
+│   ├── scholar.py          author h-index from Semantic Scholar / OpenAlex
+│   └── email.py            digest rendering + SMTP sender
+├── temporal/
+│   ├── workflows.py        DigestWorkflow, RunAllTopicDigestsWorkflow, SendDigestEmailsWorkflow
+│   ├── activities.py       all I/O: DB, arXiv, LLM, SMTP
+│   ├── schedule.py         idempotent, self-reconciling cron schedules
+│   └── types.py            dependency-free dataclasses passed across the workflow boundary
+├── worker.py               Temporal worker entrypoint
+└── backfill_summaries.py   one-off: summarize papers waiting to be emailed
+alembic/versions/           schema migrations
+tests/                      162 tests (see Testing)
+docs/                       design notes
+```
+
+<details>
+<summary><strong>Developer notes</strong></summary>
+
+**Migrations**
+```bash
+alembic revision --autogenerate -m "description"   # after changing app/models.py
+alembic upgrade head
+```
+
+**Summaries for papers ingested while summarization was off.** A paper is never
+re-ingested for the same topic, so fill in any still waiting to be emailed with:
 ```bash
 docker-compose exec worker python -m app.backfill_summaries
 ```
 
-Settings: `SUMMARY_BACKEND` (`ollama`/`anthropic`), `OLLAMA_MODEL`,
-`OLLAMA_BASE_URL`, `OLLAMA_TIMEOUT`. If the Ollama server is down, summary calls
-fail and are retried like any other outage; the digest still completes, with the
-failure count in `digest.error`.
+**Reboot resilience on macOS.** Every service has `restart: unless-stopped`; for
+that to survive a reboot, colima itself must start at login:
+`brew services start colima`.
 
-## How to add a real Anthropic key later
+**A Temporal serialization gotcha.** `app/temporal/types.py` deliberately does
+*not* use `from __future__ import annotations`. Temporal's payload converter
+resolves dataclass field types via `dataclasses.fields()`, which returns
+unresolved string annotations under postponed evaluation. That silently breaks
+`datetime` fields in dataclasses nested inside `list[...]`: it doesn't raise,
+the workflow task fails and retries forever, and it looks exactly like a hang.
 
-The Anthropic API is billed separately from a claude.ai subscription (pay-per-token,
-its own account at console.anthropic.com) — this project deliberately runs without
-one until you decide that's worth it. Nothing else needs to change:
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...    # or add it to a .env file, no quotes
-docker-compose up -d --build worker api
-```
-
-The next digest run calls Anthropic for real; no flag, no migration, no code
-change. To go back to no-summary mode, unset it (or just don't set it) and
-rebuild — `Summarizer` re-checks `Settings.summaries_enabled` on every call, it
-doesn't cache the decision at startup.
-
-## Running locally
-
-```bash
-docker-compose up --build
-```
-
-Every service has `restart: unless-stopped`, so the stack comes back on its own
-whenever Docker does. For that to survive a reboot, colima itself must start at
-login: `brew services start colima`.
-
-This starts five containers: `db` (Postgres), `temporal` (Temporal dev server),
-`mailpit` (local SMTP catcher), `api` (FastAPI), and `worker` (the Temporal worker
-— polls the task queue and creates both schedules on startup, idempotently). Once
-healthy:
-- API docs: http://localhost:8000/docs
-- Health check: http://localhost:8000/health
-- Temporal Web UI: http://localhost:8233 — inspect workflow runs, retries, and the
-  `daily-topic-digests` / `weekly-digest-emails` schedules directly
-- Mailpit Web UI: http://localhost:8025 — every email the app sends locally lands
-  here, not in a real inbox
-
-Example flow:
-```bash
-# Create a topic
-curl -X POST localhost:8000/topics \
-  -H "Content-Type: application/json" \
-  -d '{"name": "RLHF", "query": "reinforcement learning from human feedback"}'
-
-# List topics
-curl localhost:8000/topics
-
-# Trigger a digest — returns a pending digest; a DigestWorkflow fills it in
-curl -X POST localhost:8000/digests/<topic_id>
-
-# Poll for the result (status flips pending -> completed/failed)
-curl localhost:8000/digests/<digest_id>
-```
-
-The `temporal` container persists its state (schedules, their next-fire
-bookkeeping, workflow history) to SQLite on the `temporal_data` volume via
-`--db-filename`, so a restart doesn't silently reset the schedules and lose any
-fire that was due while it was down — a missed fire runs as soon as it's back.
-
-## Running migrations
-
-```bash
-# generate a new migration after changing app/models.py
-alembic revision --autogenerate -m "description"
-
-# apply migrations
-alembic upgrade head
-```
-
-## Running tests
-
-Tests run against a real Postgres instance (no mocking the DB — the schema and
-constraints are part of what's being tested), with the schema built by running
-the Alembic migrations so model/migration drift fails the suite.
-
-Temporal workflow tests (`tests/test_temporal_workflows.py`) run the real
-`DigestWorkflow` / `RunAllTopicDigestsWorkflow` against Temporal's ephemeral,
-*time-skipping* test server (`temporalio.testing.WorkflowEnvironment`) — no
-Docker or running Temporal server needed. Time-skipping fast-forwards through
-retry backoff, so a test that exhausts all 5 arXiv retry attempts (which would
-take over a minute of real backoff) finishes in about a second. Only the
-schedule-creation test needs the full dev server (`start_local()` — the
-time-skipping server doesn't implement the Schedule API), which does download
-a small server binary on first use.
-
-arXiv, Anthropic, and email are faked by monkeypatching `app.temporal.activities`
-directly (`search_arxiv`, `Summarizer`, `EmailSender`); one `respx` test exercises
-the real Atom parser, one exercises `EmailSender`/`render_digest_email` against a
-fake SMTP client, and one test asserts the `DigestStatus` enum and the plain string
-literals the workflow uses for it (`app/temporal/types.py`, kept dependency-free of
-SQLAlchemy) haven't drifted apart.
-
-**A gotcha worth knowing if you add a new cross-boundary dataclass:**
-`app/temporal/types.py` deliberately does *not* use `from __future__ import
-annotations`. Temporal's payload converter resolves a dataclass's field types via
-`dataclasses.fields()`, which returns raw (unresolved) string annotations under
-postponed evaluation — this silently breaks `datetime` fields specifically (it
-needs the concrete type object) when that dataclass is returned nested inside a
-generic like `list[...]`. It doesn't raise; the workflow task just fails and
-Temporal retries it forever, which looks exactly like a hang. `DueSubscription`
-hit this first, since it was the first `list[...]`-returned dataclass with a
-`datetime` field. Python 3.10+'s `X | None` syntax works fine at runtime without
-the future import, so there's no downside to leaving it out in that file.
-
-```bash
-# with docker-compose's db already running:
-TEST_DATABASE_URL=postgresql+psycopg2://digest_user:digest_pass@localhost:5432/digest_test_db pytest -v
-```
-
-CI runs this automatically against a fresh Postgres service container on every push.
+</details>

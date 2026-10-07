@@ -293,13 +293,12 @@ async def test_digest_workflow_caps_concurrent_summaries(db_session, temporal_cl
     assert all(p.summary for p in refreshed.papers)
 
 
-async def test_digest_workflow_without_api_key_completes_with_no_summaries(
+async def test_digest_workflow_with_summaries_off_completes_with_no_summaries(
     db_session, temporal_client, monkeypatch
 ):
     """Uses the REAL Summarizer (undoing the fixture's FakeSummarizer patch) to
-    prove the no-key path end-to-end: the test environment has no
-    ANTHROPIC_API_KEY set, so this exercises Summarizer's actual short-circuit,
-    not a stand-in for it."""
+    prove no-summary mode end-to-end: conftest sets SUMMARY_BACKEND=none, so
+    this exercises Summarizer's actual short-circuit, not a stand-in for it."""
     from app.services.summarize import Summarizer as RealSummarizer
 
     monkeypatch.setattr(temporal_activities, "Summarizer", RealSummarizer)

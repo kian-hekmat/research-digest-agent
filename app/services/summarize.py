@@ -1,23 +1,19 @@
-"""LLM summarization, via a local Ollama model or the Anthropic API.
+"""LLM summarization with a local Gemma model (`gemma3:12b`) served by Ollama.
 
-`Summarizer` wraps both backends so it can be injected as a FastAPI dependency
-and faked in tests. Which one is used is `Settings.summary_backend`:
-
-- "ollama" - a model served by Ollama on this machine (no per-call cost).
-  Plain HTTP via httpx; the client is swappable via `http_client`.
-- "anthropic" - the paid Anthropic API. The client is created lazily, so
-  importing this module and constructing `Summarizer()` never touches the
-  network or needs a key; it's swappable via `client`.
+Runs entirely on the host machine: no API key and no per-call cost. Each call
+is one non-streaming request to Ollama's `/api/chat` over plain HTTP (httpx).
+`Summarizer` can be injected as a FastAPI dependency and faked in tests, and
+its HTTP client is swappable via `http_client`.
 
 The digest pipeline uses `summarize_and_rate`, which also rates the paper's
 relevance to the topic (1-10, feeding app.services.ranking) in the same call,
 and `rate_relevance` for a paper that already has a summary from another
 topic. `summarize_paper` (summary only) remains for the backfill script.
 
-When summarization isn't configured (`Settings.summaries_enabled` is False),
-every method returns `None` (or a RatedSummary of Nones) immediately - no network call, no retry/backoff, no
-error. This is a deliberate "no-summary mode": digests and emails still work,
-just without AI-written text.
+With `SUMMARY_BACKEND=none` (`Settings.summaries_enabled` is False), every
+method returns `None` (or a RatedSummary of Nones) immediately - no network
+call, no retry/backoff, no error. This is a deliberate "no-summary mode":
+digests and emails still work, just without AI-written text.
 """
 from __future__ import annotations
 
@@ -25,7 +21,6 @@ import re
 from dataclasses import dataclass
 
 import httpx
-from anthropic import Anthropic
 
 from app.config import Settings, get_settings
 
@@ -109,29 +104,14 @@ def _topic_line(topic_name: str, topic_query: str) -> str:
     return f"Reader's topic: {topic_name} (arXiv search: {topic_query})"
 
 
-def _first_text(message) -> str:
-    for block in message.content:
-        if block.type == "text":
-            return block.text.strip()
-    return ""
-
-
 class Summarizer:
     def __init__(
         self,
-        client: Anthropic | None = None,
         settings: Settings | None = None,
         http_client: httpx.Client | None = None,
     ) -> None:
-        self._client = client
         self._settings = settings or get_settings()
         self._http_client = http_client
-
-    @property
-    def client(self) -> Anthropic:
-        if self._client is None:
-            self._client = Anthropic(api_key=self._settings.anthropic_api_key)
-        return self._client
 
     def summarize_paper(self, title: str, abstract: str) -> str | None:
         if not self._settings.summaries_enabled:
@@ -139,7 +119,6 @@ class Summarizer:
         return self._complete(
             system=_PER_PAPER_SYSTEM,
             user=f"Title: {title}\n\nAbstract: {abstract}",
-            anthropic_model=self._settings.summary_model,
             max_tokens=400,
         )
 
@@ -151,7 +130,6 @@ class Summarizer:
         text = self._complete(
             system=_RATED_SUMMARY_SYSTEM,
             user=f"{_topic_line(topic_name, topic_query)}\n\nTitle: {title}\n\nAbstract: {abstract}",
-            anthropic_model=self._settings.summary_model,
             max_tokens=420,
         )
         return parse_rated_summary(text)
@@ -164,7 +142,6 @@ class Summarizer:
         text = self._complete(
             system=_RELEVANCE_SYSTEM,
             user=f"{_topic_line(topic_name, topic_query)}\n\nTitle: {title}\n\nAbstract: {abstract}",
-            anthropic_model=self._settings.summary_model,
             max_tokens=10,
         )
         return parse_relevance(text)
@@ -176,25 +153,13 @@ class Summarizer:
         return self._complete(
             system=_OVERVIEW_SYSTEM,
             user=f"Topic: {topic_name}\n\nPaper summaries:\n{joined}",
-            anthropic_model=self._settings.overview_model,
             max_tokens=500,
         )
 
-    def _complete(self, *, system: str, user: str, anthropic_model: str, max_tokens: int) -> str:
-        if self._settings.summary_backend == "ollama":
-            return self._complete_ollama(system, user, max_tokens)
-        message = self.client.messages.create(
-            model=anthropic_model,
-            max_tokens=max_tokens,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-        )
-        return _first_text(message)
-
-    def _complete_ollama(self, system: str, user: str, max_tokens: int) -> str:
+    def _complete(self, *, system: str, user: str, max_tokens: int) -> str:
         """One non-streaming /api/chat call. Left to raise on failure
         (server down, model not pulled, timeout) - the activity's retry
-        policy governs attempts, same as for the Anthropic backend."""
+        policy governs attempts."""
         owns_client = self._http_client is None
         client = self._http_client or httpx.Client(timeout=self._settings.ollama_timeout)
         try:

@@ -8,13 +8,13 @@ Workflow code must be deterministic (Temporal replays it from history), so:
   - no direct DB/HTTP/LLM calls - everything goes through `execute_activity`
   - wall-clock time comes from `workflow.now()`, never `datetime.now()`
   - the only non-stdlib import at module scope is `activities`, wrapped in
-    `imports_passed_through()` since it pulls in SQLAlchemy/httpx/anthropic
+    `imports_passed_through()` since it pulls in SQLAlchemy/httpx
 
 `imports_passed_through()` covers *this* import statement, but SQLAlchemy's
 declarative models register Tables on a single shared MetaData at import time
 - if the sandbox re-executes that registration via any other path, it dies
   with "Table ... already defined". `WORKFLOW_RUNNER` below closes that gap by
-  declaring the whole app.* + SQLAlchemy/httpx/anthropic chain passthrough at
+  declaring the whole app.* + SQLAlchemy/httpx chain passthrough at
   the Worker level; pass it as `Worker(..., workflow_runner=WORKFLOW_RUNNER)`
   wherever a Worker is constructed (see app/worker.py and the tests).
 """
@@ -46,7 +46,6 @@ WORKFLOW_RUNNER = SandboxedWorkflowRunner(
         "app.services.ranking",
         "app.services.scholar",
         "sqlalchemy",
-        "anthropic",
         "httpx",
         "feedparser",
     )

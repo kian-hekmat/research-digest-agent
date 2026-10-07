@@ -11,6 +11,10 @@ TEST_DATABASE_URL = os.getenv(
     "postgresql+psycopg2://digest_user:digest_pass@localhost:5432/digest_test_db",
 )
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+# Summarization defaults to the local Gemma model; no test may call a real
+# Ollama server. Tests that exercise the Ollama path pass their own Settings
+# and fake the HTTP layer with respx.
+os.environ["SUMMARY_BACKEND"] = "none"
 
 import pytest  # noqa: E402
 from alembic import command  # noqa: E402

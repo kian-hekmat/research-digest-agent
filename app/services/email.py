@@ -3,7 +3,7 @@
 `EmailSender` wraps smtplib so it can be injected as a Temporal Activity and
 faked in tests - constructing it never opens a connection, only `.send()`
 does, and the SMTP client itself is swappable via `smtp_client_factory` (same
-injection pattern as `Summarizer(client=...)`). `build_topic_section` and
+injection pattern as `Summarizer(http_client=...)`). `build_topic_section` and
 `render_digest_email` are pure functions, independently testable without a
 DB, SMTP, or Temporal.
 
@@ -145,7 +145,7 @@ def render_digest_email(
     if not summaries_enabled:
         note = (
             "AI-written summaries are currently disabled for this digest - "
-            "set SUMMARY_BACKEND=ollama (free, local) or an ANTHROPIC_API_KEY to enable them."
+            "set SUMMARY_BACKEND=ollama to enable them."
         )
         text_lines += [note, ""]
         html_parts.append(f"<p><em>{escape(note)}</em></p>")
