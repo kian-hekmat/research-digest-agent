@@ -43,6 +43,8 @@ WORKFLOW_RUNNER = SandboxedWorkflowRunner(
         "app.services.arxiv",
         "app.services.summarize",
         "app.services.email",
+        "app.services.ranking",
+        "app.services.scholar",
         "sqlalchemy",
         "anthropic",
         "httpx",
@@ -75,6 +77,15 @@ _MAX_CONCURRENT_SUMMARIES = 4
 # Before an email send: wait up to 20 x 30s = 10 min for in-flight digests.
 _PENDING_WAIT_POLLS = 20
 _PENDING_WAIT_INTERVAL = timedelta(seconds=30)
+# Semantic Scholar's keyless pool 429s in bursts; a few spaced-out attempts
+# ride most of them out. Exhausting them only costs the email its h-index
+# signal, never the send.
+_SCHOLAR_RETRY = RetryPolicy(
+    maximum_attempts=4,
+    initial_interval=timedelta(seconds=5),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(seconds=30),
+)
 _EMAIL_RETRY = RetryPolicy(
     maximum_attempts=3,
     initial_interval=timedelta(seconds=2),
@@ -130,28 +141,50 @@ class DigestWorkflow:
             retry_policy=_DB_RETRY,
         )
 
-        # --- 3. summarize papers that don't have a summary yet, concurrently --
+        # --- 3. summarize + rate relevance to this topic, concurrently -------
+        # One LLM call per new paper does both. A paper another topic already
+        # summarized only needs this topic's relevance rating; a failed rating
+        # just leaves it unrated (the ranking imputes it), so those aren't
+        # counted as failures.
         # At most _MAX_CONCURRENT_SUMMARIES in flight: a local Ollama server
         # works through requests a few at a time, and each activity's timeout
         # clock runs while it waits in that queue - firing all 25 at once
         # would time out the back of the queue and retry work already done.
         to_summarize = [p for p in papers if not p.existing_summary]
-        summary_slots = asyncio.Semaphore(_MAX_CONCURRENT_SUMMARIES)
+        to_rate_only = [p for p in papers if p.existing_summary]
+        llm_slots = asyncio.Semaphore(_MAX_CONCURRENT_SUMMARIES)
+
+        def llm_input(p: types.IngestedPaper) -> types.SummarizePaperInput:
+            return types.SummarizePaperInput(
+                paper_id=p.paper_id,
+                title=p.title,
+                abstract=p.abstract or "",
+                topic_id=ctx.topic_id,
+                topic_name=ctx.topic_name,
+                topic_query=ctx.query,
+            )
 
         async def summarize(p: types.IngestedPaper) -> str | None:
-            async with summary_slots:
+            async with llm_slots:
                 return await workflow.execute_activity(
                     activities.summarize_paper,
-                    types.SummarizePaperInput(
-                        paper_id=p.paper_id, title=p.title, abstract=p.abstract or ""
-                    ),
+                    llm_input(p),
                     start_to_close_timeout=_LLM_TIMEOUT,
                     retry_policy=_LLM_RETRY,
                 )
 
-        summary_results = await asyncio.gather(
-            *[summarize(p) for p in to_summarize],
-            return_exceptions=True,
+        async def rate(p: types.IngestedPaper) -> int | None:
+            async with llm_slots:
+                return await workflow.execute_activity(
+                    activities.rate_relevance,
+                    llm_input(p),
+                    start_to_close_timeout=_LLM_TIMEOUT,
+                    retry_policy=_LLM_RETRY,
+                )
+
+        summary_results, _ = await asyncio.gather(
+            asyncio.gather(*[summarize(p) for p in to_summarize], return_exceptions=True),
+            asyncio.gather(*[rate(p) for p in to_rate_only], return_exceptions=True),
         )
         summary_failures = sum(1 for r in summary_results if isinstance(r, BaseException))
         new_summaries = [r for r in summary_results if isinstance(r, str)]
@@ -279,6 +312,8 @@ class SendDigestEmailsWorkflow:
         if not due:
             return 0
 
+        await self._enrich_author_h_index(due)
+
         # dict preserves first-seen order, and `due` arrives oldest
         # subscription first - so topics appear in the order subscribed.
         by_recipient: dict[str, list[types.DueSubscription]] = {}
@@ -319,21 +354,23 @@ class SendDigestEmailsWorkflow:
             await workflow.sleep(_PENDING_WAIT_INTERVAL)
         workflow.logger.warning("Sending with digests still pending; they'll go out next time")
 
+    async def _enrich_author_h_index(self, due: list[types.DueSubscription]) -> None:
+        """One Semantic Scholar pass for every recipient's papers, before any
+        gather. Failure degrades the ranking (no h-index term), never the send."""
+        try:
+            await workflow.execute_activity(
+                activities.enrich_author_h_index,
+                _windows(due),
+                start_to_close_timeout=timedelta(seconds=90),
+                retry_policy=_SCHOLAR_RETRY,
+            )
+        except ActivityError:
+            workflow.logger.warning("Author h-index lookup failed; ranking without it", exc_info=True)
+
     async def _deliver(self, email: str, subs: list[types.DueSubscription]) -> bool:
         gathered: types.GatheredContent | None = await workflow.execute_activity(
             activities.gather_digest_content,
-            types.GatherContentInput(
-                topics=[
-                    types.TopicWindow(
-                        subscription_id=s.subscription_id,
-                        topic_id=s.topic_id,
-                        topic_name=s.topic_name,
-                        since=s.last_sent_at,
-                        max_papers=s.max_papers,
-                    )
-                    for s in subs
-                ]
-            ),
+            _windows(subs),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=_DB_RETRY,
         )
@@ -362,3 +399,18 @@ class SendDigestEmailsWorkflow:
             ]
         )
         return True
+
+
+def _windows(subs: list[types.DueSubscription]) -> types.GatherContentInput:
+    return types.GatherContentInput(
+        topics=[
+            types.TopicWindow(
+                subscription_id=s.subscription_id,
+                topic_id=s.topic_id,
+                topic_name=s.topic_name,
+                since=s.last_sent_at,
+                max_papers=s.max_papers,
+            )
+            for s in subs
+        ]
+    )

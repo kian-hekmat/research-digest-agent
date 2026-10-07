@@ -111,12 +111,13 @@ def test_email_sender_builds_a_well_formed_multipart_message():
 
 
 # ---------- build_topic_section / render_digest_email ----------
-def _paper(arxiv_id, title=None, *, day=None, summary="A summary."):
+def _paper(arxiv_id, title=None, *, day=None, summary="A summary.", hour=14, **signals):
     return PaperForEmail(
         title=title or f"Paper {arxiv_id}",
         summary=summary,
         arxiv_id=arxiv_id,
-        published_at=datetime(2026, 9, day, 14, 0, tzinfo=timezone.utc) if day else None,
+        published_at=datetime(2026, 9, day, hour, 0, tzinfo=timezone.utc) if day else None,
+        **signals,
     )
 
 
@@ -228,7 +229,10 @@ def test_paper_without_submission_date_falls_back_to_its_run_date():
     assert _date_headers(render_digest_email([section]).text_body) == ["September 21, 2026"]
 
 
-def test_max_papers_keeps_the_newest_and_reports_the_rest():
+def test_max_papers_without_ranking_signals_keeps_the_newest_and_reports_the_rest():
+    """No relevance, h-index or venue on any paper (e.g. no LLM configured and
+    Semantic Scholar down): every score ties, so the cap falls back to the
+    old newest-first behavior."""
     papers = [_paper(f"p{d}", day=d) for d in range(1, 13)]  # 12 papers, Sept 1-12
 
     section = build_topic_section("RLHF", [_digest(papers, day=13)], max_papers=10)
@@ -239,8 +243,50 @@ def test_max_papers_keeps_the_newest_and_reports_the_rest():
     assert content.subject == "RLHF: 10 new papers"
     assert content.text_body.count("https://arxiv.org/abs/") == 10
     assert "abs/p1\n" not in content.text_body and "abs/p2\n" not in content.text_body
-    assert "+ 2 more RLHF papers not shown (showing the 10 most recent)." in content.text_body
+    assert "+ 2 more RLHF papers not shown (showing the top 10)." in content.text_body
     assert "2 more RLHF papers not shown" in content.html_body
+
+
+def test_max_papers_keeps_the_highest_ranked_not_the_newest():
+    papers = [
+        _paper("new-tangential", day=12, relevance=2, max_author_h_index=3),
+        _paper("new-strong", day=12, relevance=9, max_author_h_index=40),
+        _paper("old-central", day=3, relevance=10, max_author_h_index=25),
+        _paper("mid-weak", day=8, relevance=3, max_author_h_index=5),
+    ]
+
+    section = build_topic_section("RLHF", [_digest(papers)], max_papers=2)
+
+    assert {p.arxiv_id for p in section.papers} == {"new-strong", "old-central"}
+    assert section.omitted == 2
+
+
+def test_kept_papers_are_laid_out_newest_day_first_best_first_within_a_day():
+    papers = [
+        _paper("d12-weak", day=12, hour=18, relevance=3),
+        _paper("d12-strong", day=12, hour=9, relevance=9),
+        _paper("d10", day=10, relevance=10),
+    ]
+
+    section = build_topic_section("RLHF", [_digest(papers)])
+
+    assert [p.arxiv_id for p in section.papers] == ["d12-strong", "d12-weak", "d10"]
+    assert _date_headers(render_digest_email([section]).text_body) == [
+        "September 12, 2026",
+        "September 10, 2026",
+    ]
+
+
+def test_h_index_breaks_a_relevance_tie_and_venue_tips_a_close_call():
+    papers = [
+        _paper("famous", day=5, relevance=8, max_author_h_index=50),
+        _paper("unknown", day=6, relevance=8, max_author_h_index=2),
+        _paper("accepted", day=4, relevance=8, max_author_h_index=2, venue_score=1.0),
+    ]
+
+    section = build_topic_section("RLHF", [_digest(papers)], max_papers=2)
+
+    assert {p.arxiv_id for p in section.papers} == {"famous", "accepted"}
 
 
 def test_no_omitted_note_when_under_the_cap():

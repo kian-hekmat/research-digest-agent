@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -62,8 +63,14 @@ def get_or_create_paper(
     abstract: str | None,
     published_at,
     topic: models.Topic | None = None,
+    comment: str | None = None,
+    journal_ref: str | None = None,
 ) -> models.Paper:
     """Upsert a paper by arXiv id; when `topic` is given, ensure it's linked.
+
+    An existing paper's comment/journal_ref are refreshed when arXiv now has
+    them: authors add "Accepted at ..." in later versions, and that should
+    count from then on. Other fields are left as first ingested.
 
     Does not commit — the caller owns the transaction boundary.
     """
@@ -78,9 +85,14 @@ def get_or_create_paper(
             title=title,
             abstract=abstract,
             published_at=published_at,
+            comment=comment,
+            journal_ref=journal_ref,
         )
         db.add(paper)
         db.flush()  # assign paper.id so association rows can be written
+    else:
+        paper.comment = comment or paper.comment
+        paper.journal_ref = journal_ref or paper.journal_ref
 
     if topic is not None and topic not in paper.topics:
         paper.topics.append(topic)
@@ -109,6 +121,34 @@ def arxiv_ids_linked_to_topic(
 def link_paper_to_digest(digest: models.Digest, paper: models.Paper) -> None:
     if paper not in digest.papers:
         digest.papers.append(paper)
+
+
+def set_topic_paper_relevance(
+    db: Session, topic_id: str, paper_id: str, relevance: int | None
+) -> None:
+    """Store a paper's relevance to one topic (on their link row). Does not
+    commit."""
+    link = models.topic_paper_association
+    db.execute(
+        update(link)
+        .where(link.c.topic_id == topic_id, link.c.paper_id == paper_id)
+        .values(relevance=relevance)
+    )
+
+
+def relevance_by_paper(db: Session, topic_id: str, paper_ids: list[str]) -> dict[str, int]:
+    """paper_id -> relevance to `topic_id`, for the rated ones only."""
+    if not paper_ids:
+        return {}
+    link = models.topic_paper_association
+    rows = db.execute(
+        select(link.c.paper_id, link.c.relevance).where(
+            link.c.topic_id == topic_id,
+            link.c.paper_id.in_(paper_ids),
+            link.c.relevance.is_not(None),
+        )
+    )
+    return {paper_id: relevance for paper_id, relevance in rows}
 
 
 def finalize_digest(

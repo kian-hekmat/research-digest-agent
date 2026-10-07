@@ -8,12 +8,13 @@ import respx
 
 from app.config import Settings
 from app.services.arxiv import search_arxiv
-from app.services.summarize import Summarizer
+from app.services.summarize import Summarizer, parse_rated_summary, parse_relevance
 
 # A trimmed but realistically-shaped arXiv Atom response: line-wrapped title and
-# summary, a version suffix on the id, two entries with different dates.
+# summary, a version suffix on the id, two entries with different dates, and
+# arXiv's namespaced comment/journal-ref on the first.
 ATOM = """<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom">
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
   <entry>
     <id>http://arxiv.org/abs/2408.12345v2</id>
     <published>2024-08-22T17:59:00Z</published>
@@ -21,6 +22,9 @@ ATOM = """<?xml version="1.0" encoding="UTF-8"?>
   on Retrieval</title>
     <summary>  We show that retrieval helps.
   A lot.  </summary>
+    <arxiv:comment>Accepted at NeurIPS 2024.
+  12 pages, 3 figures</arxiv:comment>
+    <arxiv:journal_ref>Proc. NeurIPS 37 (2024)</arxiv:journal_ref>
   </entry>
   <entry>
     <id>http://arxiv.org/abs/2408.00001v1</id>
@@ -44,6 +48,9 @@ def test_search_arxiv_parses_atom():
     assert results[0].title == "A Great Paper on Retrieval"
     assert results[0].abstract == "We show that retrieval helps. A lot."
     assert results[0].published_at == datetime(2024, 8, 22, 17, 59, tzinfo=timezone.utc)
+    assert results[0].comment == "Accepted at NeurIPS 2024. 12 pages, 3 figures"
+    assert results[0].journal_ref == "Proc. NeurIPS 37 (2024)"
+    assert results[1].comment is None and results[1].journal_ref is None
 
 
 @respx.mock
@@ -150,6 +157,89 @@ def test_write_overview_returns_none_without_api_key():
 
     assert out is None
     assert fake.messages.calls == []
+
+
+# ---------- relevance rating ----------
+def test_summarize_and_rate_splits_the_rating_off_the_summary():
+    fake = _FakeAnthropic("Relevance: 8\n\nA tight summary.")
+    settings = Settings(anthropic_api_key="test-key")
+
+    out = Summarizer(client=fake, settings=settings).summarize_and_rate(
+        "Some Title", "Some abstract.", "PINNs", "physics-informed neural networks"
+    )
+
+    assert out.summary == "A tight summary."
+    assert out.relevance == 8
+    call = fake.messages.calls[0]
+    assert call["model"] == "claude-haiku-4-5"
+    assert "Relevance: N" in call["system"]
+    user = call["messages"][0]["content"]
+    assert user.startswith(
+        "Reader's topic: PINNs (arXiv search: physics-informed neural networks)\n\nTitle: Some Title"
+    )
+
+
+def test_topic_query_is_left_out_when_it_just_repeats_the_name():
+    fake = _FakeAnthropic("7")
+    settings = Settings(anthropic_api_key="test-key")
+
+    Summarizer(client=fake, settings=settings).rate_relevance("T", "A", "RLHF", '"rlhf"')
+
+    assert fake.messages.calls[0]["messages"][0]["content"].startswith("Reader's topic: RLHF\n\n")
+
+
+def test_rate_relevance_is_a_short_rating_only_call():
+    fake = _FakeAnthropic("6")
+    settings = Settings(anthropic_api_key="test-key")
+
+    out = Summarizer(client=fake, settings=settings).rate_relevance("T", "A", "RLHF", "rlhf")
+
+    assert out == 6
+    assert fake.messages.calls[0]["max_tokens"] == 10
+
+
+def test_rating_methods_return_nothing_without_api_key():
+    fake = _FakeAnthropic("should never be seen")
+    summarizer = Summarizer(client=fake, settings=Settings(anthropic_api_key=""))
+
+    rated = summarizer.summarize_and_rate("T", "A", "RLHF", "rlhf")
+
+    assert rated.summary is None and rated.relevance is None
+    assert summarizer.rate_relevance("T", "A", "RLHF", "rlhf") is None
+    assert fake.messages.calls == []
+
+
+@pytest.mark.parametrize(
+    "text, summary, relevance",
+    [
+        ("Relevance: 7\n\nThe paper does X.", "The paper does X.", 7),
+        ("**Relevance:** 9/10\n\nThe paper does X.", "The paper does X.", 9),
+        ("relevance = 3\nThe paper does X.", "The paper does X.", 3),
+        # A rating out of range is dropped, the summary kept.
+        ("Relevance: 0\n\nThe paper does X.", "The paper does X.", None),
+        # No rating line at all: never lose the summary over it.
+        ("The paper does X.", "The paper does X.", None),
+    ],
+)
+def test_parse_rated_summary(text, summary, relevance):
+    rated = parse_rated_summary(text)
+    assert (rated.summary, rated.relevance) == (summary, relevance)
+
+
+@pytest.mark.parametrize(
+    "text, expected", [("8", 8), (" 10\n", 10), ("Rating: 4", 4), ("42", None), ("high", None)]
+)
+def test_parse_relevance(text, expected):
+    assert parse_relevance(text) == expected
+
+
+@respx.mock
+def test_ollama_summarize_and_rate():
+    respx.post(OLLAMA_CHAT).mock(return_value=_ollama_reply("Relevance: 5\n\nLocal summary."))
+
+    out = Summarizer(settings=_ollama_settings()).summarize_and_rate("T", "A", "RLHF", "rlhf")
+
+    assert (out.summary, out.relevance) == ("Local summary.", 5)
 
 
 # ---------- Ollama backend ----------

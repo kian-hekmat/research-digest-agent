@@ -32,6 +32,9 @@ class PaperOut(BaseModel):
     abstract: Optional[str] = None
     summary: Optional[str] = None
     published_at: Optional[datetime] = None
+    comment: Optional[str] = None
+    journal_ref: Optional[str] = None
+    max_author_h_index: Optional[int] = None
 
 
 # ---------- Digest ----------

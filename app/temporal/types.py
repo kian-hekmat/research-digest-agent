@@ -45,6 +45,8 @@ class PaperResult:
     title: str
     abstract: str
     published_at: datetime | None
+    comment: str | None = None
+    journal_ref: str | None = None
 
 
 @dataclass
@@ -64,9 +66,16 @@ class IngestedPaper:
 
 @dataclass
 class SummarizePaperInput:
+    """Summarize a paper and rate its relevance to the topic in one LLM call.
+    Also the input to `rate_relevance`, for a paper that already has a
+    summary (from another topic) and only needs this topic's rating."""
+
     paper_id: str
     title: str
     abstract: str
+    topic_id: str = ""
+    topic_name: str = ""
+    topic_query: str = ""
 
 
 @dataclass

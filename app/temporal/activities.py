@@ -1,5 +1,5 @@
 """Temporal Activities: the only place in the digest pipeline allowed to touch
-the DB, arXiv, or Anthropic. Each activity opens and closes its own DB session
+the DB, arXiv, Semantic Scholar, or the LLM. Each activity opens and closes its own DB session
 - activities are stateless invocations, potentially retried or run on a
 different worker process entirely.
 
@@ -18,6 +18,8 @@ from app import crud, models
 from app.config import get_settings
 from app.database import SessionLocal
 from app.services.arxiv import search_arxiv
+from app.services.ranking import venue_score
+from app.services.scholar import fetch_max_author_h_index
 from app.services.email import (
     DigestForEmail,
     EmailSender,
@@ -109,6 +111,8 @@ def fetch_arxiv(ctx: DigestContext) -> list[PaperResult]:
             title=r.title,
             abstract=r.abstract,
             published_at=r.published_at,
+            comment=r.comment,
+            journal_ref=r.journal_ref,
         )
         for r in results
     ]
@@ -132,8 +136,6 @@ def ingest_papers(input: IngestPapersInput) -> list[IngestedPaper]:
 
         ingested = []
         for r in input.results:
-            if r.arxiv_id in already_ingested:
-                continue
             paper = crud.get_or_create_paper(
                 db,
                 arxiv_id=r.arxiv_id,
@@ -141,7 +143,11 @@ def ingest_papers(input: IngestPapersInput) -> list[IngestedPaper]:
                 abstract=r.abstract,
                 published_at=r.published_at,
                 topic=topic,
+                comment=r.comment,
+                journal_ref=r.journal_ref,
             )
+            if r.arxiv_id in already_ingested:
+                continue  # comment/journal_ref refreshed above; nothing else to do
             crud.link_paper_to_digest(digest, paper)
             ingested.append(
                 IngestedPaper(
@@ -159,18 +165,39 @@ def ingest_papers(input: IngestPapersInput) -> list[IngestedPaper]:
 
 @activity.defn
 def summarize_paper(input: SummarizePaperInput) -> str | None:
-    """Summarize one paper and persist it immediately, so a later retry of a
-    *different* paper in the same run never redoes this one. Returns None
-    (persisted as no summary) when Summarizer is in no-key mode - not a
-    failure, so it's never counted as one in digest.error."""
-    summary = Summarizer().summarize_paper(input.title, input.abstract or "")
+    """Summarize one paper and rate its relevance to the topic (one LLM call),
+    and persist both immediately, so a later retry of a *different* paper in
+    the same run never redoes this one. Returns the summary: None (persisted
+    as no summary) when Summarizer is in no-key mode - not a failure, so it's
+    never counted as one in digest.error."""
+    rated = Summarizer().summarize_and_rate(
+        input.title, input.abstract or "", input.topic_name, input.topic_query
+    )
     db = SessionLocal()
     try:
         paper = db.get(models.Paper, input.paper_id)
         if paper is not None:
-            paper.summary = summary
+            paper.summary = rated.summary
+            if input.topic_id:
+                crud.set_topic_paper_relevance(db, input.topic_id, paper.id, rated.relevance)
             db.commit()
-        return summary
+        return rated.summary
+    finally:
+        db.close()
+
+
+@activity.defn
+def rate_relevance(input: SummarizePaperInput) -> int | None:
+    """Rate a paper that already has a summary (another topic ingested it
+    first) for *this* topic - relevance is per topic, the summary isn't."""
+    relevance = Summarizer().rate_relevance(
+        input.title, input.abstract or "", input.topic_name, input.topic_query
+    )
+    db = SessionLocal()
+    try:
+        crud.set_topic_paper_relevance(db, input.topic_id, input.paper_id, relevance)
+        db.commit()
+        return relevance
     finally:
         db.close()
 
@@ -232,6 +259,33 @@ def list_due_subscriptions() -> list[DueSubscription]:
 
 
 @activity.defn
+def enrich_author_h_index(input: GatherContentInput) -> int:
+    """Fill in `max_author_h_index` for every paper the coming emails could
+    include that doesn't have one yet - one Semantic Scholar request per 500
+    papers. Run at send time rather than ingest time on purpose: Semantic
+    Scholar lags arXiv by a day or so, and by the send most of a window's
+    papers are indexed. Ones that still aren't stay NULL and are retried on
+    the next send they're due in. Returns how many papers were filled in."""
+    db = SessionLocal()
+    try:
+        missing: dict[str, models.Paper] = {}
+        for window in input.topics:
+            for digest in crud.list_completed_digests_since(db, window.topic_id, window.since):
+                for paper in digest.papers:
+                    if paper.max_author_h_index is None:
+                        missing[paper.arxiv_id] = paper
+        if not missing:
+            return 0
+        found = fetch_max_author_h_index(list(missing))
+        for arxiv_id, h_index in found.items():
+            missing[arxiv_id].max_author_h_index = h_index
+        db.commit()
+        return len(found)
+    finally:
+        db.close()
+
+
+@activity.defn
 def gather_digest_content(input: GatherContentInput) -> GatheredContent | None:
     """Render one email covering every topic in `input.topics` that has at
     least one new paper. None means none of them do - the workflow skips the
@@ -249,6 +303,9 @@ def gather_digest_content(input: GatherContentInput) -> GatheredContent | None:
         included: list[str] = []
         for window in input.topics:
             digests = crud.list_completed_digests_since(db, window.topic_id, window.since)
+            relevance = crud.relevance_by_paper(
+                db, window.topic_id, [p.id for d in digests for p in d.papers]
+            )
             batches = [
                 DigestForEmail(
                     generated_at=d.generated_at,
@@ -259,6 +316,9 @@ def gather_digest_content(input: GatherContentInput) -> GatheredContent | None:
                             summary=p.summary,
                             arxiv_id=p.arxiv_id,
                             published_at=p.published_at,
+                            relevance=relevance.get(p.id),
+                            max_author_h_index=p.max_author_h_index,
+                            venue_score=venue_score(p.comment, p.journal_ref),
                         )
                         for p in d.papers
                     ],

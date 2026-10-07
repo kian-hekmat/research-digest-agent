@@ -60,6 +60,20 @@ retry policies on every external call, plus a daily schedule.
   email in Mailpit with correct subject/overview/paper content, the watermark
   advanced, and a second run correctly sent nothing (not yet due again)
 
+**Ranked caps:** when `max_papers` cuts a topic down, the papers kept are the
+highest-scoring rather than the newest (`app/services/ranking.py`):
+- **60% relevance**: how central the paper is to the topic, rated 1–10 by the LLM
+  in the same call that writes its summary. Relevance is stored per topic on
+  `topic_paper`, since one paper can match several topics.
+- **40% author standing**: the highest author h-index (Semantic Scholar), log-scaled.
+- **Up to +8% venue bonus**: the arXiv comment or journal-ref says it was accepted
+  somewhere; a workshop gets half.
+
+A missing signal (no LLM configured, a paper Semantic Scholar hasn't indexed yet, a
+failed lookup) counts as the batch median, so the paper neither sinks nor rises on
+it. With no signals at all, every paper ties and the cap falls back to newest first.
+Kept papers are still grouped by submission day, best first within each day.
+
 **Summaries: free and local by default.** `SUMMARY_BACKEND=ollama` runs summaries
 and overviews on a local open-weights model (`gemma3:12b`) served by Ollama on the
 Mac itself — no API key, no per-call cost. See [Free local summaries with
@@ -101,14 +115,17 @@ retryable, external work (arXiv, Anthropic, email) happens in `worker`'s Activit
 **Data model:**
 - `Topic` — something you're tracking (name + arXiv search query). `last_checked_at`
   is the ingestion high-water mark (NULL = never run → pull everything)
-- `Paper` — an ingested arXiv paper; `summary` is the LLM per-paper summary
+- `Paper` — an ingested arXiv paper; `summary` is the LLM per-paper summary;
+  `comment`/`journal_ref` are arXiv's (refreshed on re-fetch); `max_author_h_index`
+  is filled in from Semantic Scholar at send time
 - `Digest` — a generated batch of papers for a topic, with a `digest_status`
   enum (`pending`/`completed`/`failed`), an `overview` column (LLM-synthesized
   paragraph across the batch), and an `error` column for failure detail
 - `Subscription` — an email + cadence (`twice_weekly`/`weekly`/`biweekly`) subscribed
   to a topic, with an optional `max_papers` cap and its own `last_sent_at` delivery
   watermark
-- `topic_paper` — join table, since a paper can match more than one topic
+- `topic_paper` — join table, since a paper can match more than one topic; carries
+  the paper's LLM-rated `relevance` (1–10) to that topic
 - `digest_paper` — join table, since a paper recurs across a topic's digests and re-runs
 
 All FKs are `ON DELETE CASCADE`; timestamps are timezone-aware with `created_at`/
@@ -137,7 +154,10 @@ calls of its own, just a sequence of Activities (`app/temporal/activities.py`):
 3. **ingest_papers** — each result upserted by `arxiv_id` (version suffix stripped)
    and linked to the topic and this digest — unless the topic already has it from
    an earlier run's overlapping window, so no paper lands in two digests.
-4. **summarize_paper** — one Activity call per paper without a summary yet, run
+4. **summarize_paper** — one Activity call per paper without a summary yet. A single
+   LLM call writes the summary and rates the paper's relevance to the topic. A paper
+   another topic already summarized gets a short **rate_relevance** call instead.
+   These calls are run
    concurrently but at most 4 at a time (a local Ollama server works through a few
    requests at once, and each activity's timeout runs while it queues); each
    retried independently. A paper whose summary ultimately
@@ -166,12 +186,19 @@ cadence, not the schedule's:
    at least 3 days (`twice_weekly`), 7 (`weekly`) or 14 (`biweekly`), less 12 hours
    of slack — the watermark is stamped a few seconds *after* a fire, so without
    slack the next fire would land just short and be skipped.
-2. Due subscriptions are grouped by email address; per recipient, concurrently:
+2. **enrich_author_h_index** — one Semantic Scholar batch request (per 500
+   papers) for the max author h-index of every paper any due subscription could
+   receive that doesn't have one yet. It runs at send time on purpose: Semantic
+   Scholar lags arXiv by about a day, so papers that weren't indexed at ingest
+   usually are by the send. Retried 4x; if every attempt fails, emails go out
+   ranked without it.
+3. Due subscriptions are grouped by email address; per recipient, concurrently:
    - **gather_digest_content** — for each of the recipient's due topics, every
      digest that *completed* (`completed_at`) since that subscription's `last_sent_at` —
      keyed on completion, not start, so a digest still running during one send goes
      out with the next instead of being skipped forever. Papers
-     are de-duplicated, ordered newest first, cut to `max_papers`, and grouped
+     are de-duplicated, cut to the `max_papers` highest-ranked (see "Ranked caps"
+     above), and grouped
      under their own arXiv *submission* date (not the date the digest ran). One
      email, one section per topic; a topic with nothing new is left out. Nothing
      new on any topic → skip the send *and* leave the watermarks alone.
@@ -191,7 +218,8 @@ Configuration (`app/config.py`, env-driven — see `.env.example`): `ANTHROPIC_A
 (optional — see below), `SUMMARY_MODEL`, `OVERVIEW_MODEL`, `ARXIV_MAX_RESULTS`,
 `ARXIV_PAGE_DELAY`, `ARXIV_LOOKBACK_DAYS`, `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`, `TEMPORAL_TASK_QUEUE`,
 `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`,
-`SMTP_FROM_ADDRESS`.
+`SMTP_FROM_ADDRESS`, `SEMANTIC_SCHOLAR_API_KEY` (optional, but without it requests
+share a public pool that is usually rate-limited, and ranking loses its h-index term).
 
 ## Free local summaries with Ollama
 

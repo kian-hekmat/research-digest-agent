@@ -27,6 +27,15 @@ class ArxivResult:
     title: str
     abstract: str
     published_at: datetime | None
+    # Free-text author comment and journal reference; where "Accepted at
+    # ..." notes live (see app.services.ranking.venue_score).
+    comment: str | None = None
+    journal_ref: str | None = None
+
+
+def _clean(text: str | None) -> str | None:
+    """Collapse arXiv's line-wrapping whitespace; empty -> None."""
+    return (" ".join(text.split()) or None) if text else None
 
 
 def _throttle(delay: float) -> None:
@@ -56,6 +65,8 @@ def _parse_entry(entry) -> ArxivResult:
         title=" ".join(entry.get("title", "").split()),
         abstract=" ".join(entry.get("summary", "").split()),
         published_at=published_at,
+        comment=_clean(entry.get("arxiv_comment")),
+        journal_ref=_clean(entry.get("arxiv_journal_ref")),
     )
 
 

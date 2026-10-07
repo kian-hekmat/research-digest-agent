@@ -3,8 +3,8 @@
 Runs DigestWorkflow / RunAllTopicDigestsWorkflow for real, against Temporal's
 ephemeral *time-skipping* test server (no Docker needed) and a real worker
 using the real Activities - which in turn hit the real (migrations-built)
-Postgres test DB via app.database.SessionLocal. Only arXiv and Anthropic are
-faked, patched directly onto the `app.temporal.activities` module.
+Postgres test DB via app.database.SessionLocal. Only arXiv, the LLM, Semantic
+Scholar and SMTP are faked, patched directly onto the `app.temporal.activities` module.
 
 Time-skipping matters here specifically: DigestWorkflow's arXiv retry policy
 backs off up to 5s/10s/20s/40s between attempts. On a real server a persistent
@@ -14,6 +14,7 @@ about a second.
 """
 from __future__ import annotations
 
+import dataclasses
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -25,6 +26,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from app import crud, models
+from app.services.summarize import RatedSummary
 from app.temporal import activities as temporal_activities
 from app.temporal.schedule import DAILY_SCHEDULE_ID, ensure_daily_schedule
 from app.temporal.workflows import (
@@ -44,10 +46,12 @@ ALL_ACTIVITIES = [
     temporal_activities.fetch_arxiv,
     temporal_activities.ingest_papers,
     temporal_activities.summarize_paper,
+    temporal_activities.rate_relevance,
     temporal_activities.write_overview,
     temporal_activities.finalize_digest,
     temporal_activities.advance_watermark,
     temporal_activities.list_due_subscriptions,
+    temporal_activities.enrich_author_h_index,
     temporal_activities.gather_digest_content,
     temporal_activities.send_digest_email,
     temporal_activities.mark_subscription_sent,
@@ -61,6 +65,10 @@ class FakeSummarizer:
     test configures failures by mutating the class, not an instance)."""
 
     fail_titles: set[str] = set()
+    # title -> relevance rating to return; unlisted titles get 5.
+    relevance: dict[str, int] = {}
+    # (title, topic_name) of every call, summarize_and_rate and rate_relevance.
+    rated: list[tuple[str, str]] = []
     # Concurrency tracking: summarize_paper runs on the activity thread pool.
     delay: float = 0.0
     in_flight = 0
@@ -80,6 +88,15 @@ class FakeSummarizer:
         finally:
             with cls._lock:
                 cls.in_flight -= 1
+
+    def summarize_and_rate(self, title, abstract, topic_name, topic_query):
+        summary = self.summarize_paper(title, abstract)
+        type(self).rated.append((title, topic_name))
+        return RatedSummary(summary=summary, relevance=type(self).relevance.get(title, 5))
+
+    def rate_relevance(self, title, abstract, topic_name, topic_query):
+        type(self).rated.append((title, topic_name))
+        return type(self).relevance.get(title, 5)
 
     def write_overview(self, topic_name, summaries):
         return f"Overview of {topic_name}: {len(summaries)} papers."
@@ -102,6 +119,8 @@ class FakeEmailSender:
 
 def _reset_fake_state():
     FakeSummarizer.fail_titles = set()
+    FakeSummarizer.relevance = {}
+    FakeSummarizer.rated = []
     FakeSummarizer.delay = 0.0
     FakeSummarizer.in_flight = 0
     FakeSummarizer.max_in_flight = 0
@@ -124,6 +143,8 @@ async def temporal_client(monkeypatch):
     # must never reach the real arXiv from a test. Tests needing results
     # re-patch this.
     monkeypatch.setattr(temporal_activities, "search_arxiv", lambda query, since=None: [])
+    # Same for Semantic Scholar: every send looks up author h-indices first.
+    monkeypatch.setattr(temporal_activities, "fetch_max_author_h_index", lambda arxiv_ids: {})
     async with await WorkflowEnvironment.start_time_skipping() as env:
         with ThreadPoolExecutor(max_workers=8) as pool:
             async with Worker(
@@ -947,3 +968,137 @@ async def test_ensure_email_schedule_updates_an_existing_schedule_in_place(tempo
     [calendar] = desc.schedule.spec.calendars
     assert _days_of_week(calendar) == {1, 4}
     assert desc.schedule.action.workflow == "SendDigestEmailsWorkflow"  # action untouched
+
+
+# ---------- ranking signals ----------
+def _relevance(db_session, topic, title):
+    paper = db_session.query(models.Paper).filter_by(title=title).one()
+    return crud.relevance_by_paper(db_session, topic.id, [paper.id]).get(paper.id)
+
+
+async def test_digest_workflow_stores_each_papers_relevance_to_the_topic(
+    db_session, temporal_client, monkeypatch
+):
+    topic = _make_topic(db_session, name="PINNs", query="physics-informed neural networks")
+    monkeypatch.setattr(
+        temporal_activities,
+        "search_arxiv",
+        lambda query, since=None: [make_result("1", "Central"), make_result("2", "Tangential")],
+    )
+    FakeSummarizer.relevance = {"Central": 9, "Tangential": 2}
+
+    await _run_digest(temporal_client, crud.create_digest(db_session, topic.id).id)
+
+    db_session.expire_all()
+    assert _relevance(db_session, topic, "Central") == 9
+    assert _relevance(db_session, topic, "Tangential") == 2
+    # One combined call per paper, made with the topic it's being rated for.
+    assert sorted(FakeSummarizer.rated) == [("Central", "PINNs"), ("Tangential", "PINNs")]
+
+
+async def test_paper_summarized_for_one_topic_is_rated_again_for_another(
+    db_session, temporal_client, monkeypatch
+):
+    """Relevance is per topic: the second topic reuses the summary but gets
+    its own rating, and the first topic's rating is untouched."""
+    rlhf = _make_topic(db_session, name="RLHF", query="rlhf")
+    other = _make_topic(db_session, name="Alignment", query="alignment")
+    monkeypatch.setattr(
+        temporal_activities, "search_arxiv", lambda query, since=None: [make_result("1", "Shared")]
+    )
+
+    FakeSummarizer.relevance = {"Shared": 8}
+    await _run_digest(temporal_client, crud.create_digest(db_session, rlhf.id).id)
+    FakeSummarizer.relevance = {"Shared": 3}
+    await _run_digest(temporal_client, crud.create_digest(db_session, other.id).id)
+
+    db_session.expire_all()
+    assert _relevance(db_session, rlhf, "Shared") == 8
+    assert _relevance(db_session, other, "Shared") == 3
+    assert FakeSummarizer.rated == [("Shared", "RLHF"), ("Shared", "Alignment")]
+    assert db_session.query(models.Paper).one().summary == "Summary of Shared."
+
+
+async def test_rerun_refreshes_an_ingested_papers_arxiv_comment(
+    db_session, temporal_client, monkeypatch
+):
+    """Authors add "Accepted at ..." in a later version; the re-fetch inside
+    the lookback window should pick it up even though the paper is skipped."""
+    topic = _make_topic(db_session)
+    result = make_result("1", "Paper")
+    monkeypatch.setattr(temporal_activities, "search_arxiv", lambda query, since=None: [result])
+    await _run_digest(temporal_client, crud.create_digest(db_session, topic.id).id)
+
+    accepted = dataclasses.replace(result, comment="Accepted at ICLR 2027")
+    monkeypatch.setattr(temporal_activities, "search_arxiv", lambda query, since=None: [accepted])
+    await _run_digest(temporal_client, crud.create_digest(db_session, topic.id).id)
+
+    db_session.expire_all()
+    assert db_session.query(models.Paper).one().comment == "Accepted at ICLR 2027"
+
+
+def _link_with_relevance(db_session, topic, title, relevance):
+    paper = db_session.query(models.Paper).filter_by(title=title).one()
+    paper.topics.append(topic)
+    db_session.flush()
+    crud.set_topic_paper_relevance(db_session, topic.id, paper.id, relevance)
+    db_session.commit()
+
+
+async def test_send_ranks_the_cap_by_relevance_and_author_h_index(
+    db_session, temporal_client, monkeypatch
+):
+    last_sent = datetime.now(timezone.utc) - timedelta(days=4)
+    topic = _make_topic(db_session)
+    _make_subscription(
+        db_session, topic, "me@example.com", cadence="twice_weekly",
+        last_sent_at=last_sent, max_papers=2,
+    )
+    # Titles double as arxiv_ids in _make_completed_digest; listed newest first.
+    _make_completed_digest(
+        db_session, topic, generated_at=last_sent + timedelta(days=1),
+        papers=[("Newest Tangential", "S."), ("Strong Group", "S."), ("Oldest Central", "S.")],
+    )
+    for title, relevance in [("Newest Tangential", 2), ("Strong Group", 7), ("Oldest Central", 10)]:
+        _link_with_relevance(db_session, topic, title, relevance)
+    looked_up = []
+
+    def fake_scholar(arxiv_ids):
+        looked_up.extend(arxiv_ids)
+        return {"Newest Tangential": 4, "Strong Group": 60}  # "Oldest Central": not indexed
+
+    monkeypatch.setattr(temporal_activities, "fetch_max_author_h_index", fake_scholar)
+
+    assert await _run_send_emails(temporal_client, "send-ranked") == 1
+
+    [(_, content)] = FakeEmailSender.sent
+    assert "Strong Group" in content.text_body and "Oldest Central" in content.text_body
+    assert "Newest Tangential" not in content.text_body
+    assert "+ 1 more RLHF paper not shown (showing the top 2)." in content.text_body
+    assert sorted(looked_up) == ["Newest Tangential", "Oldest Central", "Strong Group"]
+    db_session.expire_all()
+    assert db_session.query(models.Paper).filter_by(title="Strong Group").one().max_author_h_index == 60
+    assert db_session.query(models.Paper).filter_by(title="Oldest Central").one().max_author_h_index is None
+
+
+async def test_send_still_goes_out_when_semantic_scholar_is_down(
+    db_session, temporal_client, monkeypatch
+):
+    last_sent = datetime.now(timezone.utc) - timedelta(days=4)
+    topic = _make_topic(db_session)
+    _make_subscription(db_session, topic, "me@example.com", cadence="twice_weekly", last_sent_at=last_sent)
+    _make_completed_digest(
+        db_session, topic, generated_at=last_sent + timedelta(days=1), papers=[("Paper", "S.")]
+    )
+    attempts = []
+
+    def scholar_down(arxiv_ids):
+        attempts.append(1)
+        raise RuntimeError("429 Too Many Requests")
+
+    monkeypatch.setattr(temporal_activities, "fetch_max_author_h_index", scholar_down)
+
+    assert await _run_send_emails(temporal_client, "send-scholar-down") == 1
+    assert len(attempts) == 4  # _SCHOLAR_RETRY exhausted, then sent anyway
+    [(_, content)] = FakeEmailSender.sent
+    assert "Paper" in content.text_body

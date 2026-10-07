@@ -26,6 +26,7 @@ from html import escape
 from itertools import groupby
 
 from app.config import get_settings
+from app.services.ranking import score_papers
 from app.temporal.types import DigestEmailContent
 
 
@@ -35,6 +36,10 @@ class PaperForEmail:
     summary: str | None
     arxiv_id: str
     published_at: datetime | None = None
+    # Ranking signals - see app.services.ranking. None = unknown.
+    relevance: int | None = None
+    max_author_h_index: int | None = None
+    venue_score: float = 0.0
 
 
 @dataclass
@@ -48,8 +53,8 @@ class DigestForEmail:
 
 @dataclass
 class TopicSection:
-    """One topic's part of an email: the papers to show (newest first, already
-    capped), overviews of the digest runs they came from, and how many papers
+    """One topic's part of an email: the papers to show (already capped, newest
+    day first and highest-ranked first within a day), overviews of the digest runs they came from, and how many papers
     the cap left out."""
 
     topic_name: str
@@ -64,8 +69,10 @@ def build_topic_section(
     """Merge a topic's digests into one section, or None if they hold no
     papers at all (empty runs contribute nothing - not even a heading).
 
-    Papers are de-duplicated by arxiv_id, ordered newest submission first, and
-    cut to `max_papers`. A paper with no submission date falls back to its
+    Papers are de-duplicated by arxiv_id and cut to the `max_papers`
+    highest-scoring (see app.services.ranking; ties go to the newest). The
+    kept papers are then laid out by submission day, newest day first, best
+    first within a day. A paper with no submission date falls back to its
     digest's run time, so it still sorts and groups somewhere sensible.
     """
     picked: dict[str, tuple[PaperForEmail, DigestForEmail]] = {}
@@ -79,8 +86,17 @@ def build_topic_section(
     if not picked:
         return None
 
-    ranked = sorted(picked.values(), key=lambda pd: pd[0].published_at, reverse=True)
+    candidates = list(picked.values())
+    scores = score_papers([p for p, _ in candidates])
+    score_of = {p.arxiv_id: s for (p, _), s in zip(candidates, scores)}
+    ranked = sorted(
+        candidates,
+        key=lambda pd: (score_of[pd[0].arxiv_id], pd[0].published_at),
+        reverse=True,
+    )
     kept = ranked[:max_papers] if max_papers else ranked
+    # Stable sort: within a day, equal scores keep their newest-first order.
+    kept.sort(key=lambda pd: (_day(pd[0]), score_of[pd[0].arxiv_id]), reverse=True)
 
     # Overviews only from runs that contributed a shown paper, in run order -
     # an overview describing only capped-out papers would be confusing.
@@ -143,7 +159,7 @@ def render_digest_email(
             text_lines += [overview, ""]
             html_parts.append(f"<p><em>{escape(overview)}</em></p>")
 
-        # Papers arrive newest-first, so groupby yields each day exactly once.
+        # Papers arrive newest day first, so groupby yields each day exactly once.
         for day, papers in groupby(section.papers, key=_day):
             label = _format_day(day)
             text_lines += [label, "-" * len(label)]
@@ -166,7 +182,7 @@ def render_digest_email(
         if section.omitted:
             more = (
                 f"+ {_plural(section.omitted, 'more ' + section.topic_name + ' paper')} "
-                f"not shown (showing the {len(section.papers)} most recent)."
+                f"not shown (showing the top {len(section.papers)})."
             )
             text_lines += [more, ""]
             html_parts.append(f"<p><em>{escape(more)}</em></p>")

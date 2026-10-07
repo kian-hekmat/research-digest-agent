@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     String,
     Text,
@@ -11,6 +12,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
+    SmallInteger,
     Table,
     UniqueConstraint,
     func,
@@ -80,6 +82,10 @@ topic_paper_association = Table(
         ForeignKey("papers.id", ondelete="CASCADE"),
         primary_key=True,
     ),
+    # LLM-rated 1-10: how central the paper is to *this* topic (see
+    # app.services.ranking). NULL = not rated (no LLM, or the call failed).
+    Column("relevance", SmallInteger, nullable=True),
+    CheckConstraint("relevance BETWEEN 1 AND 10", name="ck_topic_paper_relevance_range"),
 )
 
 # Many-to-many: a digest bundles many papers, and a paper can appear in the
@@ -147,6 +153,13 @@ class Paper(Base):
     abstract = Column(Text, nullable=True)
     summary = Column(Text, nullable=True)  # LLM-generated summary, filled in Phase 2
     published_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    # arXiv's free-text author comment and journal reference - where an
+    # "Accepted at ..." note lives. Refreshed whenever arXiv returns the paper.
+    comment = Column(Text, nullable=True)
+    journal_ref = Column(Text, nullable=True)
+    # Highest h-index among the authors, from Semantic Scholar. NULL = not
+    # looked up yet, or not indexed yet (fresh papers lag a day or so).
+    max_author_h_index = Column(Integer, nullable=True)
     created_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -224,7 +237,8 @@ class Subscription(Base):
         server_default=SubscriptionCadence.twice_weekly.value,
     )
     active = Column(Boolean, nullable=False, server_default="true")
-    # Cap on papers per topic in one email (newest first); NULL = no cap.
+    # Cap on papers per topic in one email (highest-ranked kept, see
+    # app.services.ranking); NULL = no cap.
     max_papers = Column(Integer, nullable=True)
     # High-water mark for delivery (mirrors Topic.last_checked_at): set to
     # "now" at creation, so a new subscriber's first email lands on their

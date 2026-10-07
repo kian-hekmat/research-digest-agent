@@ -57,6 +57,14 @@ class Settings(BaseSettings):
     # are skipped by arxiv_id.
     arxiv_lookback_days: int = 7
 
+    # --- ranking (app.services.ranking) ---
+    # Author h-indices come from Semantic Scholar's Graph API. It works without
+    # a key, but keyless requests share a public pool that's frequently
+    # rate-limited - get a free key for anything beyond local testing:
+    # https://www.semanticscholar.org/product/api#api-key-form
+    semantic_scholar_api_url: str = "https://api.semanticscholar.org/graph/v1"
+    semantic_scholar_api_key: str = ""
+
     # --- Temporal ---
     temporal_address: str = "localhost:7233"
     temporal_namespace: str = "default"

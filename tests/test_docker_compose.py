@@ -81,3 +81,10 @@ def test_temporal_data_volume_is_declared_top_level():
         "temporal_data must be declared as a top-level named volume, or docker-compose "
         "creates it anonymously and it won't be reused across `up`/`down` cycles"
     )
+
+
+def test_worker_receives_the_semantic_scholar_key():
+    """The worker runs the h-index lookup; without the key passed through it
+    silently falls back to the rate-limited keyless pool."""
+    block = _service_block(COMPOSE_PATH.read_text(), "worker")
+    assert re.search(r"SEMANTIC_SCHOLAR_API_KEY: \$\{SEMANTIC_SCHOLAR_API_KEY:-\}", block)
