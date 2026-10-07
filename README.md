@@ -65,11 +65,14 @@ highest-scoring rather than the newest (`app/services/ranking.py`):
 - **60% relevance**: how central the paper is to the topic, rated 1–10 by the LLM
   in the same call that writes its summary. Relevance is stored per topic on
   `topic_paper`, since one paper can match several topics.
-- **40% author standing**: the highest author h-index (Semantic Scholar), log-scaled.
+- **40% author standing**: the highest author h-index, log-scaled. It comes from
+  Semantic Scholar if `SEMANTIC_SCHOLAR_API_KEY` is set, else from OpenAlex (no key
+  needed). OpenAlex indexes new arXiv papers a few days later than Semantic Scholar,
+  so more of the newest papers go without this signal.
 - **Up to +8% venue bonus**: the arXiv comment or journal-ref says it was accepted
   somewhere; a workshop gets half.
 
-A missing signal (no LLM configured, a paper Semantic Scholar hasn't indexed yet, a
+A missing signal (no LLM configured, a paper not indexed for h-index yet, a
 failed lookup) counts as the batch median, so the paper neither sinks nor rises on
 it. With no signals at all, every paper ties and the cap falls back to newest first.
 Kept papers are still grouped by submission day, best first within each day.
@@ -117,7 +120,7 @@ retryable, external work (arXiv, Anthropic, email) happens in `worker`'s Activit
   is the ingestion high-water mark (NULL = never run → pull everything)
 - `Paper` — an ingested arXiv paper; `summary` is the LLM per-paper summary;
   `comment`/`journal_ref` are arXiv's (refreshed on re-fetch); `max_author_h_index`
-  is filled in from Semantic Scholar at send time
+  is filled in from Semantic Scholar or OpenAlex at send time
 - `Digest` — a generated batch of papers for a topic, with a `digest_status`
   enum (`pending`/`completed`/`failed`), an `overview` column (LLM-synthesized
   paragraph across the batch), and an `error` column for failure detail
@@ -186,12 +189,13 @@ cadence, not the schedule's:
    at least 3 days (`twice_weekly`), 7 (`weekly`) or 14 (`biweekly`), less 12 hours
    of slack — the watermark is stamped a few seconds *after* a fire, so without
    slack the next fire would land just short and be skipped.
-2. **enrich_author_h_index** — one Semantic Scholar batch request (per 500
-   papers) for the max author h-index of every paper any due subscription could
-   receive that doesn't have one yet. It runs at send time on purpose: Semantic
-   Scholar lags arXiv by about a day, so papers that weren't indexed at ingest
-   usually are by the send. Retried 4x; if every attempt fails, emails go out
-   ranked without it.
+2. **enrich_author_h_index** — looks up the max author h-index of every paper any
+   due subscription could receive that doesn't have one yet. With a key, that's one
+   Semantic Scholar request per 500 papers; without one, two OpenAlex requests per
+   100 papers (works, then their authors), well inside OpenAlex's keyless 1000/day.
+   It runs at send time on purpose: both sources lag arXiv by a day or more, so more
+   papers are indexed by the send than at ingest. Retried 4x; if every attempt
+   fails, emails go out ranked without it.
 3. Due subscriptions are grouped by email address; per recipient, concurrently:
    - **gather_digest_content** — for each of the recipient's due topics, every
      digest that *completed* (`completed_at`) since that subscription's `last_sent_at` —
@@ -218,8 +222,8 @@ Configuration (`app/config.py`, env-driven — see `.env.example`): `ANTHROPIC_A
 (optional — see below), `SUMMARY_MODEL`, `OVERVIEW_MODEL`, `ARXIV_MAX_RESULTS`,
 `ARXIV_PAGE_DELAY`, `ARXIV_LOOKBACK_DAYS`, `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`, `TEMPORAL_TASK_QUEUE`,
 `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`,
-`SMTP_FROM_ADDRESS`, `SEMANTIC_SCHOLAR_API_KEY` (optional, but without it requests
-share a public pool that is usually rate-limited, and ranking loses its h-index term).
+`SMTP_FROM_ADDRESS`, `SEMANTIC_SCHOLAR_API_KEY` (optional; without it h-indices come
+from OpenAlex instead).
 
 ## Free local summaries with Ollama
 

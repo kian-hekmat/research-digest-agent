@@ -58,12 +58,13 @@ class Settings(BaseSettings):
     arxiv_lookback_days: int = 7
 
     # --- ranking (app.services.ranking) ---
-    # Author h-indices come from Semantic Scholar's Graph API. It works without
-    # a key, but keyless requests share a public pool that's frequently
-    # rate-limited - get a free key for anything beyond local testing:
+    # Author h-indices come from Semantic Scholar when a key is set (fresher
+    # data), else from OpenAlex, which needs no key. Semantic Scholar's keyless
+    # pool is rate-limited nearly all the time, so it's never used without one.
     # https://www.semanticscholar.org/product/api#api-key-form
     semantic_scholar_api_url: str = "https://api.semanticscholar.org/graph/v1"
     semantic_scholar_api_key: str = ""
+    openalex_api_url: str = "https://api.openalex.org"
 
     # --- Temporal ---
     temporal_address: str = "localhost:7233"

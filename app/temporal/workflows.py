@@ -77,9 +77,9 @@ _MAX_CONCURRENT_SUMMARIES = 4
 # Before an email send: wait up to 20 x 30s = 10 min for in-flight digests.
 _PENDING_WAIT_POLLS = 20
 _PENDING_WAIT_INTERVAL = timedelta(seconds=30)
-# Semantic Scholar's keyless pool 429s in bursts; a few spaced-out attempts
-# ride most of them out. Exhausting them only costs the email its h-index
-# signal, never the send.
+# For the h-index lookup (Semantic Scholar or OpenAlex): a few spaced-out
+# attempts ride out a burst of 429s. Exhausting them only costs the email its
+# h-index signal, never the send.
 _SCHOLAR_RETRY = RetryPolicy(
     maximum_attempts=4,
     initial_interval=timedelta(seconds=5),

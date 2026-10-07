@@ -261,10 +261,10 @@ def list_due_subscriptions() -> list[DueSubscription]:
 @activity.defn
 def enrich_author_h_index(input: GatherContentInput) -> int:
     """Fill in `max_author_h_index` for every paper the coming emails could
-    include that doesn't have one yet - one Semantic Scholar request per 500
-    papers. Run at send time rather than ingest time on purpose: Semantic
-    Scholar lags arXiv by a day or so, and by the send most of a window's
-    papers are indexed. Ones that still aren't stay NULL and are retried on
+    include that doesn't have one yet (Semantic Scholar or OpenAlex, see
+    app.services.scholar). Run at send time rather than ingest time on
+    purpose: both lag arXiv by a day or more, so by the send more of a
+    window's papers are indexed. Ones that still aren't stay NULL and are retried on
     the next send they're due in. Returns how many papers were filled in."""
     db = SessionLocal()
     try:
