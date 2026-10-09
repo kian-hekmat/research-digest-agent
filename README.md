@@ -141,7 +141,7 @@ highest-ranked, not just the newest.
 ## How it works
 
 ### 1. Daily digest pipeline (`DigestWorkflow`)
-Runs daily at 07:00 Pacific for every topic, and on demand via `POST /digests/{topic_id}`.
+Runs daily at 10:00 Pacific for every topic, and on demand via `POST /digests/{topic_id}`.
 
 1. **Fetch** new papers from arXiv. Free-text topics are sent as exact-phrase
    searches; queries like `cat:math.NA` track a whole arXiv category.

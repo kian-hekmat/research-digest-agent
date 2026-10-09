@@ -23,6 +23,7 @@ from temporalio.client import (
 )
 from temporalio.service import RPCError, RPCStatusCode
 
+from app import cadence
 from app.config import get_settings
 from app.temporal.workflows import RunAllTopicDigestsWorkflow, SendDigestEmailsWorkflow
 
@@ -30,10 +31,12 @@ from app.temporal.workflows import RunAllTopicDigestsWorkflow, SendDigestEmailsW
 # hours. This runs on a laptop: at the old 06:00/08:00 UTC (11pm/1am Pacific)
 # it was usually asleep, so nearly every run was a catch-up fired on wake -
 # and one interrupted mid-summarization when it slept again.
-SCHEDULE_TIME_ZONE = "America/Los_Angeles"
+SCHEDULE_TIME_ZONE = cadence.SEND_TIME_ZONE_NAME
 
 DAILY_SCHEDULE_ID = "daily-topic-digests"
-DAILY_CRON = "0 7 * * *"  # 07:00 daily
+# 10:00 rather than earlier: at 07:00 the laptop was often still asleep, and
+# runs during macOS background wakes saw local-model calls stall and fail.
+DAILY_CRON = "0 10 * * *"  # 10:00 daily
 
 # The id predates the move to twice-weekly sends; it's kept so existing
 # deployments update their schedule in place instead of gaining a second one.
@@ -41,9 +44,11 @@ EMAIL_SCHEDULE_ID = "weekly-digest-emails"
 # SendDigestEmailsWorkflow judges each subscription against its own
 # twice_weekly/weekly/biweekly cadence internally (see that workflow's
 # docstring) - the schedule just needs to fire at least as often as the
-# most frequent cadence. An hour after the daily run, though the email
-# workflow refreshes digests itself regardless.
-EMAIL_CRON = "0 8 * * 1,4"  # Mondays and Thursdays 08:00
+# most frequent cadence. It runs before the daily digest run, which is
+# fine: the email workflow runs its own digest pass before sending.
+# Built from app.cadence, which also decides who is due at each fire - one
+# definition of the send slots, so the two can't drift apart.
+EMAIL_CRON = cadence.email_cron()  # "0 8 * * 1,4": Mondays and Thursdays 08:00
 
 EnsureResult = Literal["created", "updated", "unchanged"]
 

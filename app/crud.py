@@ -5,7 +5,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
-from app import models, schemas
+from app import cadence, models, schemas
 
 
 def _is_valid_uuid(value: str) -> bool:
@@ -287,23 +287,18 @@ def delete_subscription(db: Session, subscription_id: str) -> bool:
 
 
 def list_due_subscriptions(db: Session, now: datetime) -> list[models.Subscription]:
-    """Active subscriptions whose cadence window has elapsed since their last
-    send (less CADENCE_DUE_TOLERANCE - see its comment), oldest subscription
-    first so a recipient's topics appear in the order they subscribed.
-    Filtered in Python, not SQL - the per-row interval depends on each
-    subscription's own cadence, and the table is small."""
+    """Active subscriptions not sent anything since their cadence's most
+    recent send slot (see app.cadence), oldest subscription first so a
+    recipient's topics appear in the order they subscribed. Filtered in
+    Python, not SQL - the cutoff depends on each subscription's own cadence,
+    and the table is small."""
     subs = (
         db.query(models.Subscription)
         .filter(models.Subscription.active.is_(True))
         .order_by(models.Subscription.created_at)
         .all()
     )
-    return [
-        s
-        for s in subs
-        if now - s.last_sent_at
-        >= models.CADENCE_INTERVALS[s.cadence] - models.CADENCE_DUE_TOLERANCE
-    ]
+    return [s for s in subs if cadence.is_due(s.cadence, s.last_sent_at, now)]
 
 
 def mark_subscription_sent(

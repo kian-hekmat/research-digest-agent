@@ -558,7 +558,8 @@ async def test_send_digest_emails_delivers_to_due_subscription(db_session, tempo
 
 async def test_send_digest_emails_skips_not_yet_due_subscription(db_session, temporal_client):
     topic = _make_topic(db_session)
-    just_sent = datetime.now(timezone.utc) - timedelta(days=1)
+    # Sent just now: no send slot can have passed since, whatever the weekday.
+    just_sent = datetime.now(timezone.utc)
     _make_subscription(db_session, topic, "reader@example.com", last_sent_at=just_sent)
     _make_completed_digest(db_session, topic, generated_at=just_sent, papers=[("P", "S")])
 
@@ -587,12 +588,16 @@ async def test_send_digest_emails_skips_and_preserves_watermark_when_nothing_new
 
 async def test_send_digest_emails_respects_weekly_vs_biweekly_cadence(db_session, temporal_client):
     topic = _make_topic(db_session)
+    # Weekday-proof: a weekly send 8 days ago always predates the latest
+    # Monday slot; a biweekly send 6 days ago can never predate its cutoff
+    # (latest Monday slot minus a week, so at least 7 days back).
     eight_days_ago = datetime.now(timezone.utc) - timedelta(days=8)
+    six_days_ago = datetime.now(timezone.utc) - timedelta(days=6)
     _make_subscription(
         db_session, topic, "weekly@example.com", cadence="weekly", last_sent_at=eight_days_ago
     )
     _make_subscription(
-        db_session, topic, "biweekly@example.com", cadence="biweekly", last_sent_at=eight_days_ago
+        db_session, topic, "biweekly@example.com", cadence="biweekly", last_sent_at=six_days_ago
     )
     _make_completed_digest(
         db_session, topic, generated_at=eight_days_ago + timedelta(hours=1),
@@ -603,7 +608,7 @@ async def test_send_digest_emails_respects_weekly_vs_biweekly_cadence(db_session
 
     assert count == 1
     sent_to = {to for to, _ in FakeEmailSender.sent}
-    assert sent_to == {"weekly@example.com"}  # biweekly isn't due for another 6 days
+    assert sent_to == {"weekly@example.com"}  # biweekly skips a Monday in between
 
 
 async def test_send_digest_emails_tolerates_one_subscriber_failing(db_session, temporal_client):
@@ -852,32 +857,44 @@ def test_finalize_stamps_completed_at_only_on_completion(db_session):
     assert failed.completed_at is None
 
 
-# ---------- cadence due-ness ----------
+# ---------- cadence due-ness (slot-anchored, see app.cadence) ----------
+# Slots are Mon/Thu 08:00 Pacific. October 2026 is PDT (UTC-7): Mon Oct 5 and
+# Thu Oct 8 08:00 PDT are 15:00 UTC.
+_PDT = timezone(timedelta(hours=-7))
+
+
+def _pdt(day, hour=8, minute=0, second=0):
+    return datetime(2026, 10, day, hour, minute, second, tzinfo=_PDT)
+
+
 @pytest.mark.parametrize(
-    "cadence, since_last_send, due",
+    "cadence, last_sent, now, due",
     [
-        # The schedule fires at 08:00:00 but the watermark is stamped a few
-        # seconds later, so the next fire is a few seconds short of a full
-        # interval - these must still count as due.
-        ("twice_weekly", timedelta(days=3) - timedelta(seconds=5), True),   # Mon -> Thu
-        ("twice_weekly", timedelta(days=4) - timedelta(seconds=5), True),   # Thu -> Mon
-        ("twice_weekly", timedelta(days=1), False),
-        ("weekly", timedelta(days=7) - timedelta(seconds=5), True),
-        ("weekly", timedelta(days=3), False),                               # skips Thursday
-        ("weekly", timedelta(days=4), False),                               # skips Monday after a Thursday send
-        ("biweekly", timedelta(days=14) - timedelta(seconds=5), True),
-        ("biweekly", timedelta(days=7), False),
-        # A catch-up send at 13:17 Monday (laptop asleep at 08:00) must not
-        # push the next weekly send out a whole extra week.
-        ("weekly", timedelta(days=6, hours=18, minutes=43), True),
+        # Regression, 2026-10-08: a catch-up email sent Tue Oct 6 (after
+        # Monday's slot was missed to downtime) made Thursday's run skip,
+        # because only ~2 days had elapsed. Thursday's slot is after Tuesday's
+        # send, so it's due.
+        ("twice_weekly", _pdt(6, 8, 4, 27), _pdt(8, 8, 0, 3), True),
+        # Normal rhythm: Mon send -> due at Thu slot, not before it.
+        ("twice_weekly", _pdt(5, 8, 0, 5), _pdt(8, 8, 0, 3), True),
+        ("twice_weekly", _pdt(5, 8, 0, 5), _pdt(8, 7, 59, 59), False),
+        # The same slot firing twice (manual trigger + schedule) sends once.
+        ("twice_weekly", _pdt(8, 8, 0, 5), _pdt(8, 8, 30), False),
+        # A late catch-up fire (laptop woke at 13:00) still counts for its slot.
+        ("twice_weekly", _pdt(5, 8, 0, 5), _pdt(8, 13, 0), True),
+        # Weekly: Monday slots only - Thursday doesn't count.
+        ("weekly", _pdt(5, 8, 0, 5), _pdt(8, 8, 0, 3), False),
+        ("weekly", _pdt(5, 8, 0, 5), _pdt(12, 8, 0, 3), True),
+        # A Tuesday catch-up send doesn't push weekly out a whole extra week.
+        ("weekly", _pdt(6, 8, 4, 27), _pdt(12, 8, 0, 3), True),
+        # Biweekly: skips the Monday in between, due the one after.
+        ("biweekly", _pdt(5, 8, 0, 5), _pdt(12, 8, 0, 3), False),
+        ("biweekly", _pdt(5, 8, 0, 5), _pdt(19, 8, 0, 3), True),
     ],
 )
-def test_list_due_subscriptions_cadence(db_session, cadence, since_last_send, due):
-    now = datetime(2026, 10, 1, 8, 0, 1, tzinfo=timezone.utc)
+def test_list_due_subscriptions_cadence(db_session, cadence, last_sent, now, due):
     topic = _make_topic(db_session)
-    _make_subscription(
-        db_session, topic, "me@example.com", cadence=cadence, last_sent_at=now - since_last_send
-    )
+    _make_subscription(db_session, topic, "me@example.com", cadence=cadence, last_sent_at=last_sent)
 
     assert bool(crud.list_due_subscriptions(db_session, now)) is due
 
@@ -908,7 +925,7 @@ async def test_ensure_daily_schedule_is_idempotent(temporal_env_only):
     # The server normalizes the cron string into a calendar spec rather than
     # echoing it back verbatim - check the parsed hour instead of the string.
     [calendar] = desc.schedule.spec.calendars
-    assert calendar.hour[0].start == 7
+    assert calendar.hour[0].start == 10
     assert desc.schedule.spec.time_zone_name == "America/Los_Angeles"
     assert desc.schedule.action.workflow == "RunAllTopicDigestsWorkflow"
 

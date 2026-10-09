@@ -47,23 +47,7 @@ class SubscriptionCadence(str, enum.Enum):
     biweekly = "biweekly"
 
 
-# How far apart two emails to the same subscription should be. The send
-# schedule fires twice a week (Mon + Thu) and each subscription's own cadence
-# decides whether it's actually due - see app.crud.list_due_subscriptions.
-# twice_weekly's 3 days is the shorter Mon->Thu gap; Thu->Mon (4 days) clears
-# it trivially.
-CADENCE_INTERVALS: dict[SubscriptionCadence, timedelta] = {
-    SubscriptionCadence.twice_weekly: timedelta(days=3),
-    SubscriptionCadence.weekly: timedelta(days=7),
-    SubscriptionCadence.biweekly: timedelta(days=14),
-}
-
-# Slack subtracted from a cadence interval when judging due-ness. A send's
-# watermark is stamped a few seconds *after* the schedule fires, so the next
-# fire lands a few seconds *short* of a full interval - without slack, an exact
-# `>= 7 days` check would skip every other fire. It also absorbs a catch-up
-# fire at an odd hour (e.g. the laptop waking at 13:00 on a Monday).
-CADENCE_DUE_TOLERANCE = timedelta(hours=12)
+# When each cadence is due for an email: see app.cadence.
 
 
 # Many-to-many: a paper can match several topics, a topic can match many papers.
