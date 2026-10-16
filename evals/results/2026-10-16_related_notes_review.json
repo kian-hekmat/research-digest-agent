@@ -1,0 +1,552 @@
+{
+ "reviewer": "claude-opus-5-5 (not the project owner)",
+ "rubric": "correct = relationship stated accurately; vague = true but generic; wrong = asserts something about either paper that its abstract does not support",
+ "round_1": {
+  "floor": 0.65,
+  "prompt": "builds on / extends / competes / contradicts",
+  "set": "47 eval papers",
+  "offered": 21,
+  "notes": [
+   {
+    "arxiv_id": "2610.13029",
+    "related_note": "This paper extends the entropy-stable scheme development for hyperbolic systems seen in [2610.05820] by applying it to a dynamic van der Waals model for non-isothermal liquid-vapor flows.",
+    "cited": [
+     "2610.05820"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2610.09249",
+      "title": "High-order entropy stable isothermal wall boundary condition for the compressible Navier--Stokes equations",
+      "similarity": 0.692
+     },
+     {
+      "arxiv_id": "2610.02059",
+      "title": "Entropy dissipative high order schemes for a hyperbolic model of two-layer thin film flow",
+      "similarity": 0.677
+     },
+     {
+      "arxiv_id": "2610.05820",
+      "title": "Entropy-Stable and Well-Balanced Discontinuous Galerkin Methods for the Compressible Euler Equations in Vector-Invariant Form",
+      "similarity": 0.66
+     }
+    ],
+    "verdict": "wrong",
+    "why": "claims it extends the cited DG paper; only the theme (entropy stability) is shared"
+   },
+   {
+    "arxiv_id": "2610.17600",
+    "related_note": "This paper extends the analysis of numerical methods for stochastic differential equations, building on the techniques used to assess the backward-Euler scheme's convergence [2609.37019].",
+    "cited": [
+     "2609.37019"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2609.37019",
+      "title": "Consistency and Convergence of the Backward-Euler Scheme for Stochastic Functional Differential Equations Driven by Fractional Brownian Motion",
+      "similarity": 0.66
+     }
+    ],
+    "verdict": "wrong",
+    "why": "invents 'building on' the backward-Euler SFDE paper"
+   },
+   {
+    "arxiv_id": "2609.40008",
+    "related_note": "This work extends the use of PINNs to a different physical system and incorporates conformal geometry to improve the optimization process [2609.08470].",
+    "cited": [
+     "2609.08470"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2609.30332",
+      "title": "Physics-Informed Neural Networks for Static Black-Hole Exterior Metrics: Charge and Cosmological-Constant Sweeps",
+      "similarity": 0.67
+     },
+     {
+      "arxiv_id": "2609.08470",
+      "title": "Nonperturbative functional renormalization group for Higgs-singlet models with physics-informed neural networks",
+      "similarity": 0.658
+     }
+    ],
+    "verdict": "vague",
+    "why": "both apply PINNs in particle physics; nothing specific"
+   },
+   {
+    "arxiv_id": "2610.10862",
+    "related_note": "This work presents an alternative variational formulation that addresses limitations in the coordinate-based approach described in [2609.10983].",
+    "cited": [
+     "2609.10983"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2609.10983",
+      "title": "A variational physics-informed graph neural network for heterogeneous solid mechanics",
+      "similarity": 0.698
+     }
+    ],
+    "verdict": "wrong",
+    "why": "paired well, but describes the cited PI-GNN as the coordinate-based approach it argues against"
+   },
+   {
+    "arxiv_id": "2610.10897",
+    "related_note": "[2609.16406] This paper builds on the existing research in PINNs by introducing an adversarial learning component to address limitations of standard PINN approaches, similar to how the earlier work explored random feature methods to mitigate spectral bias.",
+    "cited": [
+     "2609.16406"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2609.16406",
+      "title": "Physics Informed Random Feature Neural Networks for Solving PDEs",
+      "similarity": 0.802
+     },
+     {
+      "arxiv_id": "2609.35196",
+      "title": "GAC-PINN: Geometry-Adaptive and Constraint-Enhanced Physics-Informed Neural Networks",
+      "similarity": 0.778
+     },
+     {
+      "arxiv_id": "2609.07437",
+      "title": "A Systematic Analysis of Automatic Differentiation versus Discretization-based Constraints for Physics-Informed PDE Solvers",
+      "similarity": 0.778
+     },
+     {
+      "arxiv_id": "2609.07983",
+      "title": "Solving the Elastic Wave Equation with Physics-Informed Neural Networks: A Robust and Critical Assessment",
+      "similarity": 0.76
+     }
+    ],
+    "verdict": "correct",
+    "why": "both attack PINN spectral bias, adversarially vs random features"
+   },
+   {
+    "arxiv_id": "2610.11108",
+    "related_note": "This work extends the multi-domain PINN approach by focusing on aligning conservation supports to improve energy transfer accuracy, building upon the methodology presented in [2610.04082].",
+    "cited": [
+     "2610.04082"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2610.04082",
+      "title": "Temperature-Dependent Multiphysics Modeling of Additive Friction Stir Deposition Using Multi-Task Coupled Physics-Informed Neural Networks",
+      "similarity": 0.662
+     }
+    ],
+    "verdict": "wrong",
+    "why": "invents 'building upon' a different multiphysics PINN"
+   },
+   {
+    "arxiv_id": "2610.13334",
+    "related_note": "[2609.16406] This work builds upon the concept of using neural networks to approximate solutions to PDEs, similar to the physics-informed random feature neural networks described in the earlier paper.",
+    "cited": [
+     "2609.16406"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2609.16406",
+      "title": "Physics Informed Random Feature Neural Networks for Solving PDEs",
+      "similarity": 0.736
+     },
+     {
+      "arxiv_id": "2609.23023",
+      "title": "PINNForge: Execution-Grounded Evolutionary Design of Physics-Informed Neural Networks for PDE Solving via Large Language Models",
+      "similarity": 0.722
+     },
+     {
+      "arxiv_id": "2610.10897",
+      "title": "Gen-PINNs: Generative Adversarial Physics Informed Neural Networks for solving partial differential equations",
+      "similarity": 0.718
+     },
+     {
+      "arxiv_id": "2609.07437",
+      "title": "A Systematic Analysis of Automatic Differentiation versus Discretization-based Constraints for Physics-Informed PDE Solvers",
+      "similarity": 0.711
+     }
+    ],
+    "verdict": "vague",
+    "why": "'neural networks for PDEs', vacuous"
+   },
+   {
+    "arxiv_id": "2610.14844",
+    "related_note": "[2610.03303] This paper's use of stochasticity and a Gaussian process to represent random operators shares similarities with the stochastic separability approach in S$^{2}$-PINN.",
+    "cited": [
+     "2610.03303"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2610.03303",
+      "title": "S$^{2}$-PINN: Stochastic Separable Physics-Informed Neural Networks",
+      "similarity": 0.753
+     },
+     {
+      "arxiv_id": "2609.16406",
+      "title": "Physics Informed Random Feature Neural Networks for Solving PDEs",
+      "similarity": 0.681
+     },
+     {
+      "arxiv_id": "2609.23077",
+      "title": "Physics-Informed Neural Network Surrogates with Polynomial Chaos-Based Uncertainty Propagation for Stochastic Model Predictive Control",
+      "similarity": 0.677
+     }
+    ],
+    "verdict": "correct",
+    "why": "both are physics-informed networks for random PDEs / UQ"
+   }
+  ],
+  "tally": {
+   "wrong": 4,
+   "vague": 2,
+   "correct": 2
+  }
+ },
+ "round_2": {
+  "floor": 0.72,
+  "prompt": "same problem or competing method; no lineage claims",
+  "set": "all 46 linked papers with a neighbour >= 0.72",
+  "offered": 46,
+  "notes": [
+   {
+    "arxiv_id": "2609.19915",
+    "related_note": "The paper addresses the same problem of improving PINN adaptation to different PDEs as [2609.16406], but instead of using random features, it employs a graph hypernetwork to represent equation structure.",
+    "cited": [
+     "2609.16406"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2609.07437",
+      "title": "A Systematic Analysis of Automatic Differentiation versus Discretization-based Constraints for Physics-Informed PDE Solvers",
+      "similarity": 0.751
+     },
+     {
+      "arxiv_id": "2609.16406",
+      "title": "Physics Informed Random Feature Neural Networks for Solving PDEs",
+      "similarity": 0.738
+     }
+    ],
+    "verdict": "wrong",
+    "why": "says the random-feature paper is about adapting PINNs across PDEs; it is about spectral bias"
+   },
+   {
+    "arxiv_id": "2609.20641",
+    "related_note": "This paper presents a unified framework for PDE solvers that contrasts with the automatic differentiation approach used in [2609.07437] by employing a Petrov\u2013Galerkin discretization instead of pointwise residual minimization.",
+    "cited": [
+     "2609.07437"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2609.07437",
+      "title": "A Systematic Analysis of Automatic Differentiation versus Discretization-based Constraints for Physics-Informed PDE Solvers",
+      "similarity": 0.746
+     },
+     {
+      "arxiv_id": "2609.16406",
+      "title": "Physics Informed Random Feature Neural Networks for Solving PDEs",
+      "similarity": 0.742
+     }
+    ],
+    "verdict": "vague",
+    "why": "cited paper analyses AD vs discretization; note says it 'uses AD'"
+   },
+   {
+    "arxiv_id": "2609.30809",
+    "related_note": "This paper addresses the same problem of improving PINN-based solvers for PDEs, but focuses on infinity and p-Laplace problems, whereas [2609.16406] addresses spectral bias in PINNs [2609.16406].",
+    "cited": [
+     "2609.16406"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2609.16406",
+      "title": "Physics Informed Random Feature Neural Networks for Solving PDEs",
+      "similarity": 0.734
+     }
+    ],
+    "verdict": "vague",
+    "why": "'improving PINN solvers', generic"
+   },
+   {
+    "arxiv_id": "2609.32685",
+    "related_note": "This paper shares the goal of automating PINN design with PINNsForge [2609.23023], but PINNMorph focuses on online adaptation during training rather than initial configuration design.",
+    "cited": [
+     "2609.23023"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2609.23023",
+      "title": "PINNForge: Execution-Grounded Evolutionary Design of Physics-Informed Neural Networks for PDE Solving via Large Language Models",
+      "similarity": 0.834
+     },
+     {
+      "arxiv_id": "2609.14926",
+      "title": "Linearized PINN with pretrained nonlinear layers",
+      "similarity": 0.73
+     },
+     {
+      "arxiv_id": "2609.30966",
+      "title": "Gradient Surgery for Physics-Informed Neural Networks",
+      "similarity": 0.728
+     },
+     {
+      "arxiv_id": "2609.19915",
+      "title": "Amortizing Physics-Informed Neural Solvers via Graph Hypernetworks",
+      "similarity": 0.723
+     }
+    ],
+    "verdict": "correct",
+    "why": "both LLM-driven PINN design; online adaptation vs up-front configuration"
+   },
+   {
+    "arxiv_id": "2609.38331",
+    "related_note": "Both papers address the application of PINNs to General Relativity [2609.30332], but this paper extends the scope to dynamical evolution and a more complex astrophysical system.",
+    "cited": [
+     "2609.30332"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2609.30332",
+      "title": "Physics-Informed Neural Networks for Static Black-Hole Exterior Metrics: Charge and Cosmological-Constant Sweeps",
+      "similarity": 0.774
+     }
+    ],
+    "verdict": "wrong",
+    "why": "claims dynamical evolution and an astrophysical system the abstract doesn't mention"
+   },
+   {
+    "arxiv_id": "2610.02084",
+    "related_note": "Both papers address solving partial differential equations using Kolmogorov-Arnold Neural Networks [2609.39469] focuses on the biharmonic equation, while this paper extends the approach to free-boundary problems.",
+    "cited": [
+     "2609.39469"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2609.39469",
+      "title": "Mesh-Free Numerical Approximation of the Biharmonic Equation via Optimized Kolmogorov--Arnold Neural Networks",
+      "similarity": 0.818
+     }
+    ],
+    "verdict": "correct",
+    "why": "both KAN-based physics-informed solvers; free-boundary vs biharmonic"
+   },
+   {
+    "arxiv_id": "2610.04405",
+    "related_note": "This paper addresses the same challenge of accurately solving evolution equations with PINNs and improving temporal causality, differing from [2609.36615] by using a sequential training approach with separate networks for each time subinterval instead of a Volterra integral [2609.36615].",
+    "cited": [
+     "2609.36615"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2609.36615",
+      "title": "CI-PINN: Causal Integral Physics-Informed Neural Network for Solving Evolution Equations",
+      "similarity": 0.826
+     }
+    ],
+    "verdict": "correct",
+    "why": "same temporal-causality problem; subinterval networks vs Volterra integral"
+   },
+   {
+    "arxiv_id": "2610.06776",
+    "related_note": "This paper tackles the same problem of solving Einstein's equations with PINNs as [2609.38331], but focuses on a moving puncture evolution rather than a static system.",
+    "cited": [
+     "2609.38331"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2609.38331",
+      "title": "Towards solving General Relativity with Physics-Informed Neural Networks",
+      "similarity": 0.82
+     },
+     {
+      "arxiv_id": "2609.30332",
+      "title": "Physics-Informed Neural Networks for Static Black-Hole Exterior Metrics: Charge and Cosmological-Constant Sweeps",
+      "similarity": 0.804
+     }
+    ],
+    "verdict": "vague",
+    "why": "right pairing; calls the cited paper 'static' without support"
+   },
+   {
+    "arxiv_id": "2610.08475",
+    "related_note": "Both papers address the use of neural networks to predict solutions of time-evolving physical systems, but this paper focuses on handling variable initial conditions, whereas [2609.35531] deals with inconsistent sensor data resolutions [2609.35531].",
+    "cited": [
+     "2609.35531"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2609.35531",
+      "title": "Latent Twin Operator",
+      "similarity": 0.73
+     }
+    ],
+    "verdict": "correct",
+    "why": "both latent surrogates for time-evolving PDEs; variable ICs vs variable sensor resolution"
+   },
+   {
+    "arxiv_id": "2610.08701",
+    "related_note": "The paper addresses the same problem of characterizing the growth factor in Gaussian elimination with partial pivoting on random matrices as [2610.06785], but instead of providing an upper bound, it establishes a lower bound on the probability of large growth.",
+    "cited": [
+     "2610.06785"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2610.06785",
+      "title": "On the Growth Factor of Random Matrices",
+      "similarity": 0.792
+     }
+    ],
+    "verdict": "correct",
+    "why": "same GEPP growth-factor problem; lower bound on probability of large growth"
+   },
+   {
+    "arxiv_id": "2610.09301",
+    "related_note": "The paper addresses the same challenge of accurately simulating two-phase fluid flows with sharp interfaces as [2609.35590], but employs a different approach to manage the free surface movement using a compensated tangential velocity formulation.",
+    "cited": [
+     "2609.35590"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2609.35590",
+      "title": "High-order energy diminishing ALE-SAV finite element methods for two-phase Navier--Stokes flow",
+      "similarity": 0.768
+     }
+    ],
+    "verdict": "correct",
+    "why": "both energy-stable ALE FEM for free-surface / interface Navier-Stokes"
+   },
+   {
+    "arxiv_id": "2610.09357",
+    "related_note": "The paper addresses the same problem of analyzing the condition number of Gram matrices constructed from shallow neural networks as [2610.09338], but focuses on quantitative bounds rather than approximation error.",
+    "cited": [
+     "2610.09338"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2610.09338",
+      "title": "Fully Deterministic Shallow Neural Networks with Localized Activations. Part I: Construction and Optimal Sobolev Approximation",
+      "similarity": 0.844
+     }
+    ],
+    "verdict": "wrong",
+    "why": "misses that it is Part II of the cited Part I and says Part I studies condition numbers"
+   },
+   {
+    "arxiv_id": "2610.09510",
+    "related_note": "Both papers address the challenge of adapting physics-informed neural networks (PINNs) to different PDEs, but this paper introduces a dynamic representation adaptation mechanism, unlike the graph hypernetwork approach in [2609.19915].",
+    "cited": [
+     "2609.19915"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2609.19915",
+      "title": "Amortizing Physics-Informed Neural Solvers via Graph Hypernetworks",
+      "similarity": 0.72
+     }
+    ],
+    "verdict": "wrong",
+    "why": "says both adapt PINNs across PDEs; ReCAP adapts capacity within one PDE"
+   },
+   {
+    "arxiv_id": "2610.12833",
+    "related_note": "The paper addresses the same problem of finding ground states for the Gross-Pitaevskii equation using Riemannian optimization, but instead of focusing on low-rank tensor train representations [2609.37103], it analyzes the Riemannian Hessian to understand convergence properties.",
+    "cited": [
+     "2609.37103"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2609.37103",
+      "title": "Riemannian optimization on low-rank tensor train manifolds for the Gross-Pitaevskii equation",
+      "similarity": 0.745
+     }
+    ],
+    "verdict": "correct",
+    "why": "same Gross-Pitaevskii Riemannian problem; Hessian analysis vs TT optimization"
+   },
+   {
+    "arxiv_id": "2610.13591",
+    "related_note": "The paper proposes a different approach to solving saddle point systems arising from variational inequalities, using a primal Schur complement preconditioner, compared to the two-grid preconditioner for nearly incompressible elasticity [2609.38871].",
+    "cited": [
+     "2609.38871"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2609.38871",
+      "title": "A Kernel-Aware Two-Grid Preconditioner for Cell-Centered Nearly Incompressible Elasticity",
+      "similarity": 0.736
+     }
+    ],
+    "verdict": "vague",
+    "why": "both precondition saddle-point systems, but different problems"
+   },
+   {
+    "arxiv_id": "2610.13754",
+    "related_note": "This paper presents an alternative approach to solving the Wetterich flow equation for effective potentials, differing from [2609.08470] in its avoidance of the large-$N$ approximation.",
+    "cited": [
+     "2609.08470"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2609.08470",
+      "title": "Nonperturbative functional renormalization group for Higgs-singlet models with physics-informed neural networks",
+      "similarity": 0.787
+     },
+     {
+      "arxiv_id": "2609.38331",
+      "title": "Towards solving General Relativity with Physics-Informed Neural Networks",
+      "similarity": 0.732
+     }
+    ],
+    "verdict": "wrong",
+    "why": "attributes the large-N approximation to the cited Higgs-singlet paper"
+   },
+   {
+    "arxiv_id": "2610.19296",
+    "related_note": "The paper addresses the same challenge of developing error estimators for parametric partial differential equations with nonlinearities as [2610.05767], but it uses a different approach based on measuring the residual in the dual norm of a closed subspace of the test space.",
+    "cited": [
+     "2610.05767"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2610.05767",
+      "title": "Global error estimators for parametric monotone nonlinearities and neural approximations",
+      "similarity": 0.886
+     }
+    ],
+    "verdict": "correct",
+    "why": "same variationally correct loss / estimator problem for parametric nonlinear PDEs"
+   },
+   {
+    "arxiv_id": "2610.19354",
+    "related_note": "The paper addresses the same problem of developing preconditioners for the high-frequency Helmholtz equation using domain decomposition methods as [2610.11774], but it employs a different coarse space construction based on edge multiscale spaces rather than piecewise polynomials.",
+    "cited": [
+     "2610.11774"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2610.11774",
+      "title": "Two-level hybrid Schwarz preconditioners with preasymptotic piecewise-polynomial coarse spaces for the high-frequency Helmholtz equation",
+      "similarity": 0.804
+     }
+    ],
+    "verdict": "correct",
+    "why": "competing coarse spaces for hybrid Schwarz Helmholtz preconditioners"
+   },
+   {
+    "arxiv_id": "2610.19884",
+    "related_note": "The new paper proposes a method for approximating gradient flows using the scalar auxiliary variable (SAV) method, similar to the quadratic reformulation approach described in [2610.01063], but instead focuses on second-order flows.",
+    "cited": [
+     "2610.01063"
+    ],
+    "offered": [
+     {
+      "arxiv_id": "2610.01063",
+      "title": "Positivity-preserving scalar auxiliary variable schemes for gradient flows via a quadratic reformulation",
+      "similarity": 0.721
+     }
+    ],
+    "verdict": "vague",
+    "why": "both SAV; 'similar to the quadratic reformulation' is unsupported"
+   }
+  ],
+  "tally": {
+   "wrong": 5,
+   "vague": 5,
+   "correct": 9
+  }
+ }
+}

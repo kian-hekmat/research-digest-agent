@@ -17,8 +17,9 @@ papers all filed under the day they were fetched rather than submitted.
 from __future__ import annotations
 
 import dataclasses
+import re
 import smtplib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -40,6 +41,16 @@ class PaperForEmail:
     relevance: int | None = None
     max_author_h_index: int | None = None
     venue_score: float = 0.0
+    prior_similarity: float | None = None
+    # Retrieval (app.services.retrieval): a sentence relating this paper to
+    # earlier ones, and the arXiv id of an earlier paper it near-duplicates.
+    related_note: str | None = None
+    near_duplicate_of: str | None = None
+    # (arxiv_id, title) of related earlier papers: the note's citations, or
+    # the closest earlier paper when there's no note.
+    similar: list[tuple[str, str]] = field(default_factory=list)
+    # Near duplicates of this paper in the same section, folded in under it.
+    see_also: list["PaperForEmail"] = field(default_factory=list)
 
 
 @dataclass
@@ -85,6 +96,7 @@ def build_topic_section(
             picked[paper.arxiv_id] = (paper, digest)
     if not picked:
         return None
+    _fold_near_duplicates(picked)
 
     candidates = list(picked.values())
     scores = score_papers([p for p, _ in candidates])
@@ -111,6 +123,37 @@ def build_topic_section(
         papers=[p for p, _ in kept],
         overviews=overviews,
         omitted=len(ranked) - len(kept),
+    )
+
+
+def _fold_near_duplicates(picked: dict[str, tuple[PaperForEmail, DigestForEmail]]) -> None:
+    """Move each paper whose near-duplicate original is also in this section
+    under that original (its `see_also`), in place. Chains (C duplicates B,
+    which duplicates A) fold into the first paper. A folded paper isn't
+    ranked or counted against the cap - it rides along with its original."""
+
+    def root(arxiv_id: str) -> str:
+        seen = {arxiv_id}
+        while (parent := picked[arxiv_id][0].near_duplicate_of) in picked and parent not in seen:
+            seen.add(parent)
+            arxiv_id = parent
+        return arxiv_id
+
+    roots = {aid: root(aid) for aid in picked}
+    folded = {aid: original for aid, original in roots.items() if original != aid}
+    for aid, original in sorted(folded.items()):
+        paper, digest = picked[original]
+        picked[original] = (dataclasses.replace(paper, see_also=[*paper.see_also, picked[aid][0]]), digest)
+    for aid in folded:
+        del picked[aid]
+
+
+_ARXIV_ID = re.compile(r"\b\d{4}\.\d{4,5}\b")
+
+
+def _linkify_arxiv_ids(escaped: str) -> str:
+    return _ARXIV_ID.sub(
+        lambda m: f'<a href="https://arxiv.org/abs/{m.group(0)}">{m.group(0)}</a>', escaped
     )
 
 
@@ -169,15 +212,43 @@ def render_digest_email(
                 text_lines.append(f"* {paper.title}")
                 if paper.summary:
                     text_lines.append(f"  {paper.summary}")
-                text_lines += [f"  {url}", ""]
+                if paper.related_note:
+                    text_lines.append(f"  Related: {paper.related_note}")
+                elif paper.similar:
+                    sim_id, sim_title = paper.similar[0]
+                    text_lines.append(
+                        f"  Similar earlier paper: {sim_title} https://arxiv.org/abs/{sim_id}"
+                    )
+                text_lines.append(f"  {url}")
+                for dup in paper.see_also:
+                    text_lines.append(f"  Also (near-duplicate): {dup.title} https://arxiv.org/abs/{dup.arxiv_id}")
+                text_lines.append("")
 
                 html_parts.append(f"<p><strong>{escape(paper.title)}</strong>")
                 if paper.summary:
                     html_parts.append(f"<br>{escape(paper.summary)}")
+                if paper.related_note:
+                    html_parts.append(
+                        f"<br><em>Related:</em> {_linkify_arxiv_ids(escape(paper.related_note))}"
+                    )
+                elif paper.similar:
+                    sim_id, sim_title = paper.similar[0]
+                    sim_url = f"https://arxiv.org/abs/{sim_id}"
+                    html_parts.append(
+                        f'<br><em>Similar earlier paper:</em> <a href="{escape(sim_url, quote=True)}">'
+                        f"{escape(sim_title)}</a>"
+                    )
                 html_parts.append(
                     f'<br><a href="{escape(url, quote=True)}">'
-                    f"arxiv.org/abs/{escape(paper.arxiv_id)}</a></p>"
+                    f"arxiv.org/abs/{escape(paper.arxiv_id)}</a>"
                 )
+                for dup in paper.see_also:
+                    dup_url = f"https://arxiv.org/abs/{dup.arxiv_id}"
+                    html_parts.append(
+                        f'<br>Also (near-duplicate): <a href="{escape(dup_url, quote=True)}">'
+                        f"{escape(dup.title)}</a>"
+                    )
+                html_parts.append("</p>")
 
         if section.omitted:
             more = (

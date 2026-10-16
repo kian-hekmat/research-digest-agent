@@ -36,7 +36,8 @@ from sqlalchemy.orm import Session
 from app import models
 from app.config import get_settings
 from app.database import SessionLocal
-from app.services.summarize import _RELEVANCE_RUBRIC, RatedSummary, Summarizer
+from app.services.retrieval import Neighbour, related_context
+from app.services.summarize import _RELEVANCE_RUBRIC, RatedSummary, RelatedPaper, Summarizer
 from evals import metrics
 
 EVALS_DIR = Path(__file__).resolve().parent
@@ -64,6 +65,9 @@ class EvalItem:
 class Variant:
     rate: Callable[[EvalItem], int | None]
     summarize: Callable[[EvalItem], RatedSummary]
+    # Earlier papers offered as related work, recorded in the report so each
+    # related-work claim can be checked against what the model was shown.
+    related: Callable[[EvalItem], list[Neighbour]] | None = None
 
 
 def _baseline(db: Session, summarizer: Summarizer) -> Variant:
@@ -75,8 +79,32 @@ def _baseline(db: Session, summarizer: Summarizer) -> Variant:
     )
 
 
+def _rag_related(db: Session, summarizer: Summarizer) -> Variant:
+    """Phase 2: summaries see earlier, similar papers and may add a checked
+    related-work note. Same retrieval as the summarize_paper activity."""
+    settings = get_settings()
+
+    def related(i: EvalItem) -> list[Neighbour]:
+        return related_context(
+            db, i.paper_id, model=settings.embedding_model,
+            k=settings.rag_top_k, min_similarity=settings.rag_min_similarity,
+        )
+
+    def summarize(i: EvalItem) -> RatedSummary:
+        offered = [RelatedPaper(n.arxiv_id, n.title, n.summary or n.abstract or "") for n in related(i)]
+        return summarizer.summarize_and_rate(
+            i.title, i.abstract, i.topic_name, i.topic_query, related=offered
+        )
+
+    base = _baseline(db, summarizer)
+    return Variant(rate=base.rate, summarize=summarize, related=related)
+
+
 # name -> factory(db, summarizer). RAG phases add theirs here.
-VARIANTS: dict[str, Callable[[Session, Summarizer], Variant]] = {"baseline": _baseline}
+VARIANTS: dict[str, Callable[[Session, Summarizer], Variant]] = {
+    "baseline": _baseline,
+    "rag-related": _rag_related,
+}
 
 
 # ---------- data access (read-only) ----------
@@ -328,6 +356,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         subset = items[::step][: args.summaries] if step else []
         summaries, sum_times = [], []
         for n, item in enumerate(subset, 1):
+            offered = variant.related(item) if variant.related else []
             rated, secs, err = _timed(variant.summarize, item)
             sum_times.append(secs)
             if err:
@@ -342,6 +371,13 @@ def cmd_run(args: argparse.Namespace) -> None:
                 if text else [],
                 "chars": len(text) if text else 0,
                 "abstract_chars": len(item.abstract),
+                "offered": [
+                    {"arxiv_id": n.arxiv_id, "title": n.title, "similarity": round(n.similarity, 3)}
+                    for n in offered
+                ],
+                "related_note": rated.related_note if rated else None,
+                "related_ids": list(rated.related_ids) if rated else [],
+                "related_rejected": bool(rated and rated.related_rejected),
             })
             print(f"\rsummaries: {n}/{len(subset)}", end="", flush=True)
         print()
@@ -354,6 +390,9 @@ def cmd_run(args: argparse.Namespace) -> None:
                 sum(s["chars"] / s["abstract_chars"] for s in ok) / len(ok), 3
             ) if ok else None,
             "relevance_parsed": sum(s["relevance"] is not None for s in ok),
+            "with_offered": sum(bool(s["offered"]) for s in ok),
+            "with_related_note": sum(bool(s["related_note"]) for s in ok),
+            "related_rejected": sum(s["related_rejected"] for s in ok),
             "latency": metrics.latency(sum_times),
             "outputs": summaries,
         }
@@ -405,6 +444,9 @@ def print_report(r: dict) -> None:
               f"unsupported-number={s['with_unsupported_numbers']} "
               f"compression={s['mean_compression']} relevance-parsed={s['relevance_parsed']}")
         print(f"Summary latency: {s['latency']}")
+        if s.get("with_offered"):
+            print(f"Related work: offered to {s['with_offered']}, note kept for "
+                  f"{s['with_related_note']}, rejected (bad citation) {s['related_rejected']}")
     c = r["corpus"]["stored_summaries"]
     print(f"\nStored summaries with numbers absent from the abstract: "
           f"{c['with_unsupported_numbers']}/{c['n']}")

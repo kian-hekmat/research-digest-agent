@@ -136,6 +136,21 @@ def set_topic_paper_relevance(
     )
 
 
+def set_paper_related(
+    db: Session, paper_id: str, related: list[tuple[str, float]]
+) -> None:
+    """Replace the papers `paper_id`'s related-work note cites with `related`
+    ((related_paper_id, similarity) pairs). Replacing rather than appending
+    keeps an activity retry idempotent. Does not commit."""
+    table = models.paper_related_association
+    db.execute(table.delete().where(table.c.paper_id == paper_id))
+    if related:
+        db.execute(
+            table.insert(),
+            [{"paper_id": paper_id, "related_paper_id": rid, "similarity": sim} for rid, sim in related],
+        )
+
+
 def relevance_by_paper(db: Session, topic_id: str, paper_ids: list[str]) -> dict[str, int]:
     """paper_id -> relevance to `topic_id`, for the rated ones only."""
     if not paper_ids:

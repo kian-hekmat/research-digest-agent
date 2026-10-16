@@ -6,19 +6,25 @@ A paper's score combines three signals, each scaled to [0, 1]:
   LLM in the same call that writes its summary. A phrase-match search returns
   papers that are squarely about the topic and papers that mention it once,
   and nothing else in the pipeline tells them apart.
-- author standing (40%) - the highest h-index among the paper's authors, from
+- author standing (30%) - the highest h-index among the paper's authors, from
   Semantic Scholar, log-scaled. The max rather than the mean: most strong
   papers are led by students with an established senior author, and a mean
   punishes exactly that; it also limits the damage of one author being
   mis-matched to a namesake's profile. Log-scaled so the difference between
   h=2 and h=20 counts for more than between h=60 and h=80.
+- novelty (10%) - how unlike earlier papers it is: its highest embedding
+  similarity to a topic-linked paper published in the previous 90 days
+  (app.services.retrieval), mapped linearly so 0.85+ (nearly a repeat) is 0
+  and 0.45 or less (closer only than a typical random pair) is 1. Small on
+  purpose: papers squarely on a topic are similar to that topic's earlier
+  papers, so novelty pulls slightly against relevance.
 - venue (up to +8%) - a bonus when the arXiv comment or journal-ref says the
   paper was accepted somewhere; half that for a workshop. A small bonus, not
   a weight: most papers in a fresh digest haven't been accepted anywhere yet,
   and that says little about them.
 
 A missing signal (no LLM configured, a paper too new for Semantic Scholar,
-a failed lookup) is imputed as the median of the papers that do have it, so
+a failed lookup, no embedding) is imputed as the median of the papers that do have it, so
 it neither sinks nor lifts the paper. Ties - including every paper when no
 signal is available at all - fall back to newest first, the old behavior.
 
@@ -33,7 +39,8 @@ import statistics
 from typing import Protocol, Sequence
 
 RELEVANCE_WEIGHT = 0.6
-H_INDEX_WEIGHT = 0.4
+H_INDEX_WEIGHT = 0.3
+NOVELTY_WEIGHT = 0.1
 VENUE_BONUS = 0.08
 WORKSHOP_VENUE_FRACTION = 0.5
 
@@ -42,6 +49,11 @@ WORKSHOP_VENUE_FRACTION = 0.5
 H_INDEX_SATURATION = 100
 
 RELEVANCE_MIN, RELEVANCE_MAX = 1, 10
+
+# prior_similarity -> novelty anchors, from embeddinggemma's observed scale
+# (docs/rag-plan.md §5.2): random pairs ~0.41, nearest neighbours ~0.66.
+NOVELTY_REPEAT_SIMILARITY = 0.85  # novelty 0
+NOVELTY_UNRELATED_SIMILARITY = 0.45  # novelty 1
 
 _ACCEPTED = re.compile(
     r"\b(accepted|to appear|to be published|published in|camera[- ]ready)\b",
@@ -54,6 +66,7 @@ class Rankable(Protocol):
     relevance: int | None
     max_author_h_index: int | None
     venue_score: float
+    prior_similarity: float | None
 
 
 def venue_score(comment: str | None, journal_ref: str | None) -> float:
@@ -79,6 +92,13 @@ def h_index_component(h_index: int | None) -> float | None:
     return min(math.log1p(max(h_index, 0)) / math.log1p(H_INDEX_SATURATION), 1.0)
 
 
+def novelty_component(prior_similarity: float | None) -> float | None:
+    if prior_similarity is None:
+        return None
+    span = NOVELTY_REPEAT_SIMILARITY - NOVELTY_UNRELATED_SIMILARITY
+    return min(max((NOVELTY_REPEAT_SIMILARITY - prior_similarity) / span, 0.0), 1.0)
+
+
 def _impute(values: list[float | None]) -> list[float]:
     known = [v for v in values if v is not None]
     fill = statistics.median(known) if known else 0.5
@@ -90,7 +110,8 @@ def score_papers(papers: Sequence[Rankable]) -> list[float]:
     call - missing signals are imputed from the batch's own median."""
     relevance = _impute([relevance_component(p.relevance) for p in papers])
     h_index = _impute([h_index_component(p.max_author_h_index) for p in papers])
+    novelty = _impute([novelty_component(p.prior_similarity) for p in papers])
     return [
-        RELEVANCE_WEIGHT * r + H_INDEX_WEIGHT * h + VENUE_BONUS * p.venue_score
-        for p, r, h in zip(papers, relevance, h_index)
+        RELEVANCE_WEIGHT * r + H_INDEX_WEIGHT * h + NOVELTY_WEIGHT * n + VENUE_BONUS * p.venue_score
+        for p, r, h, n in zip(papers, relevance, h_index, novelty)
     ]

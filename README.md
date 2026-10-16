@@ -10,7 +10,7 @@ sleeping laptop delays a digest instead of losing it.
 
 > Built as a realistic backend/AI engineering project: an HTTP API, a relational
 > schema with migrations, durable workflow orchestration, external API
-> integration, local LLM inference, scheduled email delivery, and a 204-test
+> integration, local LLM inference, scheduled email delivery, and a 233-test
 > suite running in CI.
 
 ---
@@ -65,7 +65,7 @@ highest-ranked, not just the newest.
 - Normalized PostgreSQL schema: many-to-many join tables carrying data
   (per-topic relevance on `topic_paper`), native enums, cascading foreign keys,
   timezone-aware timestamps, indexed lookup columns
-- 9 hand-reviewed Alembic migrations, including a Postgres enum change that has
+- 10 hand-reviewed Alembic migrations, including a Postgres enum change that has
   to commit outside the migration's transaction, and a reversible downgrade that
   rebuilds the enum type
 
@@ -95,7 +95,7 @@ highest-ranked, not just the newest.
   test-environment leakage
 
 **Testing & CI**
-- 204 tests against a real Postgres built by running the migrations, so model
+- 233 tests against a real Postgres built by running the migrations, so model
   and migration drift fails the suite
 - Workflows run end to end against Temporal's time-skipping server, so minutes
   of retry backoff finish in about a second
@@ -146,10 +146,13 @@ Runs daily at 10:00 Pacific for every topic, and on demand via `POST /digests/{t
 1. **Fetch** new papers from arXiv. Free-text topics are sent as exact-phrase
    searches; queries like `cat:math.NA` track a whole arXiv category.
 2. **Ingest**: upsert papers by arXiv id and skip any the topic already has.
-3. **Summarize and rate** each new paper with Gemma, at most 4 calls at a time.
+3. **Embed** new papers with EmbeddingGemma into pgvector and compute retrieval
+   signals: novelty, near duplicates, and the closest earlier paper (shown in
+   the email as "Similar earlier paper" when it's close enough).
+4. **Summarize and rate** each new paper with Gemma, at most 4 calls at a time.
    One call returns both the summary and a 1–10 relevance rating.
-4. **Overview**: one LLM-written paragraph synthesizing the batch.
-5. **Finalize**: mark the digest completed and advance the topic's watermark.
+5. **Overview**: one LLM-written paragraph synthesizing the batch.
+6. **Finalize**: mark the digest completed and advance the topic's watermark.
 
 ### 2. Email delivery (`SendDigestEmailsWorkflow`)
 Runs Mondays and Thursdays at 08:00 Pacific.
@@ -165,7 +168,10 @@ Runs Mondays and Thursdays at 08:00 Pacific.
    confirmed send.
 
 ### 3. Ranking (`app/services/ranking.py`)
-`score = 0.6 × relevance + 0.4 × log-scaled max author h-index (+ up to 0.08 venue bonus)`
+`score = 0.6 × relevance + 0.3 × log-scaled max author h-index + 0.1 × novelty (+ up to 0.08 venue bonus)`
+
+Novelty is how unlike the paper is to earlier topic papers from the last 90 days,
+by embedding similarity (pgvector).
 
 A missing signal is replaced with the batch median, so a paper too new to be
 indexed neither sinks nor rises. With no signals at all, the order falls back to
@@ -193,7 +199,7 @@ regression test:
 ## Testing
 
 ```bash
-venv/bin/python3 -m pytest -q        # 204 tests
+venv/bin/python3 -m pytest -q        # 233 tests
 ```
 
 | Layer | How |
@@ -303,7 +309,7 @@ app/
 ├── backfill_summaries.py   one-off: summarize papers waiting to be emailed
 └── backfill_embeddings.py  one-off: embed papers ingested before retrieval existed
 alembic/versions/           schema migrations
-tests/                      204 tests (see Testing)
+tests/                      233 tests (see Testing)
 docs/                       design notes
 ```
 

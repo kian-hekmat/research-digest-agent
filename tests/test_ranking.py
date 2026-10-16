@@ -4,9 +4,11 @@ import pytest
 
 from app.services.ranking import (
     H_INDEX_WEIGHT,
+    NOVELTY_WEIGHT,
     RELEVANCE_WEIGHT,
     VENUE_BONUS,
     h_index_component,
+    novelty_component,
     relevance_component,
     score_papers,
     venue_score,
@@ -14,10 +16,10 @@ from app.services.ranking import (
 from app.services.email import PaperForEmail
 
 
-def _p(relevance=None, h=None, venue=0.0):
+def _p(relevance=None, h=None, venue=0.0, prior=None):
     return PaperForEmail(
         title="t", summary=None, arxiv_id="x",
-        relevance=relevance, max_author_h_index=h, venue_score=venue,
+        relevance=relevance, max_author_h_index=h, venue_score=venue, prior_similarity=prior,
     )
 
 
@@ -56,9 +58,25 @@ def test_h_index_component_is_log_scaled_and_saturates():
 
 
 def test_weights_combine_as_specified():
-    [score] = score_papers([_p(relevance=10, h=100, venue=1.0)])
-    assert math.isclose(score, RELEVANCE_WEIGHT + H_INDEX_WEIGHT + VENUE_BONUS)
-    assert (RELEVANCE_WEIGHT, H_INDEX_WEIGHT, VENUE_BONUS) == (0.6, 0.4, 0.08)
+    [score] = score_papers([_p(relevance=10, h=100, venue=1.0, prior=0.2)])
+    assert math.isclose(score, RELEVANCE_WEIGHT + H_INDEX_WEIGHT + NOVELTY_WEIGHT + VENUE_BONUS)
+    assert (RELEVANCE_WEIGHT, H_INDEX_WEIGHT, NOVELTY_WEIGHT, VENUE_BONUS) == (0.6, 0.3, 0.1, 0.08)
+
+
+def test_novelty_component_maps_similarity_linearly_and_clamps():
+    assert novelty_component(0.85) == 0.0
+    assert novelty_component(0.95) == 0.0
+    assert novelty_component(0.45) == 1.0
+    assert novelty_component(0.10) == 1.0
+    assert math.isclose(novelty_component(0.65), 0.5)
+    assert novelty_component(None) is None
+
+
+def test_novelty_breaks_a_tie_but_never_beats_relevance():
+    novel, repeat = score_papers([_p(relevance=8, h=10, prior=0.5), _p(relevance=8, h=10, prior=0.84)])
+    assert novel > repeat
+    central_repeat, tangential_novel = score_papers([_p(relevance=9, h=10, prior=0.85), _p(relevance=6, h=10, prior=0.3)])
+    assert central_repeat > tangential_novel
 
 
 def test_missing_signal_is_imputed_from_the_batch_median():
@@ -78,7 +96,7 @@ def test_no_signals_at_all_scores_every_paper_the_same():
 
 
 def test_relevance_outweighs_author_standing():
-    """60/40: a central paper by unknown authors beats a tangential one by
+    """60/30: a central paper by unknown authors beats a tangential one by
     famous authors."""
     central_unknown, tangential_famous = score_papers([_p(relevance=10, h=1), _p(relevance=3, h=80)])
     assert central_unknown > tangential_famous

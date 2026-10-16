@@ -9,6 +9,7 @@ stay itself free of I/O.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from temporalio import activity
@@ -19,7 +20,7 @@ from app.config import get_settings
 from app.database import SessionLocal
 from app.services.arxiv import search_arxiv
 from app.services.ranking import venue_score
-from app.services.retrieval import embed_missing
+from app.services.retrieval import compute_signals, embed_missing, related_context
 from app.services.scholar import fetch_max_author_h_index
 from app.services.embed import Embedder
 from app.services.email import (
@@ -30,7 +31,7 @@ from app.services.email import (
     build_topic_section,
     render_digest_email,
 )
-from app.services.summarize import Summarizer
+from app.services.summarize import RelatedPaper, Summarizer
 from app.temporal.types import (
     AdvanceWatermarkInput,
     DigestContext,
@@ -47,6 +48,9 @@ from app.temporal.types import (
     SummarizePaperInput,
     WriteOverviewInput,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 @activity.defn
@@ -168,15 +172,51 @@ def ingest_papers(input: IngestPapersInput) -> list[IngestedPaper]:
 
 @activity.defn
 def embed_papers(input: EmbedPapersInput) -> int:
-    """Embed this run's papers for retrieval. Returns how many were newly
-    embedded: 0 when embeddings are off, or every paper already had one."""
+    """Embed this run's papers for retrieval, then compute their retrieval
+    signals (novelty, near duplicates). Returns how many were newly embedded:
+    0 when embeddings are off, or every paper already had one."""
+    settings = get_settings()
     db = SessionLocal()
     try:
-        return embed_missing(
-            db, Embedder(), input.paper_ids, batch_size=get_settings().embedding_batch_size
-        )
+        embedder = Embedder()
+        written = embed_missing(db, embedder, input.paper_ids, batch_size=settings.embedding_batch_size)
+        if embedder.enabled:
+            compute_signals(
+                db,
+                input.paper_ids,
+                model=settings.embedding_model,
+                near_duplicate_similarity=settings.rag_near_duplicate_similarity,
+                novelty_window_days=settings.rag_novelty_window_days,
+                similar_paper_similarity=settings.rag_similar_paper_similarity,
+            )
+        return written
     finally:
         db.close()
+
+
+def _related_papers(paper_id: str) -> tuple[list[RelatedPaper], dict[str, tuple[str, float]]]:
+    """Earlier papers to offer the summarizer, and arxiv_id -> (paper_id,
+    similarity) for recording which ones its note cites. Retrieval is an
+    enhancement: any failure here means summarizing without it."""
+    settings = get_settings()
+    if not (settings.embeddings_enabled and settings.rag_related_notes):
+        return [], {}
+    db = SessionLocal()
+    try:
+        found = related_context(
+            db,
+            paper_id,
+            model=settings.embedding_model,
+            k=settings.rag_top_k,
+            min_similarity=settings.rag_min_similarity,
+        )
+    except Exception:
+        logger.exception("Related-work retrieval failed for paper %s", paper_id)
+        return [], {}
+    finally:
+        db.close()
+    offered = [RelatedPaper(n.arxiv_id, n.title, n.summary or n.abstract or "") for n in found]
+    return offered, {n.arxiv_id: (n.paper_id, n.similarity) for n in found}
 
 
 @activity.defn
@@ -185,15 +225,26 @@ def summarize_paper(input: SummarizePaperInput) -> str | None:
     and persist both immediately, so a later retry of a *different* paper in
     the same run never redoes this one. Returns the summary: None (persisted
     as no summary) when Summarizer is in no-key mode - not a failure, so it's
-    never counted as one in digest.error."""
+    never counted as one in digest.error.
+
+    With RAG_RELATED_NOTES on, earlier, similar papers are offered as related
+    work, and a related-work note is stored only when its citations checked
+    out (see Summarizer); its citations then replace the "similar earlier
+    paper" link that embed_papers recorded."""
+    related, by_arxiv_id = _related_papers(input.paper_id)
     rated = Summarizer().summarize_and_rate(
-        input.title, input.abstract or "", input.topic_name, input.topic_query
+        input.title, input.abstract or "", input.topic_name, input.topic_query, related=related
     )
+    if rated.related_rejected:
+        logger.info("Dropped a related-work note with unchecked citations for %s", input.paper_id)
     db = SessionLocal()
     try:
         paper = db.get(models.Paper, input.paper_id)
         if paper is not None:
             paper.summary = rated.summary
+            paper.related_note = rated.related_note
+            if rated.related_ids:
+                crud.set_paper_related(db, paper.id, [by_arxiv_id[a] for a in rated.related_ids])
             if input.topic_id:
                 crud.set_topic_paper_relevance(db, input.topic_id, paper.id, rated.relevance)
             db.commit()
@@ -335,6 +386,12 @@ def gather_digest_content(input: GatherContentInput) -> GatheredContent | None:
                             relevance=relevance.get(p.id),
                             max_author_h_index=p.max_author_h_index,
                             venue_score=venue_score(p.comment, p.journal_ref),
+                            prior_similarity=p.prior_similarity,
+                            related_note=p.related_note,
+                            similar=[(r.arxiv_id, r.title) for r in p.related_papers],
+                            near_duplicate_of=(
+                                p.near_duplicate_of.arxiv_id if p.near_duplicate_of else None
+                            ),
                         )
                         for p in d.papers
                     ],

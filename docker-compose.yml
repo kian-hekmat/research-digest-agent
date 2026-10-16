@@ -87,6 +87,7 @@ services:
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:12b}
       RAG_ENABLED: ${RAG_ENABLED:-true}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-embeddinggemma}
+      RAG_RELATED_NOTES: ${RAG_RELATED_NOTES:-false}
       SEMANTIC_SCHOLAR_API_KEY: ${SEMANTIC_SCHOLAR_API_KEY:-}
       TEMPORAL_ADDRESS: temporal:7233
       SMTP_HOST: ${SMTP_HOST:-mailpit}
@@ -120,6 +121,7 @@ services:
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:12b}
       RAG_ENABLED: ${RAG_ENABLED:-true}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-embeddinggemma}
+      RAG_RELATED_NOTES: ${RAG_RELATED_NOTES:-false}
       SEMANTIC_SCHOLAR_API_KEY: ${SEMANTIC_SCHOLAR_API_KEY:-}
       TEMPORAL_ADDRESS: temporal:7233
       SMTP_HOST: ${SMTP_HOST:-mailpit}

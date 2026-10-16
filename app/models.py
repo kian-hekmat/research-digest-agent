@@ -10,6 +10,7 @@ from sqlalchemy import (
     Text,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Integer,
     SmallInteger,
@@ -103,6 +104,27 @@ topic_paper_association = Table(
     CheckConstraint("relevance BETWEEN 1 AND 10", name="ck_topic_paper_relevance_range"),
 )
 
+# Which earlier papers a paper's related-work note cites (see
+# app.services.summarize). Only citations that checked out are stored.
+paper_related_association = Table(
+    "paper_related",
+    Base.metadata,
+    Column(
+        "paper_id",
+        UUID(as_uuid=False),
+        ForeignKey("papers.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "related_paper_id",
+        UUID(as_uuid=False),
+        ForeignKey("papers.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("similarity", Float, nullable=False),
+    CheckConstraint("paper_id <> related_paper_id", name="ck_paper_related_not_self"),
+)
+
 # Many-to-many: a digest bundles many papers, and a paper can appear in the
 # digests of every topic it matched (and in re-runs).
 digest_paper_association = Table(
@@ -175,6 +197,20 @@ class Paper(Base):
     # Highest h-index among the authors, from Semantic Scholar. NULL = not
     # looked up yet, or not indexed yet (fresh papers lag a day or so).
     max_author_h_index = Column(Integer, nullable=True)
+    # --- retrieval (app.services.retrieval) ---
+    # One LLM-written sentence on how this paper relates to earlier ones the
+    # reader has seen, citing them; NULL when none was close enough or the
+    # model's citations didn't check out.
+    related_note = Column(Text, nullable=True)
+    # Highest cosine similarity to an earlier-published, topic-linked paper
+    # within the novelty window - low = novel. NULL = not computed, or nothing
+    # earlier to compare with.
+    prior_similarity = Column(Float, nullable=True)
+    # An earlier paper so similar this one is effectively the same work
+    # (companion paper, resubmission under a new id); emails fold it in.
+    near_duplicate_of_id = Column(
+        UUID(as_uuid=False), ForeignKey("papers.id", ondelete="SET NULL"), nullable=True
+    )
     created_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -190,6 +226,14 @@ class Paper(Base):
     )
     digests = relationship(
         "Digest", secondary=digest_paper_association, back_populates="papers"
+    )
+    near_duplicate_of = relationship("Paper", remote_side=[id], foreign_keys=[near_duplicate_of_id])
+    related_papers = relationship(
+        "Paper",
+        secondary=paper_related_association,
+        primaryjoin=lambda: Paper.id == paper_related_association.c.paper_id,
+        secondaryjoin=lambda: Paper.id == paper_related_association.c.related_paper_id,
+        viewonly=True,
     )
 
 

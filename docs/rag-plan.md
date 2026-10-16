@@ -315,13 +315,72 @@ All 398 papers are embedded (768-dim, `kind=abstract`), which took 11s through
   up as a neighbour. Phase 2 should either pass `topic_id` or require the
   neighbour to be linked to at least one topic.
 
+### 5.3 Phase 2 results (2026-10-16)
+
+**Related-work notes (A) fail the ship bar, so they're off by default.** Claude
+(not the project owner) reviewed every note Gemma wrote against both
+abstracts. The verdicts are in `evals/results/2026-10-16_related_notes_review.json`.
+
+| Round | Floor | Prompt | Offered → notes | Correct | Vague | Wrong |
+|---|---|---|---|---|---|---|
+| 1 | 0.65 | "builds on, extends, competes with, or contradicts" | 21 → 8 | 2 | 2 | **4 (50%)** |
+| 2 | 0.72 | "same problem or competing method; no lineage claims unless the abstract says so" | 46 → 19 | 9 | 5 | **5 (26%)** |
+
+- No note was rejected by the citation check. Gemma always cited ids it had
+  been given. Its errors are about *content*, which a citation check can't
+  catch.
+- Round 1's wrong notes all came from neighbours at ≤ 0.70 and invented
+  "builds on" / "extends" lineage. Raising the floor and banning lineage
+  claims halved the error rate.
+- Round 2's wrong notes are spread across 0.72–0.84, so no floor fixes them.
+  The pattern: Gemma projects the *new* paper's framing onto the *cited* one.
+  It says the random-feature PINN paper is about adapting across PDEs (it's
+  about spectral bias), pins a large-N approximation on a paper that doesn't
+  use one, and misses that one paper is Part II of the other.
+- 26% wrong is far above the 10% bar, so `RAG_RELATED_NOTES` defaults to
+  false. The full pipeline (prompt, citation check, `paper_related` storage,
+  rendering) is in place and tested. It can be switched on to re-evaluate
+  with a stronger model, or with full text (E), since the cited papers'
+  abstracts were the model's only evidence.
+
+**What ships instead: "Similar earlier paper".** Retrieval itself was
+reliable. Every *neighbour* reviewed at ≥ 0.75 was a genuinely related paper,
+including the Part I/II pair and the two competing Helmholtz coarse-space
+papers. So emails show the closest earlier, topic-linked paper at ≥ 0.75 as a
+plain link, with no LLM claim attached. That covers 26 of 373 linked papers
+(7%) today, and coverage grows with the corpus.
+
+**Novelty (B) is in the ranking at 10%.** `prior_similarity` is computed for
+397/398 papers (mean 0.62, range 0.32–0.89). Relevance and prior similarity
+correlate positively (ρ 0.15 for Numerical Analysis, 0.69 for PINNs with
+n=17, 0.23 overall): papers squarely on a topic resemble its earlier papers.
+So novelty pulls slightly against relevance, as expected, and its weight
+stays small (taken from h-index: 0.6 / 0.3 / 0.1). In
+`app/services/ranking.py`, a central repeat still beats a tangential novel
+paper.
+
+**Near-duplicate collapse (B) is wired but has no live cases.** No pair in
+the corpus reaches the 0.9 threshold, so `near_duplicate_of` is empty and the
+email fold (duplicates listed under their original, outside the cap) is
+covered only by tests.
+
+**Other fixes made along the way:**
+- Retrieval ignores papers no topic links to, such as the 25 stale RLHF
+  papers (`linked_only`).
+- The parser catches a `Related:` tacked onto the end of the paragraph. The
+  round 1 eval caught one leaking into a summary, flagged by the
+  unsupported-number check because it contained an arXiv id. A note must
+  also say something beyond its citations.
+- Retrieval failures inside `summarize_paper` are logged and the summary
+  goes ahead without them.
+
 ## 6. Phases
 
 | # | Scope | Ships | Size |
 |---|---|---|---|
 | 0 | Eval harness + hand labels + baseline numbers | `evals/rag.py`, `evals/labels.csv` | S |
 | 1 ✅ | pgvector, `paper_embeddings`, `Embedder`, `embed_papers` activity, backfill (see §5.2) | infra only, no change to outputs | M |
-| 2 | **A + B**: related-work context with checked citations, near-dup collapse, novelty ranking signal | email `Related:` line, new ranking term | M |
+| 2 ✅ | **A + B**: related-work context with checked citations, near-dup collapse, novelty ranking signal (see §5.3: LLM notes off, "Similar earlier paper" link instead) | email link, new ranking term | M |
 | 3 | **C**: `topics.description` + few-shot rating anchors (API: `PATCH /topics` accepts description) | better ranking | S–M |
 | 4 | **D**: history-aware overviews | better overview paragraph | S |
 | 5 | **E**: full-text chunk retrieval from arXiv HTML | more concrete summaries | L |

@@ -49,6 +49,27 @@ class Settings(BaseSettings):
     # to one with another width needs a migration.
     embedding_dim: int = 768
     embedding_batch_size: int = 32
+    # Related-work context for summaries: up to this many earlier papers,
+    # each at least this similar (cosine). embeddinggemma's scale is
+    # compressed - random pairs sit around 0.41 (p99 0.67), a paper's nearest
+    # neighbour around 0.66. At 0.65 half of Gemma's related-work notes were
+    # wrong, all from neighbours at <= 0.70; see docs/rag-plan.md §5.3.
+    rag_top_k: int = 4
+    rag_min_similarity: float = 0.72
+    # LLM-written related-work notes are off by default: even at 0.72, 5 of 19
+    # notes misdescribed the cited paper (§5.3) - over the 10% bar. Emails
+    # show the closest earlier paper as a plain link instead (below), which
+    # makes no claim about how the two relate.
+    rag_related_notes: bool = False
+    # The closest earlier, topic-linked paper at or above this similarity is
+    # shown as "Similar earlier paper". Every neighbour reviewed at >= 0.75
+    # was genuinely related; ~7% of papers have one.
+    rag_similar_paper_similarity: float = 0.75
+    # At or above this, an earlier paper counts as the same work. Untested on
+    # real duplicates: the corpus had none above 0.89 when this was set.
+    rag_near_duplicate_similarity: float = 0.9
+    # Novelty compares a paper with earlier ones published within this window.
+    rag_novelty_window_days: int = 90
 
     @property
     def embeddings_enabled(self) -> bool:

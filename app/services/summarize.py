@@ -10,6 +10,12 @@ relevance to the topic (1-10, feeding app.services.ranking) in the same call,
 and `rate_relevance` for a paper that already has a summary from another
 topic. `summarize_paper` (summary only) remains for the backfill script.
 
+Given `related` papers (earlier ones retrieved by embedding similarity, see
+app.services.retrieval), `summarize_and_rate` may also return one sentence
+on how the paper relates to them. Its citations are checked against the
+papers actually offered: a note citing anything else is dropped, never shown.
+Without `related`, the prompt is exactly the one used before retrieval.
+
 With `SUMMARY_BACKEND=none` (`Settings.summaries_enabled` is False), every
 method returns `None` (or a RatedSummary of Nones) immediately - no network
 call, no retry/backoff, no error. This is a deliberate "no-summary mode":
@@ -48,6 +54,21 @@ _RATED_SUMMARY_SYSTEM = (
     "concrete and neutral. No preamble, no lists, no LaTeX, no markdown."
 )
 
+_RATED_SUMMARY_WITH_RELATED_SYSTEM = (
+    _RATED_SUMMARY_SYSTEM
+    + " You are also given earlier papers the reader has already seen, each "
+    "with its arXiv id in square brackets. Only if the new paper tackles the "
+    "same specific problem as one of them, or proposes a competing method for "
+    "it - not merely the same field or the same general technique - add a "
+    "final line `Related: ` followed by one sentence naming that shared problem "
+    "or method and how the new paper differs, citing the earlier paper's arXiv "
+    "id in square brackets, e.g. [2609.01234]. Never say the new paper builds "
+    "on, extends, or follows an earlier one unless its abstract explicitly says "
+    "so. Otherwise leave the line out; most papers should not have one. Never "
+    "cite a paper that is not in the list. The summary paragraph describes "
+    "only the new paper and never mentions the earlier ones."
+)
+
 _RELEVANCE_SYSTEM = (
     "You rate academic papers for a research alerting digest. "
     + _RELEVANCE_RUBRIC
@@ -63,6 +84,17 @@ _OVERVIEW_SYSTEM = (
 )
 
 
+# On its own line, or tacked onto the end of the paragraph after a sentence.
+_RELATED_LINE = re.compile(
+    r"(?:^|(?<=[.!?])[ \t]+)\W*related\W*[:=]\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE
+)
+# A note has to say something beyond its citations.
+_MIN_NOTE_WORDS = 5
+_ARXIV_ID = re.compile(r"\b\d{4}\.\d{4,5}\b")
+# Each related paper's text in the prompt is capped, so 4 of them can't crowd
+# out the paper being summarized.
+_RELATED_TEXT_CHARS = 700
+
 # Tolerant of what models actually emit: "Relevance: 7", "**Relevance:** 7",
 # "relevance = 7/10".
 _RELEVANCE_LINE = re.compile(r"^\W*relevance\W*[:=]?\W*(\d{1,2})\b.*$", re.IGNORECASE | re.MULTILINE)
@@ -70,9 +102,24 @@ _FIRST_INT = re.compile(r"\b(\d{1,2})\b")
 
 
 @dataclass(frozen=True)
+class RelatedPaper:
+    """An earlier paper offered to the summarizer as possible related work."""
+
+    arxiv_id: str
+    title: str
+    text: str  # its summary, or its abstract when it has none yet
+
+
+@dataclass(frozen=True)
 class RatedSummary:
     summary: str | None
     relevance: int | None  # 1-10; None when missing or unparseable
+    # One sentence relating the paper to earlier ones, and the arXiv ids it
+    # cites (all among the papers offered). None/() when there's no note.
+    related_note: str | None = None
+    related_ids: tuple[str, ...] = ()
+    # The model wrote a Related line but it failed the citation check.
+    related_rejected: bool = False
 
 
 def _valid_relevance(raw: str) -> int | None:
@@ -80,15 +127,39 @@ def _valid_relevance(raw: str) -> int | None:
     return value if 1 <= value <= 10 else None
 
 
-def parse_rated_summary(text: str) -> RatedSummary:
+def parse_rated_summary(text: str, offered_ids: set[str] | None = None) -> RatedSummary:
     """Split a `Relevance: N` line off the summary. A reply without one keeps
     the whole text as the summary and an unknown relevance - a malformed
-    rating must never cost the paper its summary."""
+    rating must never cost the paper its summary.
+
+    With `offered_ids` (related papers were in the prompt), a `Related:` line
+    is split off too (on its own line or tacked onto the paragraph's end) and
+    kept only if it cites at least one arXiv id, every id it cites was
+    offered, and it says something beyond the citations. A failed check drops
+    the note, never the summary."""
     match = _RELEVANCE_LINE.search(text)
-    if match is None:
-        return RatedSummary(summary=text.strip() or None, relevance=None)
-    summary = (text[: match.start()] + text[match.end() :]).strip()
-    return RatedSummary(summary=summary or None, relevance=_valid_relevance(match.group(1)))
+    relevance = None
+    if match is not None:
+        relevance = _valid_relevance(match.group(1))
+        text = text[: match.start()] + text[match.end() :]
+    note, ids, rejected = None, (), False
+    if offered_ids is not None:
+        related = _RELATED_LINE.search(text)
+        if related is not None:
+            text = text[: related.start()] + text[related.end() :]
+            cited = tuple(dict.fromkeys(_ARXIV_ID.findall(related.group(1))))
+            words = len(re.findall(r"[A-Za-z]{2,}", _ARXIV_ID.sub("", related.group(1))))
+            if cited and set(cited) <= offered_ids and words >= _MIN_NOTE_WORDS:
+                note, ids = related.group(1), cited
+            else:
+                rejected = True
+    return RatedSummary(
+        summary=text.strip() or None,
+        relevance=relevance,
+        related_note=note,
+        related_ids=ids,
+        related_rejected=rejected,
+    )
 
 
 def parse_relevance(text: str) -> int | None:
@@ -102,6 +173,11 @@ def _topic_line(topic_name: str, topic_query: str) -> str:
     if topic_query.strip().strip('"').lower() == topic_name.strip().lower():
         return f"Reader's topic: {topic_name}"
     return f"Reader's topic: {topic_name} (arXiv search: {topic_query})"
+
+
+def _clip(text: str, limit: int) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1].rsplit(" ", 1)[0] + "…"
 
 
 class Summarizer:
@@ -123,16 +199,36 @@ class Summarizer:
         )
 
     def summarize_and_rate(
-        self, title: str, abstract: str, topic_name: str, topic_query: str
+        self,
+        title: str,
+        abstract: str,
+        topic_name: str,
+        topic_query: str,
+        related: list[RelatedPaper] | None = None,
     ) -> RatedSummary:
         if not self._settings.summaries_enabled:
             return RatedSummary(summary=None, relevance=None)
-        text = self._complete(
-            system=_RATED_SUMMARY_SYSTEM,
-            user=f"{_topic_line(topic_name, topic_query)}\n\nTitle: {title}\n\nAbstract: {abstract}",
-            max_tokens=420,
+        paper = f"Title: {title}\n\nAbstract: {abstract}"
+        if not related:
+            text = self._complete(
+                system=_RATED_SUMMARY_SYSTEM,
+                user=f"{_topic_line(topic_name, topic_query)}\n\n{paper}",
+                max_tokens=420,
+            )
+            return parse_rated_summary(text)
+        earlier = "\n".join(
+            f"[{r.arxiv_id}] {r.title}: {_clip(r.text, _RELATED_TEXT_CHARS)}" for r in related
         )
-        return parse_rated_summary(text)
+        text = self._complete(
+            system=_RATED_SUMMARY_WITH_RELATED_SYSTEM,
+            user=(
+                f"{_topic_line(topic_name, topic_query)}\n\n"
+                f"Earlier papers the reader has seen:\n{earlier}\n\n"
+                f"New paper:\n{paper}"
+            ),
+            max_tokens=500,
+        )
+        return parse_rated_summary(text, offered_ids={r.arxiv_id for r in related})
 
     def rate_relevance(
         self, title: str, abstract: str, topic_name: str, topic_query: str
