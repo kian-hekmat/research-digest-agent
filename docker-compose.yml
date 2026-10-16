@@ -85,6 +85,8 @@ services:
       # colima routes host.docker.internal to the Mac's loopback.
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:12b}
+      RAG_ENABLED: ${RAG_ENABLED:-true}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-embeddinggemma}
       SEMANTIC_SCHOLAR_API_KEY: ${SEMANTIC_SCHOLAR_API_KEY:-}
       TEMPORAL_ADDRESS: temporal:7233
       SMTP_HOST: ${SMTP_HOST:-mailpit}
@@ -116,6 +118,8 @@ services:
       # colima routes host.docker.internal to the Mac's loopback.
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:12b}
+      RAG_ENABLED: ${RAG_ENABLED:-true}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-embeddinggemma}
       SEMANTIC_SCHOLAR_API_KEY: ${SEMANTIC_SCHOLAR_API_KEY:-}
       TEMPORAL_ADDRESS: temporal:7233
       SMTP_HOST: ${SMTP_HOST:-mailpit}
