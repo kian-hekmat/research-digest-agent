@@ -10,7 +10,7 @@ sleeping laptop delays a digest instead of losing it.
 
 > Built as a realistic backend/AI engineering project: an HTTP API, a relational
 > schema with migrations, durable workflow orchestration, external API
-> integration, local LLM inference, scheduled email delivery, and a 162-test
+> integration, local LLM inference, scheduled email delivery, and a 204-test
 > suite running in CI.
 
 ---
@@ -20,9 +20,9 @@ sleeping laptop delays a digest instead of losing it.
 | | |
 |---|---|
 | **What it does** | arXiv → LLM summary + relevance rating → ranked, per-topic email digests |
-| **Backend** | Python 3.12, FastAPI, Pydantic, SQLAlchemy 2, PostgreSQL 16, Alembic |
+| **Backend** | Python 3.12, FastAPI, Pydantic, SQLAlchemy 2, PostgreSQL 16 + pgvector, Alembic |
 | **Orchestration** | Temporal (workflows, activities, retry policies, cron schedules) |
-| **AI / LLM** | Gemma 3 12B (`gemma3:12b`) served locally by Ollama: no API key, no per-call cost |
+| **AI / LLM** | Gemma 3 12B (`gemma3:12b`) and EmbeddingGemma (`embeddinggemma`) served locally by Ollama: no API key, no per-call cost |
 | **External data** | arXiv Atom API, OpenAlex / Semantic Scholar (author h-index) |
 | **Email** | SMTP (Gmail or any relay), Mailpit for local development |
 | **Infrastructure** | Docker Compose (5 services), colima on macOS, GitHub Actions CI |
@@ -65,7 +65,7 @@ highest-ranked, not just the newest.
 - Normalized PostgreSQL schema: many-to-many join tables carrying data
   (per-topic relevance on `topic_paper`), native enums, cascading foreign keys,
   timezone-aware timestamps, indexed lookup columns
-- 8 hand-reviewed Alembic migrations, including a Postgres enum change that has
+- 9 hand-reviewed Alembic migrations, including a Postgres enum change that has
   to commit outside the migration's transaction, and a reversible downgrade that
   rebuilds the enum type
 
@@ -95,7 +95,7 @@ highest-ranked, not just the newest.
   test-environment leakage
 
 **Testing & CI**
-- 162 tests against a real Postgres built by running the migrations, so model
+- 204 tests against a real Postgres built by running the migrations, so model
   and migration drift fails the suite
 - Workflows run end to end against Temporal's time-skipping server, so minutes
   of retry backoff finish in about a second
@@ -193,7 +193,7 @@ regression test:
 ## Testing
 
 ```bash
-venv/bin/python3 -m pytest -q        # 162 tests
+venv/bin/python3 -m pytest -q        # 204 tests
 ```
 
 | Layer | How |
@@ -289,6 +289,8 @@ app/
 ├── services/
 │   ├── arxiv.py            arXiv Atom API client
 │   ├── summarize.py        Gemma via Ollama: summaries, ratings, overviews
+│   ├── embed.py            EmbeddingGemma via Ollama: paper embeddings
+│   ├── retrieval.py        pgvector storage + nearest-neighbour queries
 │   ├── ranking.py          multi-signal paper scoring (pure functions)
 │   ├── scholar.py          author h-index from Semantic Scholar / OpenAlex
 │   └── email.py            digest rendering + SMTP sender
@@ -298,9 +300,10 @@ app/
 │   ├── schedule.py         idempotent, self-reconciling cron schedules
 │   └── types.py            dependency-free dataclasses passed across the workflow boundary
 ├── worker.py               Temporal worker entrypoint
-└── backfill_summaries.py   one-off: summarize papers waiting to be emailed
+├── backfill_summaries.py   one-off: summarize papers waiting to be emailed
+└── backfill_embeddings.py  one-off: embed papers ingested before retrieval existed
 alembic/versions/           schema migrations
-tests/                      162 tests (see Testing)
+tests/                      204 tests (see Testing)
 docs/                       design notes
 ```
 
@@ -317,6 +320,13 @@ alembic upgrade head
 re-ingested for the same topic, so fill in any still waiting to be emailed with:
 ```bash
 docker-compose exec worker python -m app.backfill_summaries
+```
+
+**Embeddings for retrieval.** Digest runs embed new papers with `embeddinggemma`
+(`ollama pull embeddinggemma`) into pgvector. To embed papers ingested before
+that, or to backfill a new `EMBEDDING_MODEL` side by side:
+```bash
+docker-compose exec worker python -m app.backfill_embeddings
 ```
 
 **Reboot resilience on macOS.** Every service has `restart: unless-stopped`; for

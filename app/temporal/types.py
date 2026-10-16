@@ -65,6 +65,14 @@ class IngestedPaper:
 
 
 @dataclass
+class EmbedPapersInput:
+    """Papers from this run to embed for retrieval (ones that already have
+    an embedding are skipped by the activity)."""
+
+    paper_ids: list[str] = field(default_factory=list)
+
+
+@dataclass
 class SummarizePaperInput:
     """Summarize a paper and rate its relevance to the topic in one LLM call.
     Also the input to `rate_relevance`, for a paper that already has a

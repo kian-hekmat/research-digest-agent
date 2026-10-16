@@ -19,6 +19,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
+from sqlalchemy.types import UserDefinedType
 
 from app.database import Base
 
@@ -29,6 +30,36 @@ def gen_uuid() -> str:
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+class Vector(UserDefinedType):
+    """pgvector's `vector(N)` column. Values cross the wire in pgvector's
+    text form, "[0.1,0.2,...]", so this needs no driver adapter or extra
+    dependency. Similarity queries are written in SQL (app.services.retrieval)."""
+
+    cache_ok = True
+
+    def __init__(self, dim: int) -> None:
+        self.dim = dim
+
+    def get_col_spec(self, **kw) -> str:
+        return f"vector({self.dim})"
+
+    def bind_processor(self, dialect):
+        def process(value):
+            if value is None:
+                return None
+            return "[" + ",".join(repr(float(x)) for x in value) + "]"
+
+        return process
+
+    def result_processor(self, dialect, coltype):
+        def process(value):
+            if value is None:
+                return None
+            return [float(x) for x in value.strip("[]").split(",")]
+
+        return process
 
 
 class DigestStatus(str, enum.Enum):
@@ -159,6 +190,34 @@ class Paper(Base):
     )
     digests = relationship(
         "Digest", secondary=digest_paper_association, back_populates="papers"
+    )
+
+
+EMBEDDING_DIM = 768  # vector(N) width; app.config.Settings.embedding_dim must match
+
+
+class PaperEmbedding(Base):
+    """One embedded piece of a paper, for retrieval (see app.services.retrieval).
+
+    `model` is part of the key so a new embedding model can be backfilled side
+    by side and cut over to, instead of overwriting. `kind`/`chunk_ix` leave
+    room for full-text chunks; for now every row is kind "abstract", chunk 0.
+    """
+
+    __tablename__ = "paper_embeddings"
+
+    paper_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("papers.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    model = Column(String, primary_key=True)
+    kind = Column(String, primary_key=True, default="abstract")
+    chunk_ix = Column(Integer, primary_key=True, default=0)
+    content = Column(Text, nullable=False)  # exactly the text that was embedded
+    embedding = Column(Vector(EMBEDDING_DIM), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
 

@@ -45,6 +45,7 @@ ALL_ACTIVITIES = [
     temporal_activities.get_digest_context,
     temporal_activities.fetch_arxiv,
     temporal_activities.ingest_papers,
+    temporal_activities.embed_papers,
     temporal_activities.summarize_paper,
     temporal_activities.rate_relevance,
     temporal_activities.write_overview,
@@ -197,6 +198,59 @@ async def test_digest_workflow_happy_path(db_session, temporal_client, monkeypat
 
     refreshed_topic = db_session.get(models.Topic, topic.id)
     assert refreshed_topic.last_checked_at is not None
+
+
+class FakeEmbedder:
+    """Stands in for app.services.embed.Embedder (the activity calls
+    `Embedder()` with no args). `fail` makes every call raise."""
+
+    enabled = True
+    model = "fake-embed"
+    fail = False
+
+    def embed(self, texts):
+        if type(self).fail:
+            raise RuntimeError("ollama embed is down")
+        return [[1.0] + [0.0] * (models.EMBEDDING_DIM - 1) for _ in texts]
+
+
+async def test_digest_workflow_embeds_new_papers(db_session, temporal_client, monkeypatch):
+    monkeypatch.setattr(temporal_activities, "Embedder", FakeEmbedder)
+    monkeypatch.setattr(FakeEmbedder, "fail", False)
+    topic = _make_topic(db_session)
+    digest = crud.create_digest(db_session, topic.id)
+    monkeypatch.setattr(
+        temporal_activities,
+        "search_arxiv",
+        lambda query, since=None: [make_result("2408.0001", "Paper One"), make_result("2408.0002", "Paper Two")],
+    )
+
+    await _run_digest(temporal_client, digest.id)
+
+    db_session.expire_all()
+    stored = db_session.query(models.PaperEmbedding).all()
+    assert len(stored) == 2 and {e.model for e in stored} == {"fake-embed"}
+
+
+async def test_digest_workflow_completes_when_embedding_fails(db_session, temporal_client, monkeypatch):
+    """Retrieval is an enhancement: an embedding outage must not cost the
+    digest its summaries or fail the run."""
+    monkeypatch.setattr(temporal_activities, "Embedder", FakeEmbedder)
+    monkeypatch.setattr(FakeEmbedder, "fail", True)
+    topic = _make_topic(db_session)
+    digest = crud.create_digest(db_session, topic.id)
+    monkeypatch.setattr(
+        temporal_activities, "search_arxiv", lambda query, since=None: [make_result("2408.0001", "Paper One")]
+    )
+
+    await _run_digest(temporal_client, digest.id)
+
+    db_session.expire_all()
+    refreshed = db_session.get(models.Digest, digest.id)
+    assert refreshed.status == models.DigestStatus.completed
+    assert refreshed.error is None
+    assert all(p.summary for p in refreshed.papers)
+    assert db_session.query(models.PaperEmbedding).count() == 0
 
 
 async def test_digest_workflow_no_new_papers_completes_empty(

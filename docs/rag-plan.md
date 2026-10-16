@@ -73,7 +73,7 @@ residual-based sampler with a learned one.
 - Only papers **published before** this one are eligible, so "builds on" is at
   least chronologically possible. The paper itself and its other arXiv versions
   are excluded.
-- A similarity floor (start at ~0.75 and tune it) so weak neighbours never reach the
+- A similarity floor (start at ~0.65, from the phase 1 distribution in §5.2, and tune it) so weak neighbours never reach the
   prompt. With no neighbour above the floor, the prompt has no related-work
   section and the output has no `Related:` line.
 - **Citations are checked.** A 12B model will invent relationships if allowed
@@ -84,7 +84,7 @@ residual-based sampler with a learned one.
 ### B. Novelty and near-duplicate signal (corpus retrieval, no LLM)
 The same nearest-neighbour query gives `max_similarity_to_prior` for free:
 
-- **Near duplicates** (sim ≥ ~0.95: v2s, companion papers, resubmissions under
+- **Near duplicates** (sim ≥ ~0.9, untested: the current corpus has none above 0.89; v2s, companion papers, resubmissions under
   new ids) get collapsed in the email or marked "see also".
 - **Novelty** = `1 − max similarity to papers from the last 90 days` becomes a
   fourth ranking signal in `ranking.py`. It follows the existing pattern: scale
@@ -177,7 +177,7 @@ task prefixes for queries vs documents, applied in one place.
   what they are today, which keeps the existing tests valid and keeps
   `rag_enabled=false` a true off switch.
 - `app/config.py`: `rag_enabled`, `embedding_model`, `rag_top_k=4`,
-  `rag_min_similarity=0.75`, `rag_novelty_window_days=90`.
+  `rag_min_similarity=0.65`, `rag_novelty_window_days=90`.
 
 **Workflow (`DigestWorkflow`):**
 
@@ -290,12 +290,37 @@ What this changes in the plan:
   0.8). A rerated paper and a newly summarized one aren't quite on the same
   scale. This is minor, but it's worth fixing when C changes both prompts.
 
+### 5.2 Phase 1 results (2026-10-16, `embeddinggemma`)
+
+All 398 papers are embedded (768-dim, `kind=abstract`), which took 11s through
+`python -m app.backfill_embeddings`. Cosine similarity over the corpus:
+
+| | p10 | p50 | p90 | max / p99 |
+|---|---|---|---|---|
+| Random pairs (3,000) | 0.28 | 0.41 | 0.54 | p99 0.67 |
+| Each paper's nearest neighbour | 0.56 | 0.66 | 0.76 | max 0.89 |
+
+- **The scale is compressed, so the floors move down.** A 0.75 floor would
+  drop about 90% of nearest neighbours. 0.65 is roughly "more similar than
+  99% of random pairs" and is the new starting point for A. No pair reaches
+  0.9, so B's near-duplicate threshold can't be tuned until the corpus has a
+  real duplicate.
+- **Neighbours are topically sensible.** 89% of nearest neighbours (332/373)
+  share a topic. Spot checks: the personalized reward-model paper's nearest
+  neighbours are reward-hacking and preference-alignment papers, and the
+  Helmholtz thin-coating paper's are scattering, PML and Schwarz-preconditioner
+  papers.
+- **Unlinked papers are still retrievable.** Papers no topic links to (the 25
+  stale RLHF papers) stay in `papers` with embeddings, and one of them showed
+  up as a neighbour. Phase 2 should either pass `topic_id` or require the
+  neighbour to be linked to at least one topic.
+
 ## 6. Phases
 
 | # | Scope | Ships | Size |
 |---|---|---|---|
 | 0 | Eval harness + hand labels + baseline numbers | `evals/rag.py`, `evals/labels.csv` | S |
-| 1 | pgvector, `paper_embeddings`, `Embedder`, `embed_papers` activity, backfill | infra only, no change to outputs | M |
+| 1 ✅ | pgvector, `paper_embeddings`, `Embedder`, `embed_papers` activity, backfill (see §5.2) | infra only, no change to outputs | M |
 | 2 | **A + B**: related-work context with checked citations, near-dup collapse, novelty ranking signal | email `Related:` line, new ranking term | M |
 | 3 | **C**: `topics.description` + few-shot rating anchors (API: `PATCH /topics` accepts description) | better ranking | S–M |
 | 4 | **D**: history-aware overviews | better overview paragraph | S |

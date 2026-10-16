@@ -4,7 +4,7 @@ services:
     # reboot) - without this, a reboot left the whole stack down until a
     # manual `docker-compose up`, and scheduled sends silently missed.
     restart: unless-stopped
-    image: postgres:16
+    image: pgvector/pgvector:0.8.1-pg16-trixie  # postgres 16 + vector; trixie matches postgres:16's glibc (collation)
     environment:
       POSTGRES_USER: digest_user
       POSTGRES_PASSWORD: digest_pass

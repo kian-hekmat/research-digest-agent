@@ -32,6 +32,7 @@ ACTIVITIES = [
     activities.get_digest_context,
     activities.fetch_arxiv,
     activities.ingest_papers,
+    activities.embed_papers,
     activities.summarize_paper,
     activities.rate_relevance,
     activities.write_overview,

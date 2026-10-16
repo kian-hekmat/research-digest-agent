@@ -39,6 +39,21 @@ class Settings(BaseSettings):
         calls fail and are retried like any other outage."""
         return self.summary_backend == "ollama"
 
+    # --- retrieval (embeddings in pgvector, see docs/rag-plan.md) ---
+    # Paper embeddings come from the same Ollama server as summaries, so
+    # they're off whenever summaries are (SUMMARY_BACKEND=none) as well as
+    # with RAG_ENABLED=false.
+    rag_enabled: bool = True
+    embedding_model: str = "embeddinggemma"
+    # Must match the vector(N) column in paper_embeddings - changing models
+    # to one with another width needs a migration.
+    embedding_dim: int = 768
+    embedding_batch_size: int = 32
+
+    @property
+    def embeddings_enabled(self) -> bool:
+        return self.rag_enabled and self.summaries_enabled
+
     # --- arXiv ingestion ---
     arxiv_api_url: str = "https://export.arxiv.org/api/query"
     arxiv_max_results: int = 25

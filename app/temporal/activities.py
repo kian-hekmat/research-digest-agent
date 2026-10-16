@@ -19,7 +19,9 @@ from app.config import get_settings
 from app.database import SessionLocal
 from app.services.arxiv import search_arxiv
 from app.services.ranking import venue_score
+from app.services.retrieval import embed_missing
 from app.services.scholar import fetch_max_author_h_index
+from app.services.embed import Embedder
 from app.services.email import (
     DigestForEmail,
     EmailSender,
@@ -33,6 +35,7 @@ from app.temporal.types import (
     AdvanceWatermarkInput,
     DigestContext,
     DueSubscription,
+    EmbedPapersInput,
     FinalizeDigestInput,
     GatherContentInput,
     GatheredContent,
@@ -159,6 +162,19 @@ def ingest_papers(input: IngestPapersInput) -> list[IngestedPaper]:
             )
         db.commit()
         return ingested
+    finally:
+        db.close()
+
+
+@activity.defn
+def embed_papers(input: EmbedPapersInput) -> int:
+    """Embed this run's papers for retrieval. Returns how many were newly
+    embedded: 0 when embeddings are off, or every paper already had one."""
+    db = SessionLocal()
+    try:
+        return embed_missing(
+            db, Embedder(), input.paper_ids, batch_size=get_settings().embedding_batch_size
+        )
     finally:
         db.close()
 

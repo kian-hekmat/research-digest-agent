@@ -12,7 +12,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:0.8.1-pg16-trixie  # postgres 16 + vector; trixie matches postgres:16's glibc (collation)
         env:
           POSTGRES_USER: digest_user
           POSTGRES_PASSWORD: digest_pass

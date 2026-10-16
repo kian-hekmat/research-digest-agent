@@ -42,6 +42,8 @@ WORKFLOW_RUNNER = SandboxedWorkflowRunner(
         "app.config",
         "app.services.arxiv",
         "app.services.summarize",
+        "app.services.embed",
+        "app.services.retrieval",
         "app.services.email",
         "app.services.ranking",
         "app.services.scholar",
@@ -139,6 +141,22 @@ class DigestWorkflow:
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=_DB_RETRY,
         )
+
+        # --- 2b. embed new papers for retrieval -------------------------------
+        # Before any summary runs, so later steps can retrieve against this
+        # batch too. Degrade, don't block: a failure only costs retrieval.
+        # `patched` keeps digests already in flight at deploy time replaying
+        # their old history, which has no such activity.
+        if papers and workflow.patched("embed-papers"):
+            try:
+                await workflow.execute_activity(
+                    activities.embed_papers,
+                    types.EmbedPapersInput(paper_ids=[p.paper_id for p in papers]),
+                    start_to_close_timeout=_LLM_TIMEOUT,
+                    retry_policy=_LLM_RETRY,
+                )
+            except ActivityError:
+                pass
 
         # --- 3. summarize + rate relevance to this topic, concurrently -------
         # One LLM call per new paper does both. A paper another topic already
