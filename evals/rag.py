@@ -166,8 +166,15 @@ def load_items(db: Session, labels: list[dict]) -> list[EvalItem]:
 
 # ---------- commands ----------
 def cmd_sample(args: argparse.Namespace) -> None:
-    if LABELS_PATH.exists() and not args.force:
-        raise SystemExit(f"{LABELS_PATH} exists (and may hold labels) - pass --force to overwrite.")
+    """Draw the labeling set. With --topic, redraw only that topic's rows:
+    other topics are kept as they are, and a paper drawn again keeps its
+    existing label."""
+    existing = read_labels() if LABELS_PATH.exists() else []
+    if existing and not (args.force or args.topic):
+        raise SystemExit(
+            f"{LABELS_PATH} exists (and may hold labels) - pass --topic NAME to "
+            "redraw one topic, or --force to overwrite everything."
+        )
     db = SessionLocal()
     try:
         rows = _topic_rows(db)
@@ -176,18 +183,27 @@ def cmd_sample(args: argparse.Namespace) -> None:
     by_topic: dict[str, list] = {}
     for topic, paper, rel in rows:
         by_topic.setdefault(topic.name, []).append((topic, paper, rel))
-    out = []
-    for name in sorted(by_topic):
+    if args.topic and args.topic not in by_topic:
+        raise SystemExit(f"No topic named {args.topic!r} with papers.")
+    kept = [r for r in existing if args.topic and r["topic"] != args.topic]
+    previous = {(r["topic"], r["arxiv_id"]): r for r in existing}
+    drawn = []
+    for name in sorted([args.topic] if args.topic else by_topic):
         papers = {p.arxiv_id: p for _, p, _ in by_topic[name]}
         keys = stratified_sample(
             [(p.arxiv_id, p.arxiv_id, rel) for _, p, rel in by_topic[name]], args.per_topic, SEED
         )
         for arxiv_id in sorted(keys):
             p = papers[arxiv_id]
-            out.append({"topic": name, "arxiv_id": arxiv_id, "title": p.title,
-                        "abstract": p.abstract, "label": "", "labeler": "", "notes": ""})
+            old = previous.get((name, arxiv_id), {})
+            drawn.append({"topic": name, "arxiv_id": arxiv_id, "title": p.title,
+                          "abstract": p.abstract, "label": old.get("label", ""),
+                          "labeler": old.get("labeler", ""), "notes": old.get("notes", "")})
+    out = sorted(kept + drawn, key=lambda r: (r["topic"], r["arxiv_id"]))
     write_labels(out)
-    print(f"Wrote {len(out)} rows to {LABELS_PATH.relative_to(Path.cwd())}")
+    print(f"Wrote {len(drawn)} drawn rows ({len(out)} total) to {LABELS_PATH.relative_to(Path.cwd())}")
+    if len(drawn) < args.per_topic * (1 if args.topic else len(by_topic)):
+        print("Some topics have fewer papers than --per-topic; all of them were taken.")
 
 
 def cmd_label(args: argparse.Namespace) -> None:
@@ -401,6 +417,7 @@ def main(argv: list[str] | None = None) -> None:
     sub = parser.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("sample", help="write a stratified labeling set to evals/labels.csv")
     p.add_argument("--per-topic", type=int, default=PER_TOPIC)
+    p.add_argument("--topic", help="redraw only this topic, keeping the others and existing labels")
     p.add_argument("--force", action="store_true", help="overwrite an existing labels.csv")
     p.set_defaults(fn=cmd_sample)
     p = sub.add_parser("label", help="hand-label evals/labels.csv in the terminal")

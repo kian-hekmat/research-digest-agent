@@ -25,7 +25,7 @@ What the data in the local database says about the outputs (398 papers, 330 summ
   The rubric has no anchor: the model never sees what a "7" or a "9" looked
   like for this topic. *Phase 0 confirmed this; see §5.1. Gemma separates
   off-topic from on-topic papers well but barely orders on-topic papers
-  (ρ = 0.27 against the reference labels).*
+  (ρ = 0.31 against the reference labels).*
 - **Overviews have no memory.** `write_overview` sees only the current batch,
   so it can't say "third paper this month on X" or "contradicts last week's Y".
   Each digest is written as if it were the first.
@@ -223,10 +223,12 @@ Only the pure metrics are unit-tested (`tests/test_eval_metrics.py`).
 
 ### 5.1 Baseline results (2026-10-16, `gemma3:12b`)
 
-Full report: `evals/results/2026-10-16_1256_baseline.json` (the earlier
-`_1242` run predates the labels). The set is 60 topic–paper pairs, 20 per
-topic, stratified by stored rating so that rare low ratings are represented.
-This means the set has more off-topic papers than the real corpus does.
+Full report: `evals/results/2026-10-16_1304_baseline.json`. The earlier
+`_1242` run predates the labels, and `_1256` predates the RLHF cleanup. The
+set is 47 topic–paper pairs: 20 each for Numerical Analysis and PINNs,
+stratified by stored rating so that rare low ratings are represented, and all
+7 papers RLHF has. The stratification means the set has more off-topic papers
+than the real corpus does.
 
 **About the reference labels.** The labels in `evals/labels.csv` were written
 by Claude (Opus 5.5), not by the project owner. The `labeler` column says so
@@ -235,47 +237,49 @@ for what this reader wants. `python -m evals.rag label` overwrites any row
 with `labeler=human`, and the report prints how many labels came from each
 labeler.
 
+**RLHF cleanup (2026-10-16).** 25 consecutive arXiv ids
+(2609.17076–2609.17127) were all ingested into RLHF on 2026-09-16, one day
+after `3d7df43 fixed searching`. That's the signature of the old unquoted
+query, which returned the newest submissions regardless of topic. Their
+`topic_paper` links were deleted, so RLHF went from 32 papers to 7. Their
+`digest_paper` rows were kept as the record of what past digests contained.
+The RLHF sample was then redrawn with `python -m evals.rag sample --topic
+RLHF`. With only 7 papers, RLHF's per-topic numbers are indicative at best.
+
 | Measure | Result |
 |---|---|
-| Rating spread on the set (rate-only prompt) | NA std 2.9, PINNs 2.1, RLHF 2.6; values used: 1–4 and 7–10, with **nothing at 5–6** |
-| Run-to-run stability (2 passes, temp 0.2) | 98% exact, ρ = 0.998 |
-| Stored ratings vs fresh ratings, same items (n=31) | 58% exact, 94% within 1, ρ = 0.90 |
+| Rating spread on the set (rate-only prompt) | std 2.5; values used: 1, 3, 4 and 7–10, with **nothing at 5–6** |
+| Run-to-run stability (2 passes, temp 0.2) | 98–100% exact across three runs |
 | Combined summarize+rate call vs rate-only call (n=15) | 53% exact, 87% within 1, ρ = 0.875 |
 | Fresh summaries stating a number absent from the abstract | 0 / 15 |
 | Stored summaries stating a number absent from the abstract | 1 / 330 |
-| Summary length / abstract length | 0.46 |
-| Latency per call | rating 1.0s mean (p90 1.2s); summary 3.7s mean (p90 4.6s) |
-| Fresh ratings vs reference labels, all 60 | ρ = 0.87, MAE 1.2, 70% within 1 |
-| …among on-topic papers only (reference ≥ 6, n=29) | **ρ = 0.27**, MAE 1.2, 66% within 1 |
-| Stored DB ratings vs reference labels (n=31) | ρ = 0.67, MAE 1.7 |
+| Summary length / abstract length | 0.45 |
+| Latency per call | rating 0.8s mean (p90 1.2s); summary 3.6s mean (p90 3.9s) |
+| Fresh ratings vs reference labels, all 47 | ρ = 0.72, MAE 1.4, 66% within 1 |
+| …among on-topic papers only (reference ≥ 6, n=32) | **ρ = 0.31**, MAE 1.1, 72% within 1 |
+| Per topic | NA ρ 0.74 · PINNs ρ 0.80 · RLHF ρ 0.95 but MAE 2.1 (n=7) |
+| Same 31 items: stored DB ratings vs fresh rate-only ratings, each against the reference | stored ρ 0.67, MAE 1.7 · fresh ρ 0.75, MAE 1.6 |
 
 What this changes in the plan:
 
 - **Gemma separates papers coarsely but can't order the on-topic ones.**
-  Overall ρ = 0.87 looks good, but it comes almost entirely from the easy
-  split between off-topic and on-topic papers. Among the papers that matter
-  for the cap, ρ falls to 0.27. The disagreements follow one pattern: **a
-  paper that names the topic in its abstract gets 7–9 even when the topic
-  is peripheral.** For example, a turbulence perspective that mentions PINNs
-  once got 7 (reference 2). A jailbreak-safety paper that lists RLHF as prior
-  work got 7 (reference 2). A model pre-trained on PINN outputs got 8
-  (reference 5). This is exactly the "mentioned in passing vs main subject"
-  distinction the rubric asks for. It's the case for **C (few-shot anchors
-  plus topic descriptions)**, which moves up to the first prompt change after
-  phase 1.
-- **The combined summarize+rate call rates worse than rate-only** (stored
-  ratings ρ 0.67 vs fresh rate-only ratings ρ 0.87 against the same
-  reference). Asking for the summary and the rating in one call seems to cost
-  rating quality. That's a cheap experiment to run on its own: rate in a
-  separate ~1s call.
-- **25 of 32 RLHF papers are leftover junk, not a search problem.** 25
-  consecutive arXiv ids (2609.17076–2609.17127) were all ingested on
-  2026-09-16, one day after `3d7df43 fixed searching`. That's the signature of
-  the old unquoted query, which returned the newest submissions regardless of
-  topic. Every RLHF paper ingested since then is on topic. These rows should
-  be unlinked from RLHF and the RLHF sample redrawn (16 of its 20 rows are junk). Until then, RLHF
-  numbers in this report mostly measure junk rejection. Excluding them, all
-  three topics together give ρ = 0.71 (n=44).
+  Most of the overall ρ comes from the easy split between off-topic and
+  on-topic papers. Among the papers that matter for the cap, ρ is 0.31. The
+  disagreements follow one pattern: **a paper that names the topic in its
+  abstract gets 7–9 even when the topic is peripheral.** For example, a
+  turbulence perspective that mentions PINNs once got 7 (reference 2). A
+  jailbreak-safety paper that lists RLHF as prior work got 7 (reference 2). A
+  debate paper motivated by RLHF got 8 (reference 4). This is why RLHF has
+  ρ 0.95 but MAE 2.1: its order is right, but its three peripheral papers are
+  rated as core ones. This is exactly the "mentioned in passing vs main
+  subject" distinction the rubric asks for. It's the case for **C (few-shot
+  anchors plus topic descriptions)**, which moves up to the first prompt
+  change after phase 1.
+- **The combined summarize+rate call may rate slightly worse than
+  rate-only.** On the same 31 items, stored ratings get ρ 0.67 and fresh
+  rate-only ratings get ρ 0.75. Some stored ratings may come from older
+  prompts, and n is small, so this is a hint, not a result. It's cheap to
+  test on its own: rate in a separate ~1s call.
 - **Accuracy against the abstract is not a problem.** Unsupported numbers
   are about 0%, which confirms §2: corpus RAG (A, B, D) should be sold on
   *context*, and only full text (E) can raise accuracy.
