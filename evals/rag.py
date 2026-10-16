@@ -19,6 +19,7 @@ against the baseline's report.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import csv
 import json
 import os
@@ -41,7 +42,7 @@ from evals import metrics
 EVALS_DIR = Path(__file__).resolve().parent
 LABELS_PATH = EVALS_DIR / "labels.csv"
 RESULTS_DIR = EVALS_DIR / "results"
-LABEL_FIELDS = ["topic", "arxiv_id", "title", "abstract", "human_label", "notes"]
+LABEL_FIELDS = ["topic", "arxiv_id", "title", "abstract", "label", "labeler", "notes"]
 PER_TOPIC = 20
 SEED = 0
 
@@ -56,7 +57,7 @@ class EvalItem:
     title: str
     abstract: str
     stored_relevance: int | None
-    human_label: int | None
+    label: int | None
 
 
 @dataclass(frozen=True)
@@ -157,7 +158,7 @@ def load_items(db: Session, labels: list[dict]) -> list[EvalItem]:
                 title=paper.title,
                 abstract=paper.abstract or "",
                 stored_relevance=rel,
-                human_label=parse_label(row.get("human_label", "")),
+                label=parse_label(row.get("label", "")),
             )
         )
     return items
@@ -184,16 +185,17 @@ def cmd_sample(args: argparse.Namespace) -> None:
         for arxiv_id in sorted(keys):
             p = papers[arxiv_id]
             out.append({"topic": name, "arxiv_id": arxiv_id, "title": p.title,
-                        "abstract": p.abstract, "human_label": "", "notes": ""})
+                        "abstract": p.abstract, "label": "", "labeler": "", "notes": ""})
     write_labels(out)
     print(f"Wrote {len(out)} rows to {LABELS_PATH.relative_to(Path.cwd())}")
 
 
 def cmd_label(args: argparse.Namespace) -> None:
     """Walk the unlabeled rows in the terminal. The stored LLM rating is not
-    shown, so it can't anchor the human one. Saves after every answer."""
+    shown, so it can't anchor the human one. Saves after every answer, with
+    labeler "human" - rows labeled any other way keep their own labeler."""
     rows = read_labels()
-    todo = [r for r in rows if parse_label(r["human_label"]) is None]
+    todo = [r for r in rows if parse_label(r["label"]) is None]
     print(f"{len(rows) - len(todo)}/{len(rows)} labeled.\n\n{_RELEVANCE_RUBRIC}\n")
     print("Enter 1-10, optionally followed by a note (`7 method is only an example`), "
           "`s` to skip, `q` to quit.\n")
@@ -213,10 +215,10 @@ def cmd_label(args: argparse.Namespace) -> None:
             if label is None:
                 print("  1-10, s or q")
                 continue
-            row["human_label"], row["notes"] = str(label), note.strip()
+            row["label"], row["labeler"], row["notes"] = str(label), "human", note.strip()
             write_labels(rows)
             break
-    print("All rows labeled." if all(parse_label(r["human_label"]) for r in rows) else "")
+    print("All rows labeled." if all(parse_label(r["label"]) for r in rows) else "")
 
 
 def _timed(fn: Callable, *a):
@@ -257,7 +259,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         raise SystemExit("Summarization is off - set SUMMARY_BACKEND=ollama first.")
     db = SessionLocal()
     try:
-        items = load_items(db, read_labels())
+        labels = read_labels()
+        items = load_items(db, labels)
         variant = VARIANTS[args.variant](db, Summarizer(settings))
         report: dict = {
             "variant": args.variant,
@@ -268,7 +271,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         }
 
         # Ratings: every item, `--repeats` times, for spread, run-to-run
-        # stability, and (where labeled) agreement with the human.
+        # stability, and (where labeled) agreement with the reference labels.
         runs: list[list[int | None]] = []
         rate_times: list[float] = []
         errors: list[str] = []
@@ -287,19 +290,20 @@ def cmd_run(args: argparse.Namespace) -> None:
         by_topic: dict[str, list[int]] = {}
         for i, item in enumerate(items):
             by_topic.setdefault(item.topic_name, []).append(i)
-        human = [i.human_label for i in items]
+        ref = [i.label for i in items]
         report["ratings"] = {
             "spread_overall": metrics.spread(runs[0]),
             "spread_by_topic": {
                 t: metrics.spread([runs[0][i] for i in idx]) for t, idx in sorted(by_topic.items())
             },
             "stability": metrics.agreement(runs[0], runs[1]) if len(runs) > 1 else None,
-            "vs_human_overall": metrics.agreement(runs[0], human),
-            "vs_human_by_topic": {
-                t: metrics.agreement([runs[0][i] for i in idx], [human[i] for i in idx])
+            "labelers": dict(Counter(r.get("labeler") or "unknown" for r in labels if parse_label(r.get("label", "")))),
+            "vs_reference_overall": metrics.agreement(runs[0], ref),
+            "vs_reference_by_topic": {
+                t: metrics.agreement([runs[0][i] for i in idx], [ref[i] for i in idx])
                 for t, idx in sorted(by_topic.items())
             },
-            "stored_vs_human": metrics.agreement([i.stored_relevance for i in items], human),
+            "stored_vs_reference": metrics.agreement([i.stored_relevance for i in items], ref),
             "latency": metrics.latency(rate_times),
         }
 
@@ -366,18 +370,18 @@ def print_report(r: dict) -> None:
         s = rt["stability"]
         print(f"\nRun-to-run stability: exact={s['exact']:.0%} within1={s['within_1']:.0%} "
               f"mae={s['mae']} rho={s['spearman']}")
-    vh = rt["vs_human_overall"]
+    vh = rt["vs_reference_overall"]
     if vh["n"]:
-        print(f"\nVs human labels (n={vh['n']}): rho={vh['spearman']} mae={vh['mae']} "
+        print(f"\nVs reference labels {rt['labelers']} (n={vh['n']}): rho={vh['spearman']} mae={vh['mae']} "
               f"within1={vh['within_1']:.0%}")
-        for topic, a in rt["vs_human_by_topic"].items():
+        for topic, a in rt["vs_reference_by_topic"].items():
             if a["n"]:
                 print(f"  {topic:<20} n={a['n']:<3} rho={a['spearman']} mae={a['mae']}")
-        sh = rt["stored_vs_human"]
+        sh = rt["stored_vs_reference"]
         if sh["n"]:
-            print(f"  (stored DB ratings vs human: n={sh['n']} rho={sh['spearman']} mae={sh['mae']})")
+            print(f"  (stored DB ratings vs reference: n={sh['n']} rho={sh['spearman']} mae={sh['mae']})")
     else:
-        print("\nVs human labels: none yet - run `python -m evals.rag label`.")
+        print("\nVs reference labels: none yet - run `python -m evals.rag label`.")
     print(f"\nRating latency: {rt['latency']}")
     s = r["summaries"]
     if s["n"]:
