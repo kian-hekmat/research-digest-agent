@@ -10,7 +10,7 @@ sleeping laptop delays a digest instead of losing it.
 
 > Built as a realistic backend/AI engineering project: an HTTP API, a relational
 > schema with migrations, durable workflow orchestration, external API
-> integration, local LLM inference, scheduled email delivery, and a 233-test
+> integration, local LLM inference, scheduled email delivery, and a 249-test
 > suite running in CI.
 
 ---
@@ -65,7 +65,7 @@ highest-ranked, not just the newest.
 - Normalized PostgreSQL schema: many-to-many join tables carrying data
   (per-topic relevance on `topic_paper`), native enums, cascading foreign keys,
   timezone-aware timestamps, indexed lookup columns
-- 10 hand-reviewed Alembic migrations, including a Postgres enum change that has
+- 11 hand-reviewed Alembic migrations, including a Postgres enum change that has
   to commit outside the migration's transaction, and a reversible downgrade that
   rebuilds the enum type
 
@@ -95,7 +95,7 @@ highest-ranked, not just the newest.
   test-environment leakage
 
 **Testing & CI**
-- 233 tests against a real Postgres built by running the migrations, so model
+- 249 tests against a real Postgres built by running the migrations, so model
   and migration drift fails the suite
 - Workflows run end to end against Temporal's time-skipping server, so minutes
   of retry backoff finish in about a second
@@ -199,7 +199,7 @@ regression test:
 ## Testing
 
 ```bash
-venv/bin/python3 -m pytest -q        # 233 tests
+venv/bin/python3 -m pytest -q        # 249 tests
 ```
 
 | Layer | How |
@@ -247,6 +247,10 @@ docker-compose exec api alembic upgrade head
 curl -X POST localhost:8000/topics -H 'Content-Type: application/json' \
   -d '{"name": "RLHF", "query": "reinforcement learning from human feedback"}'
 
+# Say what you do and don't want from it; the relevance rater reads this
+curl -X PATCH localhost:8000/topics/<topic_id> -H 'Content-Type: application/json' \
+  -d '{"description": "Reward modeling and preference optimization; not papers that only cite RLHF"}'
+
 # Subscribe: twice weekly, the 10 best papers per email
 curl -X POST localhost:8000/topics/<topic_id>/subscriptions -H 'Content-Type: application/json' \
   -d '{"email": "you@example.com", "cadence": "twice_weekly", "max_papers": 10}'
@@ -260,7 +264,7 @@ curl localhost:8000/digests/<digest_id>
 
 | Method & path | Purpose |
 |---|---|
-| `POST /topics`, `GET /topics`, `GET /topics/{id}`, `DELETE /topics/{id}` | Manage tracked topics |
+| `POST /topics`, `GET /topics`, `GET /topics/{id}`, `PATCH /topics/{id}`, `DELETE /topics/{id}` | Manage tracked topics (`PATCH` edits the description) |
 | `POST /digests/{topic_id}`, `GET /digests`, `GET /digests/{id}` | Trigger and inspect digest runs |
 | `GET /papers/by-topic/{topic_id}` | Papers ingested for a topic |
 | `POST`/`GET /topics/{id}/subscriptions` | Subscribe to a topic, list subscribers |
@@ -307,9 +311,10 @@ app/
 │   └── types.py            dependency-free dataclasses passed across the workflow boundary
 ├── worker.py               Temporal worker entrypoint
 ├── backfill_summaries.py   one-off: summarize papers waiting to be emailed
-└── backfill_embeddings.py  one-off: embed papers ingested before retrieval existed
+├── backfill_embeddings.py  one-off: embed papers ingested before retrieval existed
+└── import_relevance_labels.py  one-off: load reference ratings (few-shot anchors)
 alembic/versions/           schema migrations
-tests/                      233 tests (see Testing)
+tests/                      249 tests (see Testing)
 docs/                       design notes
 ```
 

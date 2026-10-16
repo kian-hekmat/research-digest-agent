@@ -36,8 +36,15 @@ from sqlalchemy.orm import Session
 from app import models
 from app.config import get_settings
 from app.database import SessionLocal
-from app.services.retrieval import Neighbour, related_context
-from app.services.summarize import _RELEVANCE_RUBRIC, RatedSummary, RelatedPaper, Summarizer
+from app.services.retrieval import Neighbour, rating_anchors, related_context
+from app.services.summarize import (
+    _RELEVANCE_RUBRIC,
+    RatedSummary,
+    RatingAnchor,
+    RatingContext,
+    RelatedPaper,
+    Summarizer,
+)
 from evals import metrics
 
 EVALS_DIR = Path(__file__).resolve().parent
@@ -100,11 +107,48 @@ def _rag_related(db: Session, summarizer: Summarizer) -> Variant:
     return Variant(rate=base.rate, summarize=summarize, related=related)
 
 
+def _rating_context_variant(description: bool, anchors: bool):
+    """Phase 3: rate with the topic's description and/or reference-rated
+    anchors. Anchors never include the paper being rated (rating_anchors
+    excludes it), so against the reference labels this is leave-one-out."""
+
+    def factory(db: Session, summarizer: Summarizer) -> Variant:
+        settings = get_settings()
+        topics = {t.id: t for t in db.query(models.Topic)}
+
+        def context(i: EvalItem) -> RatingContext:
+            found = (
+                rating_anchors(db, i.topic_id, i.paper_id, model=settings.embedding_model,
+                               per_band=settings.rag_anchors_per_band)
+                if anchors else []
+            )
+            return RatingContext(
+                description=topics[i.topic_id].description if description else None,
+                anchors=tuple(RatingAnchor(a.title, a.abstract, a.rating) for a in found),
+            )
+
+        return Variant(
+            rate=lambda i: summarizer.rate_relevance(
+                i.title, i.abstract, i.topic_name, i.topic_query, rating_context=context(i)
+            ),
+            summarize=lambda i: summarizer.summarize_and_rate(
+                i.title, i.abstract, i.topic_name, i.topic_query, rating_context=context(i)
+            ),
+        )
+
+    return factory
+
+
 # name -> factory(db, summarizer). RAG phases add theirs here.
 VARIANTS: dict[str, Callable[[Session, Summarizer], Variant]] = {
     "baseline": _baseline,
     "rag-related": _rag_related,
+    "desc": _rating_context_variant(description=True, anchors=False),
+    "anchors": _rating_context_variant(description=False, anchors=True),
+    "desc+anchors": _rating_context_variant(description=True, anchors=True),
 }
+
+ON_TOPIC = 6  # reference label at or above this = on topic; the cap cuts among these
 
 
 # ---------- data access (read-only) ----------
@@ -348,6 +392,10 @@ def cmd_run(args: argparse.Namespace) -> None:
                 for t, idx in sorted(by_topic.items())
             },
             "stored_vs_reference": metrics.agreement([i.stored_relevance for i in items], ref),
+            "vs_reference_on_topic": metrics.agreement(
+                [r for r, x in zip(runs[0], ref) if x is not None and x >= ON_TOPIC],
+                [x for x in ref if x is not None and x >= ON_TOPIC],
+            ),
             "latency": metrics.latency(rate_times),
         }
 
@@ -390,6 +438,13 @@ def cmd_run(args: argparse.Namespace) -> None:
                 sum(s["chars"] / s["abstract_chars"] for s in ok) / len(ok), 3
             ) if ok else None,
             "relevance_parsed": sum(s["relevance"] is not None for s in ok),
+            "relevance_vs_reference": metrics.agreement(
+                [s["relevance"] for s in summaries], [i.label for i in subset]
+            ),
+            "relevance_vs_reference_on_topic": metrics.agreement(
+                [s["relevance"] for s, i in zip(summaries, subset) if i.label and i.label >= ON_TOPIC],
+                [i.label for i in subset if i.label and i.label >= ON_TOPIC],
+            ),
             "with_offered": sum(bool(s["offered"]) for s in ok),
             "with_related_note": sum(bool(s["related_note"]) for s in ok),
             "related_rejected": sum(s["related_rejected"] for s in ok),
@@ -432,6 +487,10 @@ def print_report(r: dict) -> None:
         for topic, a in rt["vs_reference_by_topic"].items():
             if a["n"]:
                 print(f"  {topic:<20} n={a['n']:<3} rho={a['spearman']} mae={a['mae']}")
+        ot = rt["vs_reference_on_topic"]
+        if ot["n"]:
+            print(f"  on-topic only (reference >= {ON_TOPIC}): n={ot['n']} rho={ot['spearman']} "
+                  f"mae={ot['mae']} within1={ot['within_1']:.0%}")
         sh = rt["stored_vs_reference"]
         if sh["n"]:
             print(f"  (stored DB ratings vs reference: n={sh['n']} rho={sh['spearman']} mae={sh['mae']})")
@@ -444,6 +503,10 @@ def print_report(r: dict) -> None:
               f"unsupported-number={s['with_unsupported_numbers']} "
               f"compression={s['mean_compression']} relevance-parsed={s['relevance_parsed']}")
         print(f"Summary latency: {s['latency']}")
+        sv, so = s["relevance_vs_reference"], s["relevance_vs_reference_on_topic"]
+        if sv["n"]:
+            print(f"Combined-call relevance vs reference: n={sv['n']} rho={sv['spearman']} mae={sv['mae']}"
+                  + (f"; on-topic n={so['n']} rho={so['spearman']} mae={so['mae']}" if so["n"] else ""))
         if s.get("with_offered"):
             print(f"Related work: offered to {s['with_offered']}, note kept for "
                   f"{s['with_related_note']}, rejected (bad citation) {s['related_rejected']}")

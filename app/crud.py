@@ -19,7 +19,7 @@ def _is_valid_uuid(value: str) -> bool:
 
 
 def create_topic(db: Session, topic: schemas.TopicCreate) -> models.Topic:
-    db_topic = models.Topic(name=topic.name, query=topic.query)
+    db_topic = models.Topic(name=topic.name, query=topic.query, description=topic.description)
     db.add(db_topic)
     try:
         db.commit()
@@ -34,6 +34,14 @@ def get_topic(db: Session, topic_id: str) -> models.Topic | None:
     if not _is_valid_uuid(topic_id):
         return None
     return db.query(models.Topic).filter(models.Topic.id == topic_id).first()
+
+
+def update_topic(db: Session, topic: models.Topic, changes: dict) -> models.Topic:
+    for field, value in changes.items():
+        setattr(topic, field, value)
+    db.commit()
+    db.refresh(topic)
+    return topic
 
 
 def list_topics(db: Session, skip: int = 0, limit: int = 50) -> list[models.Topic]:

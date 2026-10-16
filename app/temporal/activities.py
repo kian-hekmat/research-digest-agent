@@ -20,7 +20,7 @@ from app.config import get_settings
 from app.database import SessionLocal
 from app.services.arxiv import search_arxiv
 from app.services.ranking import venue_score
-from app.services.retrieval import compute_signals, embed_missing, related_context
+from app.services.retrieval import compute_signals, embed_missing, rating_anchors, related_context
 from app.services.scholar import fetch_max_author_h_index
 from app.services.embed import Embedder
 from app.services.email import (
@@ -31,7 +31,7 @@ from app.services.email import (
     build_topic_section,
     render_digest_email,
 )
-from app.services.summarize import RelatedPaper, Summarizer
+from app.services.summarize import RatingAnchor, RatingContext, RelatedPaper, Summarizer
 from app.temporal.types import (
     AdvanceWatermarkInput,
     DigestContext,
@@ -219,6 +219,32 @@ def _related_papers(paper_id: str) -> tuple[list[RelatedPaper], dict[str, tuple[
     return offered, {n.arxiv_id: (n.paper_id, n.similarity) for n in found}
 
 
+def _rating_context(topic_id: str, paper_id: str) -> RatingContext | None:
+    """The topic's description and reference-rated anchors for rating this
+    paper. An enhancement like retrieval: a failure means rating without it."""
+    if not topic_id:
+        return None
+    settings = get_settings()
+    db = SessionLocal()
+    try:
+        topic = db.get(models.Topic, topic_id)
+        anchors = []
+        if settings.rag_rating_anchors:
+            anchors = rating_anchors(
+                db, topic_id, paper_id,
+                model=settings.embedding_model, per_band=settings.rag_anchors_per_band,
+            )
+        return RatingContext(
+            description=topic.description if topic else None,
+            anchors=tuple(RatingAnchor(a.title, a.abstract, a.rating) for a in anchors),
+        )
+    except Exception:
+        logger.exception("Rating context failed for paper %s", paper_id)
+        return None
+    finally:
+        db.close()
+
+
 @activity.defn
 def summarize_paper(input: SummarizePaperInput) -> str | None:
     """Summarize one paper and rate its relevance to the topic (one LLM call),
@@ -233,7 +259,12 @@ def summarize_paper(input: SummarizePaperInput) -> str | None:
     paper" link that embed_papers recorded."""
     related, by_arxiv_id = _related_papers(input.paper_id)
     rated = Summarizer().summarize_and_rate(
-        input.title, input.abstract or "", input.topic_name, input.topic_query, related=related
+        input.title,
+        input.abstract or "",
+        input.topic_name,
+        input.topic_query,
+        related=related,
+        rating_context=_rating_context(input.topic_id, input.paper_id),
     )
     if rated.related_rejected:
         logger.info("Dropped a related-work note with unchecked citations for %s", input.paper_id)
@@ -258,7 +289,11 @@ def rate_relevance(input: SummarizePaperInput) -> int | None:
     """Rate a paper that already has a summary (another topic ingested it
     first) for *this* topic - relevance is per topic, the summary isn't."""
     relevance = Summarizer().rate_relevance(
-        input.title, input.abstract or "", input.topic_name, input.topic_query
+        input.title,
+        input.abstract or "",
+        input.topic_name,
+        input.topic_query,
+        rating_context=_rating_context(input.topic_id, input.paper_id),
     )
     db = SessionLocal()
     try:

@@ -245,3 +245,90 @@ def compute_signals(
             crud.set_paper_related(db, paper.id, [(n.paper_id, n.similarity) for n in similar])
     db.commit()
     return len(papers)
+
+
+@dataclass(frozen=True)
+class Anchor:
+    paper_id: str
+    arxiv_id: str
+    title: str
+    abstract: str
+    rating: int  # reference_relevance for the topic
+    similarity: float | None  # to the paper being rated; None without embeddings
+
+
+# Rating bands anchors are drawn from, so examples span the scale instead of
+# all being the nearest (usually highly rated) papers.
+_BANDS = ((8, 10), (4, 7), (1, 3))
+
+_ANCHORS_SQL = """
+SELECT p.id, p.arxiv_id, p.title, p.abstract, tp.reference_relevance AS rating,
+       {similarity} AS similarity
+FROM topic_paper tp
+JOIN papers p ON p.id = tp.paper_id
+{embedding_join}
+WHERE tp.topic_id = :topic_id AND tp.reference_relevance IS NOT NULL
+  AND p.id <> ALL(CAST(:exclude AS uuid[])) AND p.abstract IS NOT NULL
+ORDER BY {order}
+"""
+
+
+def rating_anchors(
+    db: Session,
+    topic_id: str,
+    paper_id: str,
+    *,
+    model: str,
+    per_band: int = 2,
+    exclude_paper_ids: tuple[str, ...] = (),
+) -> list[Anchor]:
+    """Reference-rated papers of this topic to show as calibration examples
+    when rating `paper_id`: up to `per_band` from each rating band (8-10,
+    4-7, 1-3), the most similar to the paper first. Highest rating first in
+    the result. Never the paper itself or anything in `exclude_paper_ids`.
+    Without an embedding for the paper, falls back to the newest labeled
+    papers per band."""
+    has_embedding = db.execute(
+        text(
+            "SELECT 1 FROM paper_embeddings WHERE paper_id = :pid AND model = :model "
+            "AND kind = :kind AND chunk_ix = 0"
+        ),
+        {"pid": paper_id, "model": model, "kind": ABSTRACT},
+    ).first()
+    if has_embedding:
+        sql = _ANCHORS_SQL.format(
+            similarity="1 - (e.embedding <=> q.embedding)",
+            embedding_join=(
+                "JOIN paper_embeddings e ON e.paper_id = p.id AND e.model = :model "
+                "AND e.kind = :kind AND e.chunk_ix = 0 "
+                "JOIN paper_embeddings q ON q.paper_id = :paper_id AND q.model = :model "
+                "AND q.kind = :kind AND q.chunk_ix = 0"
+            ),
+            order="e.embedding <=> q.embedding",
+        )
+    else:
+        sql = _ANCHORS_SQL.format(
+            similarity="NULL", embedding_join="", order="p.published_at DESC NULLS LAST, p.arxiv_id"
+        )
+    rows = db.execute(
+        text(sql),
+        {
+            "topic_id": topic_id,
+            "paper_id": paper_id,
+            "model": model,
+            "kind": ABSTRACT,
+            # str(): callers may hold uuid.UUID or str ids; the cast takes text.
+            "exclude": [str(x) for x in (paper_id, *exclude_paper_ids)],
+        },
+    ).all()
+    picked: list[Anchor] = []
+    for low, high in _BANDS:
+        band = [r for r in rows if low <= r.rating <= high][:per_band]
+        picked += [
+            Anchor(
+                paper_id=r.id, arxiv_id=r.arxiv_id, title=r.title, abstract=r.abstract,
+                rating=r.rating, similarity=None if r.similarity is None else float(r.similarity),
+            )
+            for r in band
+        ]
+    return sorted(picked, key=lambda a: -a.rating)

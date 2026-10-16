@@ -1,0 +1,1354 @@
+{
+  "variant": "desc+anchors",
+  "model": "gemma3:12b",
+  "started_at": "2026-10-16T22:37:11+00:00",
+  "items": 47,
+  "corpus": {
+    "stored_rating_spread": {
+      "Numerical Analysis": {
+        "n": 150,
+        "unrated": 121,
+        "mean": 7.97,
+        "std": 1.19,
+        "share_7_to_9": 0.953,
+        "distinct_values": 7,
+        "histogram": {
+          "2": 1,
+          "3": 4,
+          "6": 1,
+          "7": 24,
+          "8": 73,
+          "9": 46,
+          "10": 1
+        }
+      },
+      "PINNs": {
+        "n": 17,
+        "unrated": 85,
+        "mean": 7.65,
+        "std": 1.94,
+        "share_7_to_9": 0.824,
+        "distinct_values": 5,
+        "histogram": {
+          "3": 2,
+          "7": 5,
+          "8": 2,
+          "9": 7,
+          "10": 1
+        }
+      },
+      "RLHF": {
+        "n": 2,
+        "unrated": 5,
+        "mean": 7.0,
+        "std": 1.0,
+        "share_7_to_9": 0.5,
+        "distinct_values": 2,
+        "histogram": {
+          "6": 1,
+          "8": 1
+        }
+      }
+    },
+    "stored_summaries": {
+      "n": 330,
+      "with_unsupported_numbers": 1,
+      "examples": {
+        "2609.37764": [
+          "3"
+        ]
+      }
+    }
+  },
+  "ratings": {
+    "spread_overall": {
+      "n": 47,
+      "unrated": 0,
+      "mean": 7.45,
+      "std": 2.23,
+      "share_7_to_9": 0.745,
+      "distinct_values": 8,
+      "histogram": {
+        "1": 1,
+        "2": 1,
+        "3": 5,
+        "6": 1,
+        "7": 6,
+        "8": 17,
+        "9": 12,
+        "10": 4
+      }
+    },
+    "spread_by_topic": {
+      "Numerical Analysis": {
+        "n": 20,
+        "unrated": 0,
+        "mean": 6.75,
+        "std": 2.47,
+        "share_7_to_9": 0.75,
+        "distinct_values": 5,
+        "histogram": {
+          "1": 1,
+          "3": 4,
+          "7": 1,
+          "8": 11,
+          "9": 3
+        }
+      },
+      "PINNs": {
+        "n": 20,
+        "unrated": 0,
+        "mean": 8.3,
+        "std": 1.55,
+        "share_7_to_9": 0.75,
+        "distinct_values": 5,
+        "histogram": {
+          "3": 1,
+          "7": 3,
+          "8": 6,
+          "9": 6,
+          "10": 4
+        }
+      },
+      "RLHF": {
+        "n": 7,
+        "unrated": 0,
+        "mean": 7.0,
+        "std": 2.33,
+        "share_7_to_9": 0.714,
+        "distinct_values": 4,
+        "histogram": {
+          "2": 1,
+          "6": 1,
+          "7": 2,
+          "9": 3
+        }
+      }
+    },
+    "stability": null,
+    "labelers": {
+      "claude-opus-5-5": 47
+    },
+    "vs_reference_overall": {
+      "n": 47,
+      "dropped": 0,
+      "exact": 0.191,
+      "within_1": 0.532,
+      "mae": 1.77,
+      "spearman": 0.602
+    },
+    "vs_reference_by_topic": {
+      "Numerical Analysis": {
+        "n": 20,
+        "dropped": 0,
+        "exact": 0.1,
+        "within_1": 0.45,
+        "mae": 1.7,
+        "spearman": 0.538
+      },
+      "PINNs": {
+        "n": 20,
+        "dropped": 0,
+        "exact": 0.3,
+        "within_1": 0.6,
+        "mae": 1.85,
+        "spearman": 0.688
+      },
+      "RLHF": {
+        "n": 7,
+        "dropped": 0,
+        "exact": 0.143,
+        "within_1": 0.571,
+        "mae": 1.71,
+        "spearman": 0.784
+      }
+    },
+    "stored_vs_reference": {
+      "n": 31,
+      "dropped": 16,
+      "exact": 0.194,
+      "within_1": 0.581,
+      "mae": 1.74,
+      "spearman": 0.668
+    },
+    "vs_reference_on_topic": {
+      "n": 32,
+      "dropped": 0,
+      "exact": 0.25,
+      "within_1": 0.625,
+      "mae": 1.19,
+      "spearman": 0.19
+    },
+    "latency": {
+      "n": 47,
+      "mean_s": 2.57,
+      "p50_s": 2.64,
+      "p90_s": 2.98
+    }
+  },
+  "summaries": {
+    "n": 47,
+    "failed": 0,
+    "with_unsupported_numbers": 0,
+    "mean_compression": 0.425,
+    "relevance_parsed": 47,
+    "relevance_vs_reference": {
+      "n": 47,
+      "dropped": 0,
+      "exact": 0.149,
+      "within_1": 0.489,
+      "mae": 1.89,
+      "spearman": 0.578
+    },
+    "relevance_vs_reference_on_topic": {
+      "n": 32,
+      "dropped": 0,
+      "exact": 0.125,
+      "within_1": 0.562,
+      "mae": 1.59,
+      "spearman": 0.279
+    },
+    "with_offered": 0,
+    "with_related_note": 0,
+    "related_rejected": 0,
+    "latency": {
+      "n": 47,
+      "mean_s": 5.58,
+      "p50_s": 5.67,
+      "p90_s": 6.25
+    },
+    "outputs": [
+      {
+        "topic": "Numerical Analysis",
+        "arxiv_id": "2609.38101",
+        "relevance": 9,
+        "summary": "The paper addresses the problem of solving linear systems, a core task in numerical analysis, with a focus on improving computational efficiency. It introduces a deterministic algorithm that leverages Dixon's lifting technique and sparse matrix-vector products to achieve a significant reduction in the number of bit operations required for solving such systems. The resulting algorithm demonstrates a near-quadratic runtime complexity for sparse, polynomially conditioned systems, representing a notable advancement over existing methods and closing a long-standing gap in finite-precision computation.",
+        "unsupported_numbers": [],
+        "chars": 603,
+        "abstract_chars": 1641,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "Numerical Analysis",
+        "arxiv_id": "2609.38871",
+        "relevance": 8,
+        "summary": "The work addresses the challenge of solving saddle-point systems arising from the discretization of nearly incompressible elasticity, a common problem in computational mechanics. A mixed finite element method is employed to avoid locking, leading to a reduced system with a parameter-dependent Schur complement that becomes difficult to precondition at high Lam\u00e9 ratios. The authors propose a two-grid preconditioner that incorporates a discrete-curl subspace to account for the volumetric kernel, demonstrating improved condition numbers and robustness in numerical experiments.",
+        "unsupported_numbers": [],
+        "chars": 579,
+        "abstract_chars": 1517,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "Numerical Analysis",
+        "arxiv_id": "2610.05627",
+        "relevance": 3,
+        "summary": "The work investigates a specific problem related to ground state energy estimation and preparation, known as the Guided Local Hamiltonian Problem. The authors focus on a scenario where the true ground state has a polynomially bounded $\\ell_1$-norm, identifying it as a condition for classical tractability. They analyze the Truncated Power Method, demonstrating its runtime performance relative to quantum algorithms under these conditions, effectively showing a dequantization result.",
+        "unsupported_numbers": [],
+        "chars": 485,
+        "abstract_chars": 842,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "Numerical Analysis",
+        "arxiv_id": "2610.06154",
+        "relevance": 5,
+        "summary": "The work addresses the solution of generalized absolute value equations, a class of nonlinear problems arising in various applications. A new iterative method, termed Relaxed Maximum-Based Normal S-Iteration (RMNSI), is introduced, which leverages a fixed-point formulation and a relaxation parameter to reduce computational cost by reusing linear system factorizations. The authors establish global and local convergence conditions, derive error estimates, and demonstrate the method's effectiveness through numerical experiments on several problem types.",
+        "unsupported_numbers": [],
+        "chars": 556,
+        "abstract_chars": 1285,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "Numerical Analysis",
+        "arxiv_id": "2610.06414",
+        "relevance": 8,
+        "summary": "The work addresses a bottleneck in iterative solvers, specifically the memory bandwidth limitations that hinder performance. A mixed-precision strategy is introduced to reduce data movement during matrix-splitting iterations, maintaining convergence rates comparable to exact-precision methods. Experimental results demonstrate speedups ranging from 1.25x to 1.60x over double-precision iterations, with a practical application in a NASA compressible fluid dynamics code showing a 1.14x speedup.",
+        "unsupported_numbers": [],
+        "chars": 495,
+        "abstract_chars": 976,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "Numerical Analysis",
+        "arxiv_id": "2610.09373",
+        "relevance": 1,
+        "summary": "The work addresses the estimation of thermal properties of quantum systems, employing a simulation framework that combines state preparation, Trotterization, and quantum signal processing. The approach focuses on constructing canonical ensembles and enabling grand-canonical reconstructions through classical reweighting of quantum measurement data. Numerical validation is performed on the two-dimensional Hubbard model to demonstrate the theoretical advantages of the proposed methods compared to classical Lanczos techniques.",
+        "unsupported_numbers": [],
+        "chars": 528,
+        "abstract_chars": 1102,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "Numerical Analysis",
+        "arxiv_id": "2610.11595",
+        "relevance": 7,
+        "summary": "The work addresses the approximation of scattering fields in a nonlinear system, specifically Alfv\u00e9n waves in magnetohydrodynamics. The authors derive quantitative error estimates for truncating the scattering profiles at a finite time, providing bounds on both the $L^\\infty$ norm and the $H^{N_*+1}$ norm. These estimates rely on global weighted energy estimates and an analysis of the decay of the nonlocal pressure along nonlinear characteristics, with numerical experiments used to validate the theoretical predictions.",
+        "unsupported_numbers": [],
+        "chars": 524,
+        "abstract_chars": 1092,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "Numerical Analysis",
+        "arxiv_id": "2610.12088",
+        "relevance": 8,
+        "summary": "The work addresses a practical challenge in finite element analysis where simulations are often performed on meshes with poor geometric quality. The authors investigate the applicability of equilibrated flux estimators for a posteriori error estimation in these scenarios, demonstrating that the estimators provide a reliable upper bound on the discretization error without relying on shape-regularity assumptions. A key finding is that mesh distortion primarily affects the estimator's efficiency rather than its reliability, offering a quantitative assessment of simulation accuracy even with coarse or distorted meshes.",
+        "unsupported_numbers": [],
+        "chars": 622,
+        "abstract_chars": 1185,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "Numerical Analysis",
+        "arxiv_id": "2610.12132",
+        "relevance": 2,
+        "summary": "The work addresses the challenge of accurately modeling ion correlations within polymer electrolytes, a system requiring both molecular-level detail and broad spatial applicability. A neural density functional is developed, incorporating structural preservation principles and thermodynamic constraints to improve accuracy and transferability. The resulting functional demonstrates superior performance compared to alternative architectures, exhibiting improved accuracy with reduced training data and maintaining its predictive capabilities across different geometries and concentrations.",
+        "unsupported_numbers": [],
+        "chars": 589,
+        "abstract_chars": 1359,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "Numerical Analysis",
+        "arxiv_id": "2610.12152",
+        "relevance": 7,
+        "summary": "The work addresses the challenges of numerically simulating viscous flows with free surfaces, a common occurrence in geodynamic modeling. The authors employ variational calculus and the Gateaux derivative to derive the weak form of the Stokes equations for a deforming free-surface domain, revealing the origins of stabilization terms often used to mitigate numerical instabilities. The derived formulation is validated against benchmark cases, confirming consistency with existing stabilization methods and highlighting an additional viscous boundary contribution.",
+        "unsupported_numbers": [],
+        "chars": 565,
+        "abstract_chars": 1550,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "Numerical Analysis",
+        "arxiv_id": "2610.12654",
+        "relevance": 8,
+        "summary": "The work addresses a significant performance bottleneck in iterative power flow analysis, specifically the repeated assembly of the Jacobian matrix. A symbolic permutation approach is introduced to optimize this process, eliminating runtime overhead and streamlining the assembly into a single, efficient operation. Experimental results on various test systems demonstrate substantial speedups compared to existing methods, while maintaining numerical accuracy and convergence.",
+        "unsupported_numbers": [],
+        "chars": 477,
+        "abstract_chars": 1453,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "Numerical Analysis",
+        "arxiv_id": "2610.13029",
+        "relevance": 7,
+        "summary": "The work addresses the numerical simulation of a complex thermodynamic model describing liquid-vapor phase transitions, specifically the dynamic van der Waals model. The authors develop a fully discrete scheme designed to preserve entropy production, a crucial property for ensuring physical realism in simulations. A key innovation is a reformulation of the governing equations and a component-wise convex-splitting method to handle the chemical potential and temperature calculations, leading to a discrete entropy-stable inequality without time step restrictions.",
+        "unsupported_numbers": [],
+        "chars": 566,
+        "abstract_chars": 1406,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "Numerical Analysis",
+        "arxiv_id": "2610.13307",
+        "relevance": 1,
+        "summary": "This paper addresses the design of a distributed computing architecture for smart buildings, focusing on resource management and algorithm adaptation within constrained environments. The work validates data acquisition chains, proposes a lightweight orchestration framework, and adapts the Generalized Hebbian Algorithm for PCA on microcontrollers. The experimental validation demonstrates the feasibility of achieving comparable results to full-memory processing despite increased temporal complexity due to sorting.",
+        "unsupported_numbers": [],
+        "chars": 517,
+        "abstract_chars": 1771,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "Numerical Analysis",
+        "arxiv_id": "2610.13680",
+        "relevance": 6,
+        "summary": "The paper investigates the scattering of waves by a thin coating, employing asymptotic expansions and developing effective models to approximate the solution. A matched asymptotic expansion is derived, linking different expansions in subdomains and incorporating delicate matching conditions to handle singular behaviors near a corner. The authors then construct Galerkin-type methods and propose Robin/Ventcel boundary conditions, alongside Dirichlet-to-Neumann maps, to create effective models, which are subsequently analyzed for well-posedness and error estimates.",
+        "unsupported_numbers": [],
+        "chars": 568,
+        "abstract_chars": 1912,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "Numerical Analysis",
+        "arxiv_id": "2610.17567",
+        "relevance": 9,
+        "summary": "The work addresses the challenge of maintaining stability and accuracy in high-order numerical methods when applied to under-resolved or complex flow scenarios. A sensor-activated nonlinear artificial dissipation framework is proposed, designed to be adaptable and preserve desirable properties like discrete conservation and entropy stability. The method's effectiveness is demonstrated through numerical experiments on the Burgers and Euler equations, showcasing improved robustness and high-order accuracy.",
+        "unsupported_numbers": [],
+        "chars": 509,
+        "abstract_chars": 1797,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "Numerical Analysis",
+        "arxiv_id": "2610.17600",
+        "relevance": 8,
+        "summary": "The work investigates the behavior of a numerical scheme for a stochastic partial differential equation, specifically the Korteweg-de Vries equation. The implicit midpoint method is analyzed, with a focus on controlling nonlinear error growth through exponential integrability estimates and deriving local error bounds. The study demonstrates a first-order convergence rate for the method, validated by computational experiments, and extends the results to include the undamped case.",
+        "unsupported_numbers": [],
+        "chars": 483,
+        "abstract_chars": 1061,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "Numerical Analysis",
+        "arxiv_id": "2610.17892",
+        "relevance": 2,
+        "summary": "The work addresses the reconstruction of a 3D volume from projections in cryo-electron microscopy, focusing on a method based on moments. The approach involves analyzing the first three moments of the data within a specific spherical-shell representation to recover the volume, while accounting for rotational ambiguity. The study provides a constructive recovery scheme with a sample complexity bound and validates it through numerical experiments, suggesting potential for practical application beyond the theoretical assumptions.",
+        "unsupported_numbers": [],
+        "chars": 532,
+        "abstract_chars": 976,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "Numerical Analysis",
+        "arxiv_id": "2610.17942",
+        "relevance": 7,
+        "summary": "The study addresses the computational expense associated with simulating turbulent flow using direct numerical simulation (DNS). Researchers explored a parallel spectral deferred correction (SDC) method as a high-order time-stepping technique to accelerate the simulation process. Results obtained on both CPU and GPU platforms demonstrated that parallel SDC can improve concurrency and allow for larger time steps, ultimately reducing the overall simulation time.",
+        "unsupported_numbers": [],
+        "chars": 464,
+        "abstract_chars": 881,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "Numerical Analysis",
+        "arxiv_id": "2610.18172",
+        "relevance": 5,
+        "summary": "The study addresses the simulation of biological capsules, employing a Hybrid High Order method to solve a Stokes problem with a source term distributed along the membrane interface. A key feature is the use of interface-fitted polygonal meshes, which adapt to the capsule's shape and allow for accurate interface discretization. The work concludes with a numerical test demonstrating the algorithm's performance on a standard benchmark involving capsule deformation in shear flow.",
+        "unsupported_numbers": [],
+        "chars": 481,
+        "abstract_chars": 846,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "Numerical Analysis",
+        "arxiv_id": "2610.19982",
+        "relevance": 6,
+        "summary": "The work addresses the numerical solution of electromagnetic scattering problems, specifically focusing on a spherical perfectly matched layer (PML) method. The authors employ vector spherical harmonics and a modal transformation to derive stability estimates and analyze the inf-sup constant of the truncated PML problem. The study also examines the performance of N\u00e9d\u00e9lec edge element methods, demonstrating preasymptotic error behavior with respect to mesh size and wavenumber.",
+        "unsupported_numbers": [],
+        "chars": 480,
+        "abstract_chars": 761,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "PINNs",
+        "arxiv_id": "2609.07814",
+        "relevance": 9,
+        "summary": "The paper addresses a significant challenge in physics-informed neural networks (PINNs): their difficulty in handling PDEs with spatially varying physics. The authors identify that standard PINN architectures suffer from long-range coupling due to their translation-variant neural tangent kernel (NTK). To mitigate this, they introduce Latent-MoE, a novel architecture incorporating mixture-of-experts (MoE) blocks with domain-aware routing, demonstrating improved performance and reduced gradient conflict on benchmarks with multi-stage, time-variable physics.",
+        "unsupported_numbers": [],
+        "chars": 561,
+        "abstract_chars": 1443,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "PINNs",
+        "arxiv_id": "2609.23077",
+        "relevance": 8,
+        "summary": "The work addresses the challenge of incorporating parametric uncertainty into real-time control systems governed by stochastic partial differential equations. A surrogate model is developed by combining Physics-Informed Neural Networks with Polynomial Chaos Expansion, allowing for analytical propagation of uncertainty and efficient moment calculations. The resulting surrogate is then integrated into a stochastic model predictive control scheme, demonstrating improved control performance and risk management across several benchmark problems.",
+        "unsupported_numbers": [],
+        "chars": 546,
+        "abstract_chars": 1396,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "PINNs",
+        "arxiv_id": "2609.32508",
+        "relevance": 7,
+        "summary": "The study addresses the solution of elliptic partial differential equations defined on random domains, a scenario that introduces complexity through stochasticity. To overcome the computational challenges of traditional stochastic Galerkin methods, the authors propose replacing the deterministic spectral coefficients with deep learning techniques, specifically comparing a physics-informed neural network approach with a Deep Ritz method. The neural networks act as surrogates for these coefficients, and the stochastic parameters and domain are not incorporated as inputs during training, focusing instead on the residual or energy minimization formulations.",
+        "unsupported_numbers": [],
+        "chars": 661,
+        "abstract_chars": 1078,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "PINNs",
+        "arxiv_id": "2609.35196",
+        "relevance": 9,
+        "summary": "The paper addresses limitations in standard PINNs, specifically spectral bias and geometric inflexibility, which are well-documented failure modes of the method. It introduces a novel architecture, GAC-PINN, incorporating adaptive grid mapping, constraint ansatz, and a spectral preconditioner to improve accuracy and convergence for problems with sharp gradients and interfaces. Experimental results on the viscous Burgers equation, Poisson problem, and Allen-Cahn equation demonstrate significant performance improvements over baseline PINN implementations, with ablation studies highlighting the interplay of different architectural components.",
+        "unsupported_numbers": [],
+        "chars": 647,
+        "abstract_chars": 1823,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "PINNs",
+        "arxiv_id": "2609.39469",
+        "relevance": 9,
+        "summary": "The work introduces a novel neural network architecture, KAN-PINNs, specifically designed for solving fourth-order elliptic PDEs, exemplified by the biharmonic equation. The approach utilizes learnable radial basis functions and a hybrid optimization strategy to tackle the stiffness associated with these higher-order equations. The results showcase significant error reduction and accuracy on a benchmark problem, highlighting the potential of this architecture for high-order PDE solutions.",
+        "unsupported_numbers": [],
+        "chars": 493,
+        "abstract_chars": 1514,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "PINNs",
+        "arxiv_id": "2609.40008",
+        "relevance": 10,
+        "summary": "The work addresses the extraction of the pion electromagnetic form factor, a complex quantity with inherent theoretical constraints, by employing a physics-informed neural network. The network is designed to incorporate fundamental principles like charge normalization, analyticity, and dispersion relations directly into its loss function, effectively guiding the learning process. Furthermore, the conformal $z$-plane embedding and Hessian norm bounding are used to mitigate common PINN failure modes, demonstrating a focus on architectural improvements and stability.",
+        "unsupported_numbers": [],
+        "chars": 570,
+        "abstract_chars": 1693,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "PINNs",
+        "arxiv_id": "2610.10862",
+        "relevance": 8,
+        "summary": "The paper addresses challenges in simulating heterogeneous materials using a neural energy method, a variant of physics-informed neural networks. The authors identify issues with existing implementations, specifically displacement oscillations and computational cost, and propose a mesh-based approach (M-NEM) to mitigate these problems. Results demonstrate significant improvements in accuracy and computational efficiency compared to the conventional method, alongside an investigation into optimal neural network architectures for the task.",
+        "unsupported_numbers": [],
+        "chars": 543,
+        "abstract_chars": 1594,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "PINNs",
+        "arxiv_id": "2610.10897",
+        "relevance": 9,
+        "summary": "The paper addresses limitations in standard Physics-informed Neural Networks (PINNs) related to spectral bias, loss imbalance, and optimizer stagnation when solving PDEs. To overcome these challenges, a novel framework called Generative Adversarial Physics-Informed Neural Networks (Gen-PINNs) is introduced, employing a residual-adversarial learning approach. Experiments on nonlinear and higher-order PDEs, such as Burgers, Allen-Cahn, and Kuramoto-Sivashinsky equations, demonstrate improved accuracy and convergence compared to standard PINNs.",
+        "unsupported_numbers": [],
+        "chars": 547,
+        "abstract_chars": 1800,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "PINNs",
+        "arxiv_id": "2610.11108",
+        "relevance": 9,
+        "summary": "The work addresses challenges in modeling complex heat transfer phenomena across multiple physical domains, specifically fluid and solid interactions. A novel physics-informed neural network (PINN) architecture, Cova-PINN, is introduced to improve energy transfer accuracy by aligning conservation support with thermal interaction paths. Experimental results on several heat exchanger designs demonstrate significant improvements in outlet temperature and closure error compared to existing PINN baselines, highlighting the effectiveness of the proposed approach.",
+        "unsupported_numbers": [],
+        "chars": 563,
+        "abstract_chars": 1203,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "PINNs",
+        "arxiv_id": "2610.13334",
+        "relevance": 8,
+        "summary": "The work investigates a novel neural network architecture, PDE-PFN, designed to predict solutions to partial differential equations. The approach leverages the principles of prior-data fitted networks and in-context learning, drawing inspiration from large language models. The network is pre-trained using solutions generated by physics-informed neural networks, then used for inference without gradient updates, demonstrating generalization and robustness to noisy data.",
+        "unsupported_numbers": [],
+        "chars": 472,
+        "abstract_chars": 1165,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "PINNs",
+        "arxiv_id": "2610.13663",
+        "relevance": 7,
+        "summary": "The paper investigates a framework for automated tuning of machine learning components, demonstrating its effectiveness across diverse tasks including solving high-order differential equations using Physics-Informed Neural Networks. The core innovation lies in a multi-agent LLM system that focuses on optimizing specific components within a pre-defined model structure, rather than altering the overall architecture. Results show significant improvements in accuracy and error reduction when applied to PINN solutions of the GNLSE and Kuramoto\u2013Sivashinsky equations, highlighting the framework's potential for enhancing PINN performance.",
+        "unsupported_numbers": [],
+        "chars": 638,
+        "abstract_chars": 1744,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "PINNs",
+        "arxiv_id": "2610.14355",
+        "relevance": 7,
+        "summary": "The study addresses the challenges of applying machine learning to turbulence modeling, noting the limitations of current data-driven approaches and their tendency to fail when applied outside their intended regimes. The authors propose a taxonomy map based on flow characteristics to guide the selection of appropriate AI/ML techniques, including identifying situations where physics-informed neural networks (PINNs) offer a valuable solution. This work provides a framework for deploying AI/ML in turbulence, emphasizing the importance of physics-based constraints and suggesting specific applications for PINNs within a broader context.",
+        "unsupported_numbers": [],
+        "chars": 639,
+        "abstract_chars": 1182,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "PINNs",
+        "arxiv_id": "2610.14461",
+        "relevance": 9,
+        "summary": "The study explores the potential of physics-informed neural networks to reconstruct holographic theories, specifically focusing on the Pilch-Warner model. The research begins by verifying the PINN methodology against a known analytical solution before proceeding to reconstruct black-brane geometries and scalar potentials based on thermodynamic principles and physical constraints. The work highlights a critical finding: accurately reproducing thermodynamic properties with a PINN does not automatically ensure accurate reconstruction of the scalar potential, and incorporating additional constraints like bulk viscosity significantly improves the accuracy of the reconstructed interactions.",
+        "unsupported_numbers": [],
+        "chars": 693,
+        "abstract_chars": 1315,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "PINNs",
+        "arxiv_id": "2610.14844",
+        "relevance": 9,
+        "summary": "This paper introduces stochastic physics-informed neural networks (SPINNs) designed to handle stochastic boundary-value problems with random operators. The method employs a novel architecture with random neuron locations and connectivity, driven by a shared Gaussian stochastic germ to couple the random operator and the neural network. Training leverages a supervised objective combining data fidelity and a cross-entropy alignment term, and the approach avoids traditional PDE-residual losses by directly using evaluations of the SBVP solution mapping.",
+        "unsupported_numbers": [],
+        "chars": 554,
+        "abstract_chars": 1853,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "PINNs",
+        "arxiv_id": "2610.15111",
+        "relevance": 8,
+        "summary": "The paper addresses the problem of learning solutions to the heat equation from noisy data, focusing on improving generalization by integrating data with PDE constraints. A novel variational formulation is derived, framed as a Sobolev regression with energy regularization and ellipticity debiasing, and the learning task is cast as a supervised problem over space-time domains. The analysis reveals anisotropic estimation and generalization behaviors due to the temporal dimension, leading to rate-optimal error bounds and demonstrating significant error reduction compared to existing PINN methods through numerical experiments.",
+        "unsupported_numbers": [],
+        "chars": 630,
+        "abstract_chars": 1655,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "PINNs",
+        "arxiv_id": "2610.16891",
+        "relevance": 3,
+        "summary": "The study investigates a method for discovering tumor-growth laws from limited data, combining symbolic regression with mathematical validation and LLM ranking. The workflow includes an attempt to refine the discovered laws using physics-informed neural networks, but this approach is shown to sometimes worsen the results compared to traditional methods. The research highlights the challenges of ensuring mathematical correctness and accurate law recovery alongside predictive performance, even with AI assistance.",
+        "unsupported_numbers": [],
+        "chars": 516,
+        "abstract_chars": 1097,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "PINNs",
+        "arxiv_id": "2610.17969",
+        "relevance": 7,
+        "summary": "The work investigates a framework called Neural Dimensional Analysis (NDA) to ensure scale consistency in neural networks, drawing parallels to dimensional analysis in physics. This framework introduces concepts like neural units and dimensionless indices to diagnose and correct scale mismatches, leading to a new architecture, the Gauge-Canonical Transformer (GCT). Experiments demonstrate improved training stability and robustness to quantization in language models, with validation in vision and physics-informed neural network applications.",
+        "unsupported_numbers": [],
+        "chars": 546,
+        "abstract_chars": 1557,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "PINNs",
+        "arxiv_id": "2610.19058",
+        "relevance": 9,
+        "summary": "The paper addresses parameter estimation within a physics-informed framework, specifically focusing on compartment models of infectious diseases. It introduces a novel approach called Physics-informed Weak Regression (PIWR), which integrates the model in time and jointly estimates the initial state, offering high-order accuracy and distribution-free uncertainty quantification through conformal prediction. The method demonstrates significantly improved accuracy and efficiency compared to existing DINNs and PIR methods, even achieving comparable or superior results to Bayesian analysis on real-world data.",
+        "unsupported_numbers": [],
+        "chars": 610,
+        "abstract_chars": 1869,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "PINNs",
+        "arxiv_id": "2610.19254",
+        "relevance": 8,
+        "summary": "The work addresses the challenge of accurately learning parametric PDE solutions using physics-informed neural networks, specifically focusing on maintaining derivative accuracy across varying regimes. A new structured conditional architecture, BeTINN, is proposed, extending time-induced modulation with multi-directional conditioning and a residual pathway to improve adaptation across a family of solutions. The method is evaluated on the Heston stochastic-volatility PDE, demonstrating improved accuracy in both solution values and sensitivities compared to baseline approaches, while also highlighting the complexities of derivative fidelity assessment.",
+        "unsupported_numbers": [],
+        "chars": 658,
+        "abstract_chars": 1264,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "PINNs",
+        "arxiv_id": "2610.20041",
+        "relevance": 9,
+        "summary": "The work addresses the challenge of accurately estimating component parameters in a power converter using a physics-informed neural network. A novel sequential learning approach is introduced, where the network's training is staged based on the sensitivity of each parameter, optimizing the learning order. This staged approach significantly improves the accuracy and speed of parameter estimation compared to a simultaneous training method, demonstrating robustness to parameter perturbations.",
+        "unsupported_numbers": [],
+        "chars": 494,
+        "abstract_chars": 673,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "RLHF",
+        "arxiv_id": "2609.33221",
+        "relevance": 9,
+        "summary": "The study investigates a common problem in reinforcement learning from human feedback, where optimizing a proxy reward model doesn't necessarily align with true human preferences. To combat this, the authors introduce Reward Model Boosting (RMB), a method that trains multiple reward models with a diversity-promoting regularizer and then combines their outputs using a lightweight aggregator. Empirical results show that RMB enhances reward accuracy and reduces reward hacking, leading to improved overall performance in RLHF.",
+        "unsupported_numbers": [],
+        "chars": 527,
+        "abstract_chars": 1093,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "RLHF",
+        "arxiv_id": "2609.35109",
+        "relevance": 8,
+        "summary": "The study investigates limitations in current reward modeling approaches used to align language models with human preferences, specifically focusing on how personalization is handled. Existing methods rely on in-context learning to incorporate user-specific feedback, but this approach struggles to fully capture the relationships within that feedback. The authors introduce Preference-Aligned Test-Time Training (P-TTT), a technique that directly encodes preference relations into user-specific weights, leading to improved performance in capturing historical preferences and outperforming existing personalization strategies.",
+        "unsupported_numbers": [],
+        "chars": 627,
+        "abstract_chars": 1324,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "RLHF",
+        "arxiv_id": "2610.05450",
+        "relevance": 7,
+        "summary": "This paper investigates the limitations of preference-based alignment methods, specifically when aiming to maximize overall social welfare rather than simply aggregating pairwise comparisons. The authors introduce a new algorithm, GLHF, designed to learn group-conditioned policies from user comparisons, aiming to minimize distortion\u2014the difference between the best possible outcome and the outcome achieved by the learned policy. Experimental results using both real-world coffee ratings and synthetic LLM-generated ratings demonstrate that GLHF effectively reduces distortion across different groups compared to existing approaches.",
+        "unsupported_numbers": [],
+        "chars": 635,
+        "abstract_chars": 1476,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "RLHF",
+        "arxiv_id": "2610.05461",
+        "relevance": 6,
+        "summary": "The study examines the reliability of human judgment in a debate-based supervision framework for language models. Researchers created dialogues about detective mysteries, manipulating arguments with rhetorical techniques like anchoring and jargon to assess their impact on human evaluators. Results from a large participant study revealed that these rhetorical strategies significantly influenced judgments, suggesting a potential weakness in using debate as a method for aligning language models with truthfulness.",
+        "unsupported_numbers": [],
+        "chars": 515,
+        "abstract_chars": 1520,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "RLHF",
+        "arxiv_id": "2610.07023",
+        "relevance": 4,
+        "summary": "This work investigates methods for improving the safety of large language models, focusing on a technique called Supervised Safe-Role Fine-Tuning (SSRTF). The approach involves creating a dataset of questions and answers framed around a predefined \"safe role,\" which the model then learns to emulate. Experiments demonstrate that SSRTF improves robustness against certain attacks and reduces overly cautious responses compared to standard fine-tuning methods, while also preserving general model capabilities.",
+        "unsupported_numbers": [],
+        "chars": 509,
+        "abstract_chars": 1514,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "RLHF",
+        "arxiv_id": "2610.09891",
+        "relevance": 5,
+        "summary": "This work examines the application of reinforcement learning techniques, specifically those incorporating human input, within the context of human-robot interaction. The study combines a systematic review of existing literature with a novel experiment designed to assess the impact of feedback timing on perceived and physical safety. The findings highlight the importance of user-initiated feedback for capturing subjective safety perceptions in a collaborative robotic system, suggesting a need for more nuanced feedback collection strategies.",
+        "unsupported_numbers": [],
+        "chars": 545,
+        "abstract_chars": 1847,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      },
+      {
+        "topic": "RLHF",
+        "arxiv_id": "2610.14976",
+        "relevance": 2,
+        "summary": "This work investigates a method for improving image captioning generated by large vision-language models. The approach utilizes reinforcement learning to reduce the occurrence of fabricated objects within the generated descriptions, relying on automated NLP metrics rather than human feedback to guide the optimization process. The study introduces an Object Consistency Score and a modified PPO algorithm to achieve this, demonstrating a significant reduction in hallucination across multiple datasets.",
+        "unsupported_numbers": [],
+        "chars": 503,
+        "abstract_chars": 1723,
+        "offered": [],
+        "related_note": null,
+        "related_ids": [],
+        "related_rejected": false
+      }
+    ]
+  },
+  "per_item": [
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2609.38101",
+      "title": "Solving Linear Systems in $\\widetilde{O}(mn \\log \\frac\u03ba\u03b5)$ Bit Operations",
+      "stored_relevance": null,
+      "label": 8,
+      "ratings": [
+        9
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2609.38871",
+      "title": "A Kernel-Aware Two-Grid Preconditioner for Cell-Centered Nearly Incompressible Elasticity",
+      "stored_relevance": null,
+      "label": 10,
+      "ratings": [
+        8
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.05627",
+      "title": "Ground state energy estimation and preparation by the truncated power method",
+      "stored_relevance": null,
+      "label": 4,
+      "ratings": [
+        3
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.06154",
+      "title": "A Relaxed Maximum-Based Normal \\texorpdfstring{$S$}{S}-Iteration Method for Generalized Absolute Value Equations",
+      "stored_relevance": null,
+      "label": 9,
+      "ratings": [
+        7
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.06414",
+      "title": "A Mixed-Precision Model for Matrix-Splitting Methods",
+      "stored_relevance": null,
+      "label": 10,
+      "ratings": [
+        8
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.09373",
+      "title": "Particle-Number-Preserving Quantum Signal Processing for Thermal Properties: Canonical-Ensemble Estimation and Grand-Canonical Reconstruction",
+      "stored_relevance": 3,
+      "label": 4,
+      "ratings": [
+        1
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.11595",
+      "title": "Quantitative finite-time approximation of scattering fields for Alfv\u00e9n waves in ideal MHD",
+      "stored_relevance": 3,
+      "label": 3,
+      "ratings": [
+        8
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.12088",
+      "title": "A posteriori error estimation for coarse or distorted meshes",
+      "stored_relevance": 9,
+      "label": 10,
+      "ratings": [
+        8
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.12132",
+      "title": "A structure-preserving neural density functional for the ions of a polymer electrolyte",
+      "stored_relevance": 3,
+      "label": 2,
+      "ratings": [
+        3
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.12152",
+      "title": "Variational Derivation of the Weak Form for Viscous Flows Involving Free Surfaces with Implications for Geodynamic Simulations",
+      "stored_relevance": 7,
+      "label": 7,
+      "ratings": [
+        8
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.12654",
+      "title": "Symbolic-Permutation-Based Direct Sparse Jacobian Assembly for Accelerated Power-Flow Analysis",
+      "stored_relevance": 9,
+      "label": 6,
+      "ratings": [
+        9
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.13029",
+      "title": "Linear and entropy-stable scheme for the dynamic van der Waals model of non-isothermal liquid-vapor flows",
+      "stored_relevance": 7,
+      "label": 10,
+      "ratings": [
+        8
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.13307",
+      "title": "Sustainable Cloud-Fog-Edge Systems for Smart Buildings: Algorithmic Adaptation under Memory Constraints and Dynamic Orchestration Strategies",
+      "stored_relevance": 2,
+      "label": 1,
+      "ratings": [
+        3
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.13680",
+      "title": "Diffraction of waves by finite thin coatings: asymptotic expansion and effective models",
+      "stored_relevance": 7,
+      "label": 7,
+      "ratings": [
+        8
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.17567",
+      "title": "Targeted Entropy-Stable Nonlinear Artificial Dissipation for High-Order Spectral-Element Summation-By-Parts Discretizations",
+      "stored_relevance": 8,
+      "label": 10,
+      "ratings": [
+        9
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.17600",
+      "title": "Strong convergence rate of the implicit midpoint method for stochastic KdV equations",
+      "stored_relevance": 8,
+      "label": 10,
+      "ratings": [
+        8
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.17892",
+      "title": "Provable Method of Moments for Cryo-EM",
+      "stored_relevance": 3,
+      "label": 4,
+      "ratings": [
+        3
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.17942",
+      "title": "Space-Time Parallel Direct Numerical Simulation of Rayleigh-B\u00e9nard Convection",
+      "stored_relevance": 8,
+      "label": 8,
+      "ratings": [
+        8
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.18172",
+      "title": "Numerical simulation of biological capsules based on interface-fitted polygonal meshes",
+      "stored_relevance": 7,
+      "label": 8,
+      "ratings": [
+        8
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.19982",
+      "title": "Spherical Perfectly Matched Layer Method for Electromagnetic Scattering Problems with Large Wave Number",
+      "stored_relevance": 7,
+      "label": 10,
+      "ratings": [
+        8
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2609.07814",
+      "title": "Latent-MoE: Domain-Aware Mixture-of-Experts for PDEs with Multi-Regime Physics",
+      "stored_relevance": null,
+      "label": 10,
+      "ratings": [
+        9
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2609.23077",
+      "title": "Physics-Informed Neural Network Surrogates with Polynomial Chaos-Based Uncertainty Propagation for Stochastic Model Predictive Control",
+      "stored_relevance": null,
+      "label": 9,
+      "ratings": [
+        8
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2609.32508",
+      "title": "Deep learning methods for stochastic Galerkin approximations of random domain problems",
+      "stored_relevance": null,
+      "label": 8,
+      "ratings": [
+        7
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2609.35196",
+      "title": "GAC-PINN: Geometry-Adaptive and Constraint-Enhanced Physics-Informed Neural Networks",
+      "stored_relevance": null,
+      "label": 10,
+      "ratings": [
+        10
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2609.39469",
+      "title": "Mesh-Free Numerical Approximation of the Biharmonic Equation via Optimized Kolmogorov--Arnold Neural Networks",
+      "stored_relevance": null,
+      "label": 10,
+      "ratings": [
+        10
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2609.40008",
+      "title": "PINNing the pion: conformal deep learning for $F_\u03c0(s)$ and the $(g-2)_\u03bc$ hadronic contribution",
+      "stored_relevance": null,
+      "label": 8,
+      "ratings": [
+        10
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.10862",
+      "title": "A mesh-based neural energy method for the simulation of heterogeneous composites",
+      "stored_relevance": 7,
+      "label": 8,
+      "ratings": [
+        8
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.10897",
+      "title": "Gen-PINNs: Generative Adversarial Physics Informed Neural Networks for solving partial differential equations",
+      "stored_relevance": 9,
+      "label": 10,
+      "ratings": [
+        9
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.11108",
+      "title": "Cova-PINN: Cross-Domain Conservation Physics-Informed Neural Network for Fluid-Solid Conjugate Heat Transfer in Complex Geometries",
+      "stored_relevance": 9,
+      "label": 10,
+      "ratings": [
+        10
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.13334",
+      "title": "PDE-PFN: Prior-Data Fitted Neural PDE Solver",
+      "stored_relevance": 8,
+      "label": 5,
+      "ratings": [
+        8
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.13663",
+      "title": "A Multi-Agent LLM System for Automated Tuning of Specialized Neural Network Models",
+      "stored_relevance": 7,
+      "label": 4,
+      "ratings": [
+        8
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.14355",
+      "title": "AI Meets Turbulence Modeling: Complex Systems Perspective",
+      "stored_relevance": 7,
+      "label": 2,
+      "ratings": [
+        7
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.14461",
+      "title": "PINNs for N=2* holography",
+      "stored_relevance": 9,
+      "label": 9,
+      "ratings": [
+        9
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.14844",
+      "title": "Physics-informed random neural architectures on compact boundaryless multiply connected manifolds for random-operator models in machine learning and uncertainty quantification",
+      "stored_relevance": 9,
+      "label": 6,
+      "ratings": [
+        9
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.15111",
+      "title": "Energy-Guided Learning for Heat Equation with Noisy Source: Optimal Estimation and Generalization Bounds",
+      "stored_relevance": 7,
+      "label": 6,
+      "ratings": [
+        8
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.16891",
+      "title": "AI-Assisted Tumor-Growth Law Discovery from Sparse Data: Refitting and LLM-Based Ranking",
+      "stored_relevance": 3,
+      "label": 3,
+      "ratings": [
+        3
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.17969",
+      "title": "Neural Dimensional Analysis: Foundations of Dimensionless and Scale-Consistent Computation",
+      "stored_relevance": 3,
+      "label": 1,
+      "ratings": [
+        7
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.19058",
+      "title": "Conformalized Physics-Informed Weak Regression for Parameter Estimation in Epidemic Models",
+      "stored_relevance": 7,
+      "label": 3,
+      "ratings": [
+        9
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.19254",
+      "title": "Beyond Time Induction: Structured Conditional Neural Solvers for Parametric Stochastic-Volatility Pricing",
+      "stored_relevance": 8,
+      "label": 9,
+      "ratings": [
+        8
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.20041",
+      "title": "Sequential Learning-Based Physics-Informed Neural Network Modeling for Parameter Estimation on a Power Converter",
+      "stored_relevance": 9,
+      "label": 10,
+      "ratings": [
+        9
+      ]
+    },
+    {
+      "topic_name": "RLHF",
+      "topic_query": "reinforcement learning from human feedback",
+      "arxiv_id": "2609.33221",
+      "title": "RMB: Reward Model Boosting Mitigates Reward Hacking",
+      "stored_relevance": null,
+      "label": 10,
+      "ratings": [
+        9
+      ]
+    },
+    {
+      "topic_name": "RLHF",
+      "topic_query": "reinforcement learning from human feedback",
+      "arxiv_id": "2609.35109",
+      "title": "Using Context Is Not Enough: Test-Time Training for Personalized Reward Modeling",
+      "stored_relevance": null,
+      "label": 8,
+      "ratings": [
+        9
+      ]
+    },
+    {
+      "topic_name": "RLHF",
+      "topic_query": "reinforcement learning from human feedback",
+      "arxiv_id": "2610.05450",
+      "title": "Groupwise Distortion Guarantees for Preference-Based Alignment",
+      "stored_relevance": null,
+      "label": 9,
+      "ratings": [
+        9
+      ]
+    },
+    {
+      "topic_name": "RLHF",
+      "topic_query": "reinforcement learning from human feedback",
+      "arxiv_id": "2610.05461",
+      "title": "AI Safety via Debate is Compromised by Cognitive Biases",
+      "stored_relevance": null,
+      "label": 4,
+      "ratings": [
+        7
+      ]
+    },
+    {
+      "topic_name": "RLHF",
+      "topic_query": "reinforcement learning from human feedback",
+      "arxiv_id": "2610.07023",
+      "title": "Beyond Refusal Patterns: Safe-Role Internalization for Robust and Generalizable LLM Safety Alignment",
+      "stored_relevance": 8,
+      "label": 2,
+      "ratings": [
+        6
+      ]
+    },
+    {
+      "topic_name": "RLHF",
+      "topic_query": "reinforcement learning from human feedback",
+      "arxiv_id": "2610.09891",
+      "title": "A Scoping Review and Experimental Study on Reinforcement Learning from Human Feedback for Human-Robot Collaboration",
+      "stored_relevance": null,
+      "label": 9,
+      "ratings": [
+        7
+      ]
+    },
+    {
+      "topic_name": "RLHF",
+      "topic_query": "reinforcement learning from human feedback",
+      "arxiv_id": "2610.14976",
+      "title": "Metric-Driven Reinforcement Learning for Object Hallucination Reduction in LVLM-Based Image Captioning",
+      "stored_relevance": 6,
+      "label": 3,
+      "ratings": [
+        2
+      ]
+    }
+  ],
+  "errors": []
+}

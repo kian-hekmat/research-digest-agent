@@ -264,7 +264,7 @@ class RecordingSummarizer:
     offered: list = []
     reply: RatedSummary | None = None
 
-    def summarize_and_rate(self, title, abstract, topic_name, topic_query, related=None):
+    def summarize_and_rate(self, title, abstract, topic_name, topic_query, related=None, rating_context=None):
         type(self).offered = list(related or [])
         return type(self).reply
 

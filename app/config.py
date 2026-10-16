@@ -68,6 +68,15 @@ class Settings(BaseSettings):
     # At or above this, an earlier paper counts as the same work. Untested on
     # real duplicates: the corpus had none above 0.89 when this was set.
     rag_near_duplicate_similarity: float = 0.9
+    # Few-shot calibration for relevance ratings: up to this many
+    # reference-rated papers per rating band (8-10, 4-7, 1-3), most similar
+    # first. Only reference labels (topic_paper.reference_relevance) are
+    # used, never the LLM's own ratings, which would just echo its biases.
+    # Off: with ~20 labels per topic the nearest anchors are only loosely
+    # related, and they made gemma3:12b's ratings worse (overall rho 0.71 ->
+    # 0.52, on-topic 0.27 -> 0.02; docs/rag-plan.md §5.4).
+    rag_rating_anchors: bool = False
+    rag_anchors_per_band: int = 2
     # Novelty compares a paper with earlier ones published within this window.
     rag_novelty_window_days: int = 90
 

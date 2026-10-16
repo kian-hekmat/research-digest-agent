@@ -374,6 +374,79 @@ covered only by tests.
 - Retrieval failures inside `summarize_paper` are logged and the summary
   goes ahead without them.
 
+### 5.4 Phase 3 results (2026-10-16): C doesn't help gemma3:12b
+
+The setup: the 47 reference labels were imported as anchors
+(`topic_paper.reference_relevance`, `python -m app.import_relevance_labels`).
+Claude drafted descriptions for the three topics from the scope decisions it
+made while labeling (below). Each variant rated all 47 papers with the
+rate-only prompt and the combined summarize+rate prompt; the combined prompt
+is the production path for new papers. Anchors never include the paper being
+rated, so against the reference labels this is leave-one-out. Reports are
+`evals/results/2026-10-16_15{27,31,37,43}_*.json`.
+
+| Variant | ρ all (rate-only) | ρ on-topic (rate-only) | MAE | ρ all (combined) | ρ on-topic (combined) | MAE |
+|---|---|---|---|---|---|---|
+| baseline | **0.71** | 0.27 | **1.45** | 0.68 | 0.24 | **1.53** |
+| description | 0.67 | 0.27 | 1.68 | **0.71** | **0.37** | 1.87 |
+| anchors | 0.52 | 0.02 | 1.83 | 0.53 | 0.13 | 1.96 |
+| description + anchors | 0.60 | 0.19 | 1.77 | 0.58 | 0.28 | 1.89 |
+
+(On-topic means reference ≥ 6, n=32.)
+
+- **Anchors hurt.** Gemma rarely copies an anchor (its rating matched the
+  nearest anchor's in 3/47 cases). The examples add noise instead: with
+  about 20 labels per topic, and fewer once the paper itself is left out, the
+  nearest anchors are only loosely related (similarity 0.39–0.66). Seeing a
+  10-rated anchor, a PDE-theory paper (reference 3) went from 3 to 8.
+  `RAG_RATING_ANCHORS` now defaults to false.
+- **The description is a wash.** It fixes peripheral papers: metric-reward
+  RL went 7→3 (reference 3) and a turbulence perspective 7→5 (reference 2).
+  But Gemma over-applies the "Not:" list to core papers: an entropy-stable
+  scheme went 8→5 and a Maxwell PML analysis 7→4, both reference 10. The
+  combined path's on-topic ρ rose 0.24 → 0.37, but at n=32 that's within
+  noise (standard error ≈ 0.17), and MAE got worse on both paths.
+- **What was kept:** `topics.description` and `PATCH /topics/{id}` stay as an
+  opt-in, user-written feature. The rater sees a description whenever one is
+  set. Claude's drafted descriptions were measured and then **cleared** from
+  the live topics: they encode Claude's labeling choices, not the reader's,
+  and their effect is inconclusive. The anchor machinery and the imported
+  reference labels stay in place, unused while anchors are off.
+
+**What this means for ranking.** The open problem from §5.1 stands: Gemma
+can't order on-topic papers (ρ ≈ 0.25), yet relevance carries 60% of the
+score among exactly those papers. Options that don't depend on prompt
+calibration:
+1. Use relevance as a coarse gate (off-topic vs on-topic) and rank on-topic
+   papers by the other signals.
+2. Collect real reader feedback (clicks, thumbs) and use it both as labels
+   and as anchors. A real labeled pool of a few hundred papers per topic would
+   also give anchors a fair test.
+3. Use a stronger rater model. Measure it with `evals/rag.py` first.
+
+Draft descriptions (Claude's, for the owner to edit or discard), to apply
+with `PATCH /topics/{id}`:
+
+- **Numerical Analysis:** Numerical analysis proper: the design and analysis
+  of numerical methods (discretizations, time integrators, numerical linear
+  algebra, solvers and preconditioners, error estimates, stability and
+  convergence proofs, with computational experiments). Not: pure PDE or
+  functional-analysis theory where numerics only checks the results, quantum
+  algorithms and complexity, statistics and inverse problems, or ML and
+  systems papers that happen to be cross-listed.
+- **PINNs:** Physics-informed neural networks as the method: new PINN
+  architectures, losses and training schemes, their failure modes (spectral
+  bias, causality, stiffness), their theory, and applications where a PINN is
+  the main tool. Not: papers that use PINNs only as a baseline or a data
+  generator, mention them in passing, or are about other neural or
+  physics-informed PDE methods with no PINN at the core.
+- **RLHF:** Reinforcement learning from human feedback and preference-based
+  alignment of language models as the subject: reward modeling, preference
+  optimization, reward hacking, the theory of learning from preferences, and
+  studies of the human feedback itself. Not: papers that cite RLHF only as
+  background or motivation, safety or fine-tuning methods that do without
+  human feedback, or general LLM work.
+
 ## 6. Phases
 
 | # | Scope | Ships | Size |
@@ -381,7 +454,7 @@ covered only by tests.
 | 0 | Eval harness + hand labels + baseline numbers | `evals/rag.py`, `evals/labels.csv` | S |
 | 1 ✅ | pgvector, `paper_embeddings`, `Embedder`, `embed_papers` activity, backfill (see §5.2) | infra only, no change to outputs | M |
 | 2 ✅ | **A + B**: related-work context with checked citations, near-dup collapse, novelty ranking signal (see §5.3: LLM notes off, "Similar earlier paper" link instead) | email link, new ranking term | M |
-| 3 | **C**: `topics.description` + few-shot rating anchors (API: `PATCH /topics` accepts description) | better ranking | S–M |
+| 3 ✅ | **C**: `topics.description` + few-shot rating anchors (API: `PATCH /topics` accepts description); see §5.4: neither helped, anchors off, descriptions opt-in | no ranking gain | S–M |
 | 4 | **D**: history-aware overviews | better overview paragraph | S |
 | 5 | **E**: full-text chunk retrieval from arXiv HTML | more concrete summaries | L |
 

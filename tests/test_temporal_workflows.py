@@ -90,12 +90,12 @@ class FakeSummarizer:
             with cls._lock:
                 cls.in_flight -= 1
 
-    def summarize_and_rate(self, title, abstract, topic_name, topic_query, related=None):
+    def summarize_and_rate(self, title, abstract, topic_name, topic_query, related=None, rating_context=None):
         summary = self.summarize_paper(title, abstract)
         type(self).rated.append((title, topic_name))
         return RatedSummary(summary=summary, relevance=type(self).relevance.get(title, 5))
 
-    def rate_relevance(self, title, abstract, topic_name, topic_query):
+    def rate_relevance(self, title, abstract, topic_name, topic_query, rating_context=None):
         type(self).rated.append((title, topic_name))
         return type(self).relevance.get(title, 5)
 

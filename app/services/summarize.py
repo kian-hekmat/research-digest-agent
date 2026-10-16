@@ -16,6 +16,11 @@ on how the paper relates to them. Its citations are checked against the
 papers actually offered: a note citing anything else is dropped, never shown.
 Without `related`, the prompt is exactly the one used before retrieval.
 
+Both rating calls accept a `RatingContext`: the topic's description in the
+reader's words, and reference-rated papers as few-shot calibration anchors
+(see app.services.retrieval.rating_anchors). Without one, prompts are
+unchanged.
+
 With `SUMMARY_BACKEND=none` (`Settings.summaries_enabled` is False), every
 method returns `None` (or a RatedSummary of Nones) immediately - no network
 call, no retry/backoff, no error. This is a deliberate "no-summary mode":
@@ -69,6 +74,17 @@ _RATED_SUMMARY_WITH_RELATED_SYSTEM = (
     "only the new paper and never mentions the earlier ones."
 )
 
+# Appended to a rating prompt that includes rated examples.
+_ANCHORS_NOTE = (
+    " You are also given papers the reader has already rated for this topic. "
+    "Use them to calibrate: rate the new paper on the same scale, and note "
+    "that a paper which only names the topic, uses it as a baseline or "
+    "motivation, or applies it in passing is rated low even if the topic "
+    "appears in its abstract."
+)
+# Each anchor's abstract is clipped; up to 6 of them precede the paper.
+_ANCHOR_TEXT_CHARS = 350
+
 _RELEVANCE_SYSTEM = (
     "You rate academic papers for a research alerting digest. "
     + _RELEVANCE_RUBRIC
@@ -108,6 +124,27 @@ class RelatedPaper:
     arxiv_id: str
     title: str
     text: str  # its summary, or its abstract when it has none yet
+
+
+@dataclass(frozen=True)
+class RatingAnchor:
+    """A paper with a reference rating for this topic, shown as a few-shot
+    calibration example."""
+
+    title: str
+    text: str  # its abstract
+    rating: int  # 1-10
+
+
+@dataclass(frozen=True)
+class RatingContext:
+    """What the rater knows about the reader's topic beyond its name/query."""
+
+    description: str | None = None
+    anchors: tuple[RatingAnchor, ...] = ()
+
+    def __bool__(self) -> bool:
+        return bool(self.description or self.anchors)
 
 
 @dataclass(frozen=True)
@@ -175,6 +212,25 @@ def _topic_line(topic_name: str, topic_query: str) -> str:
     return f"Reader's topic: {topic_name} (arXiv search: {topic_query})"
 
 
+def _topic_block(topic_name: str, topic_query: str, context: RatingContext | None) -> str:
+    """The topic line, plus the reader's description and rated examples when
+    there are any. Without context it is exactly `_topic_line`."""
+    block = _topic_line(topic_name, topic_query)
+    if context and context.description:
+        block += f"\nWhat the reader wants from this topic: {' '.join(context.description.split())}"
+    if context and context.anchors:
+        examples = "\n".join(
+            f"- Rated {a.rating}: {a.title}. {_clip(a.text, _ANCHOR_TEXT_CHARS)}"
+            for a in context.anchors
+        )
+        block += f"\n\nPapers the reader has already rated for this topic:\n{examples}"
+    return block
+
+
+def _with_anchors_note(system: str, context: RatingContext | None) -> str:
+    return system + _ANCHORS_NOTE if context and context.anchors else system
+
+
 def _clip(text: str, limit: int) -> str:
     text = " ".join(text.split())
     return text if len(text) <= limit else text[: limit - 1].rsplit(" ", 1)[0] + "…"
@@ -205,14 +261,16 @@ class Summarizer:
         topic_name: str,
         topic_query: str,
         related: list[RelatedPaper] | None = None,
+        rating_context: RatingContext | None = None,
     ) -> RatedSummary:
         if not self._settings.summaries_enabled:
             return RatedSummary(summary=None, relevance=None)
         paper = f"Title: {title}\n\nAbstract: {abstract}"
+        topic = _topic_block(topic_name, topic_query, rating_context)
         if not related:
             text = self._complete(
-                system=_RATED_SUMMARY_SYSTEM,
-                user=f"{_topic_line(topic_name, topic_query)}\n\n{paper}",
+                system=_with_anchors_note(_RATED_SUMMARY_SYSTEM, rating_context),
+                user=f"{topic}\n\n{paper}",
                 max_tokens=420,
             )
             return parse_rated_summary(text)
@@ -220,9 +278,9 @@ class Summarizer:
             f"[{r.arxiv_id}] {r.title}: {_clip(r.text, _RELATED_TEXT_CHARS)}" for r in related
         )
         text = self._complete(
-            system=_RATED_SUMMARY_WITH_RELATED_SYSTEM,
+            system=_with_anchors_note(_RATED_SUMMARY_WITH_RELATED_SYSTEM, rating_context),
             user=(
-                f"{_topic_line(topic_name, topic_query)}\n\n"
+                f"{topic}\n\n"
                 f"Earlier papers the reader has seen:\n{earlier}\n\n"
                 f"New paper:\n{paper}"
             ),
@@ -231,13 +289,18 @@ class Summarizer:
         return parse_rated_summary(text, offered_ids={r.arxiv_id for r in related})
 
     def rate_relevance(
-        self, title: str, abstract: str, topic_name: str, topic_query: str
+        self,
+        title: str,
+        abstract: str,
+        topic_name: str,
+        topic_query: str,
+        rating_context: RatingContext | None = None,
     ) -> int | None:
         if not self._settings.summaries_enabled:
             return None
         text = self._complete(
-            system=_RELEVANCE_SYSTEM,
-            user=f"{_topic_line(topic_name, topic_query)}\n\nTitle: {title}\n\nAbstract: {abstract}",
+            system=_with_anchors_note(_RELEVANCE_SYSTEM, rating_context),
+            user=f"{_topic_block(topic_name, topic_query, rating_context)}\n\nTitle: {title}\n\nAbstract: {abstract}",
             max_tokens=10,
         )
         return parse_relevance(text)

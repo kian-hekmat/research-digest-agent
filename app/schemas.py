@@ -10,6 +10,19 @@ from app.models import DigestStatus, SubscriptionCadence
 class TopicCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     query: str = Field(..., min_length=1, description="arXiv search query, e.g. 'RLHF'")
+    description: Optional[str] = Field(
+        None,
+        max_length=2000,
+        description="What you do and don't want from this topic; guides the relevance rating",
+    )
+
+
+class TopicUpdate(BaseModel):
+    """Partial update. Only the description is editable: changing a topic's
+    name or query would change what its existing papers and watermark mean.
+    An explicit `"description": null` clears it."""
+
+    description: Optional[str] = Field(None, max_length=2000)
 
 
 class TopicOut(BaseModel):
@@ -18,6 +31,7 @@ class TopicOut(BaseModel):
     id: str
     name: str
     query: str
+    description: Optional[str] = None
     created_at: datetime
     last_checked_at: Optional[datetime] = None
 

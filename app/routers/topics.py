@@ -28,6 +28,15 @@ def get_topic(topic_id: str, db: Session = Depends(get_db)):
     return topic
 
 
+@router.patch("/{topic_id}", response_model=schemas.TopicOut)
+def update_topic(topic_id: str, changes: schemas.TopicUpdate, db: Session = Depends(get_db)):
+    topic = crud.get_topic(db, topic_id)
+    if topic is None:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    # exclude_unset: only what the caller actually sent.
+    return crud.update_topic(db, topic, changes.model_dump(exclude_unset=True))
+
+
 @router.delete("/{topic_id}", status_code=204)
 def delete_topic(topic_id: str, db: Session = Depends(get_db)):
     deleted = crud.delete_topic(db, topic_id)

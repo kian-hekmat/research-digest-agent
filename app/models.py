@@ -102,6 +102,15 @@ topic_paper_association = Table(
     # app.services.ranking). NULL = not rated (no LLM, or the call failed).
     Column("relevance", SmallInteger, nullable=True),
     CheckConstraint("relevance BETWEEN 1 AND 10", name="ck_topic_paper_relevance_range"),
+    # A rating from outside the pipeline - a person, or a stronger model doing
+    # reference labeling - and who gave it. These, not the LLM's own
+    # ratings, are the few-shot anchors that calibrate new ratings (see
+    # app.services.retrieval.rating_anchors). NULL = not labeled.
+    Column("reference_relevance", SmallInteger, nullable=True),
+    Column("reference_labeler", String, nullable=True),
+    CheckConstraint(
+        "reference_relevance BETWEEN 1 AND 10", name="ck_topic_paper_reference_relevance_range"
+    ),
 )
 
 # Which earlier papers a paper's related-work note cites (see
@@ -151,6 +160,10 @@ class Topic(Base):
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
     name = Column(String(100), nullable=False, unique=True)
     query = Column(String, nullable=False)  # arXiv search query for this topic
+    # What the reader does and doesn't want from this topic, in their words.
+    # Shown to the relevance rater; most useful for whole-category queries
+    # like `cat:math.NA`, where "relevant to the topic" says little.
+    description = Column(Text, nullable=True)
     created_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
