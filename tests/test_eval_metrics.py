@@ -76,3 +76,12 @@ def test_stratified_sample_returns_everything_when_short():
 @pytest.mark.parametrize("raw, expected", [("7", 7), (" 10 ", 10), ("0", None), ("11", None), ("", None), ("x", None)])
 def test_parse_label(raw, expected):
     assert parse_label(raw) == expected
+
+
+def test_ndcg_at_k():
+    assert metrics.ndcg_at_k([3, 2, 1, 0], 4) == pytest.approx(1.0)
+    worst = metrics.ndcg_at_k([0, 1, 2, 3], 4)
+    assert 0 < worst < 1
+    # Only the top k count: a perfect top 2 scores 1 whatever follows.
+    assert metrics.ndcg_at_k([3, 2, 0, 1], 2) == pytest.approx(1.0)
+    assert metrics.ndcg_at_k([0, 0], 2) is None

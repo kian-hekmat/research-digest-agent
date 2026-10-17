@@ -447,6 +447,43 @@ with `PATCH /topics/{id}`:
   background or motivation, safety or fine-tuning methods that do without
   human feedback, or general LLM work.
 
+### 5.5 Relevance as a coarse gate (2026-10-16): rejected
+
+The idea from §5.4: if Gemma can't order on-topic papers, use relevance only
+to separate on-topic from off-topic (rating ≥ 6) and rank on-topic papers
+by h-index, novelty and venue. It's implemented as
+`score_papers(..., relevance_mode=GATED)` and measured offline with
+`python -m evals.ranking`. Each topic's labeled papers are ranked as one email
+batch with their real stored signals. h-index was looked up first for the
+labeled papers, raising coverage from 12/47 to 43/47. Reports are
+`evals/results/2026-10-16_1728_ranking_{combined,rate-only}.json`.
+
+Mean over the three topics, relevance from the production (combined) call:
+
+| Scheme | Spearman vs reference | NDCG@5 | NDCG@10 | Off-topic in top 10 |
+|---|---|---|---|---|
+| graded (current) | **0.54** | **0.86** | 0.87 | 1.3 |
+| gated | 0.31 | 0.79 | 0.84 | 1.3 |
+| signals only (no relevance) | 0.03 | 0.77 | 0.77 | 2.0 |
+| relevance only | 0.67 | 0.85 | **0.92** | 0.7 |
+
+- **The gate is worse on every topic.** For PINNs, the 95% bootstrap interval
+  for gated − graded NDCG@10 is (−0.27, −0.01). For Numerical Analysis and
+  RLHF it crosses zero. Rate-only ratings give the same ordering of schemes.
+- **Why: the other signals carry no topical information.** Without
+  relevance, h-index + novelty + venue correlate with the reference labels at
+  ρ 0.03. So Gemma's weak 7-vs-9 distinction (on-topic ρ ≈ 0.27) is still the
+  best topical signal available. The gate discards it in favour of signals
+  that don't track topicality.
+- **The default stays `GRADED`.** The gated mode stays in `ranking.py`, tested
+  but unused, so the comparison can be rerun.
+- **Caveat:** the reference labels measure topical centrality only. h-index
+  and novelty are meant to capture something else (standing, freshness),
+  which these labels can't reward. The "relevance only" row shows they cost
+  topical precision (NDCG@10 0.92 → 0.87), but whether they earn it back in
+  usefulness is untested. That needs reader feedback, which is the same gap
+  §5.4 points to.
+
 ## 6. Phases
 
 | # | Scope | Ships | Size |

@@ -3,12 +3,14 @@ import math
 import pytest
 
 from app.services.ranking import (
+    GATED,
     H_INDEX_WEIGHT,
     NOVELTY_WEIGHT,
     RELEVANCE_WEIGHT,
     VENUE_BONUS,
     h_index_component,
     novelty_component,
+    relevance_gate_component,
     relevance_component,
     score_papers,
     venue_score,
@@ -100,3 +102,20 @@ def test_relevance_outweighs_author_standing():
     famous authors."""
     central_unknown, tangential_famous = score_papers([_p(relevance=10, h=1), _p(relevance=3, h=80)])
     assert central_unknown > tangential_famous
+
+
+def test_relevance_gate_component():
+    assert [relevance_gate_component(r) for r in (1, 5, 6, 10)] == [0.0, 0.0, 1.0, 1.0]
+    assert relevance_gate_component(None) is None
+
+
+def test_gated_on_topic_always_beats_off_topic_and_ignores_the_grade():
+    on_weak, off_strong = score_papers([_p(relevance=6, h=1, prior=0.85), _p(relevance=5, h=100, prior=0.2, venue=1.0)], GATED)
+    assert on_weak > off_strong
+    seven, ten = score_papers([_p(relevance=7, h=50), _p(relevance=10, h=50)], GATED)
+    assert seven == ten
+
+
+def test_unknown_relevance_mode_is_rejected():
+    with pytest.raises(ValueError):
+        score_papers([_p()], "fuzzy")

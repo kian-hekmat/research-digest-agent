@@ -1,0 +1,150 @@
+{
+  "report": "2026-10-16_1527_baseline.json",
+  "relevance_source": "rate-only",
+  "topics": {
+    "Numerical Analysis": {
+      "n": 20,
+      "on_topic": 17,
+      "schemes": {
+        "graded": {
+          "spearman": 0.639121529259364,
+          "ndcg@5": 0.90578883186844,
+          "off_topic_in_top5": 0,
+          "ndcg@10": 0.8847273867300284,
+          "off_topic_in_top10": 0
+        },
+        "gated": {
+          "spearman": 0.5620260492522031,
+          "ndcg@5": 0.8356447313174367,
+          "off_topic_in_top5": 0,
+          "ndcg@10": 0.8713662100502806,
+          "off_topic_in_top10": 0
+        },
+        "signals only": {
+          "spearman": -0.10253698840952402,
+          "ndcg@5": 0.7041274218325333,
+          "off_topic_in_top5": 0,
+          "ndcg@10": 0.6923025135825372,
+          "off_topic_in_top10": 1
+        },
+        "relevance only": {
+          "spearman": 0.7046526872654508,
+          "ndcg@5": 0.849262130989504,
+          "off_topic_in_top5": 0,
+          "ndcg@10": 0.9104684395922361,
+          "off_topic_in_top10": 0
+        }
+      },
+      "gated_minus_graded_ndcg@10_95ci": [
+        -0.08,
+        0.03
+      ]
+    },
+    "PINNs": {
+      "n": 20,
+      "on_topic": 16,
+      "schemes": {
+        "graded": {
+          "spearman": 0.40464882879332287,
+          "ndcg@5": 0.8402198450405839,
+          "off_topic_in_top5": 0,
+          "ndcg@10": 0.8140693548428277,
+          "off_topic_in_top10": 1
+        },
+        "gated": {
+          "spearman": 0.10709042727989641,
+          "ndcg@5": 0.7370344793044272,
+          "off_topic_in_top5": 1,
+          "ndcg@10": 0.7257248049792315,
+          "off_topic_in_top10": 1
+        },
+        "signals only": {
+          "spearman": -0.3235660767099727,
+          "ndcg@5": 0.7370344793044272,
+          "off_topic_in_top5": 1,
+          "ndcg@10": 0.6530392442361738,
+          "off_topic_in_top10": 3
+        },
+        "relevance only": {
+          "spearman": 0.7488680593358471,
+          "ndcg@5": 0.8941341289423975,
+          "off_topic_in_top5": 0,
+          "ndcg@10": 0.9507533200740101,
+          "off_topic_in_top10": 0
+        }
+      },
+      "gated_minus_graded_ndcg@10_95ci": [
+        -0.244,
+        0.006
+      ]
+    },
+    "RLHF": {
+      "n": 7,
+      "on_topic": 5,
+      "schemes": {
+        "graded": {
+          "spearman": 0.8468812149338254,
+          "ndcg@5": 0.903099998875291,
+          "off_topic_in_top5": 1,
+          "ndcg@10": 0.9839978007245296,
+          "off_topic_in_top10": 2
+        },
+        "gated": {
+          "spearman": 0.5225437283634242,
+          "ndcg@5": 0.8745229816319595,
+          "off_topic_in_top5": 1,
+          "ndcg@10": 0.9508068692040099,
+          "off_topic_in_top10": 2
+        },
+        "signals only": {
+          "spearman": 0.5225437283634242,
+          "ndcg@5": 0.8745229816319595,
+          "off_topic_in_top5": 1,
+          "ndcg@10": 0.9508068692040099,
+          "off_topic_in_top10": 2
+        },
+        "relevance only": {
+          "spearman": 0.9369749612033813,
+          "ndcg@5": 0.9833922201598313,
+          "off_topic_in_top5": 0,
+          "ndcg@10": 0.9841386181904426,
+          "off_topic_in_top10": 2
+        }
+      },
+      "gated_minus_graded_ndcg@10_95ci": [
+        -0.279,
+        0.0
+      ]
+    }
+  },
+  "mean_over_topics": {
+    "graded": {
+      "spearman": 0.63,
+      "ndcg@5": 0.883,
+      "off_topic_in_top5": 0.333,
+      "ndcg@10": 0.894,
+      "off_topic_in_top10": 1.0
+    },
+    "gated": {
+      "spearman": 0.397,
+      "ndcg@5": 0.816,
+      "off_topic_in_top5": 0.667,
+      "ndcg@10": 0.849,
+      "off_topic_in_top10": 1.0
+    },
+    "signals only": {
+      "spearman": 0.032,
+      "ndcg@5": 0.772,
+      "off_topic_in_top5": 0.667,
+      "ndcg@10": 0.765,
+      "off_topic_in_top10": 2.0
+    },
+    "relevance only": {
+      "spearman": 0.797,
+      "ndcg@5": 0.909,
+      "off_topic_in_top5": 0.0,
+      "ndcg@10": 0.948,
+      "off_topic_in_top10": 0.667
+    }
+  }
+}

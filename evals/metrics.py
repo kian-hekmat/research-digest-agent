@@ -108,3 +108,13 @@ def latency(seconds: Sequence[float]) -> dict:
         "p50_s": round(percentile(seconds, 0.5), 2),
         "p90_s": round(percentile(seconds, 0.9), 2),
     }
+
+
+def ndcg_at_k(gains_in_ranked_order: Sequence[float], k: int) -> float | None:
+    """Normalized discounted cumulative gain of the top `k`: 1.0 when the
+    ranking puts the highest gains first. None when every gain is 0."""
+    def dcg(gains: Sequence[float]) -> float:
+        return sum(g / math.log2(i + 2) for i, g in enumerate(gains[:k]))
+
+    ideal = dcg(sorted(gains_in_ranked_order, reverse=True))
+    return None if ideal == 0 else dcg(gains_in_ranked_order) / ideal

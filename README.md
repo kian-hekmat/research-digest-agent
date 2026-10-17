@@ -10,7 +10,7 @@ sleeping laptop delays a digest instead of losing it.
 
 > Built as a realistic backend/AI engineering project: an HTTP API, a relational
 > schema with migrations, durable workflow orchestration, external API
-> integration, local LLM inference, scheduled email delivery, and a 249-test
+> integration, local LLM inference, scheduled email delivery, and a 253-test
 > suite running in CI.
 
 ---
@@ -95,7 +95,7 @@ highest-ranked, not just the newest.
   test-environment leakage
 
 **Testing & CI**
-- 249 tests against a real Postgres built by running the migrations, so model
+- 253 tests against a real Postgres built by running the migrations, so model
   and migration drift fails the suite
 - Workflows run end to end against Temporal's time-skipping server, so minutes
   of retry backoff finish in about a second
@@ -199,7 +199,7 @@ regression test:
 ## Testing
 
 ```bash
-venv/bin/python3 -m pytest -q        # 249 tests
+venv/bin/python3 -m pytest -q        # 253 tests
 ```
 
 | Layer | How |
@@ -314,7 +314,7 @@ app/
 ├── backfill_embeddings.py  one-off: embed papers ingested before retrieval existed
 └── import_relevance_labels.py  one-off: load reference ratings (few-shot anchors)
 alembic/versions/           schema migrations
-tests/                      249 tests (see Testing)
+tests/                      253 tests (see Testing)
 docs/                       design notes
 ```
 

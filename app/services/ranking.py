@@ -23,6 +23,14 @@ A paper's score combines three signals, each scaled to [0, 1]:
   a weight: most papers in a fresh digest haven't been accepted anywhere yet,
   and that says little about them.
 
+Relevance can be used graded (the 1-10 rating scaled to [0, 1], the
+original behavior) or gated: 1 for on-topic (rating >= RELEVANCE_ON_TOPIC),
+0 otherwise. Gated, an on-topic paper always outranks an off-topic one (the
+other signals add up to at most 0.48 < 0.6), and on-topic papers are ordered
+by the other signals alone. The motivation: gemma3:12b separates off-topic from
+on-topic reliably but barely orders on-topic papers (rho ~0.25 against
+reference labels; docs/rag-plan.md §5.1, §5.5).
+
 A missing signal (no LLM configured, a paper too new for Semantic Scholar,
 a failed lookup, no embedding) is imputed as the median of the papers that do have it, so
 it neither sinks nor lifts the paper. Ties - including every paper when no
@@ -49,6 +57,10 @@ WORKSHOP_VENUE_FRACTION = 0.5
 H_INDEX_SATURATION = 100
 
 RELEVANCE_MIN, RELEVANCE_MAX = 1, 10
+# Gemma's ratings are bimodal (1-4 off topic, 7-10 on topic, almost nothing
+# at 5-6), so the gate's exact position between them barely matters.
+RELEVANCE_ON_TOPIC = 6
+GRADED, GATED = "graded", "gated"
 
 # prior_similarity -> novelty anchors, from embeddinggemma's observed scale
 # (docs/rag-plan.md §5.2): random pairs ~0.41, nearest neighbours ~0.66.
@@ -86,6 +98,12 @@ def relevance_component(relevance: int | None) -> float | None:
     return (clamped - RELEVANCE_MIN) / (RELEVANCE_MAX - RELEVANCE_MIN)
 
 
+def relevance_gate_component(relevance: int | None) -> float | None:
+    if relevance is None:
+        return None
+    return 1.0 if relevance >= RELEVANCE_ON_TOPIC else 0.0
+
+
 def h_index_component(h_index: int | None) -> float | None:
     if h_index is None:
         return None
@@ -105,10 +123,14 @@ def _impute(values: list[float | None]) -> list[float]:
     return [fill if v is None else v for v in values]
 
 
-def score_papers(papers: Sequence[Rankable]) -> list[float]:
+def score_papers(papers: Sequence[Rankable], relevance_mode: str = GRADED) -> list[float]:
     """One score per paper, same order. Scores are only comparable within one
-    call - missing signals are imputed from the batch's own median."""
-    relevance = _impute([relevance_component(p.relevance) for p in papers])
+    call - missing signals are imputed from the batch's own median.
+    `relevance_mode` is GRADED or GATED (see the module docstring)."""
+    if relevance_mode not in (GRADED, GATED):
+        raise ValueError(f"unknown relevance_mode {relevance_mode!r}")
+    component = relevance_gate_component if relevance_mode == GATED else relevance_component
+    relevance = _impute([component(p.relevance) for p in papers])
     h_index = _impute([h_index_component(p.max_author_h_index) for p in papers])
     novelty = _impute([novelty_component(p.prior_similarity) for p in papers])
     return [
