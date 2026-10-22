@@ -244,6 +244,38 @@ def list_completed_digests_since(
     )
 
 
+def recent_overviews(
+    db: Session, topic_id: str, *, exclude_digest_id: str | None, limit: int
+) -> list[models.Digest]:
+    """The topic's `limit` most recently completed digests that have an
+    overview, oldest first, never `exclude_digest_id` (the one being written)."""
+    q = db.query(models.Digest).filter(
+        models.Digest.topic_id == topic_id,
+        models.Digest.status == models.DigestStatus.completed,
+        models.Digest.overview.isnot(None),
+    )
+    if exclude_digest_id:
+        q = q.filter(models.Digest.id != exclude_digest_id)
+    latest = q.order_by(models.Digest.completed_at.desc()).limit(limit).all()
+    return list(reversed(latest))
+
+
+def similar_earlier_papers(db: Session, paper_ids: list[str]) -> list[tuple[str, str]]:
+    """(paper title, related earlier paper title) for each of `paper_ids`
+    with a paper_related link, in arXiv id order."""
+    if not paper_ids:
+        return []
+    table = models.paper_related_association
+    new, old = models.Paper.__table__.alias("new"), models.Paper.__table__.alias("old")
+    rows = db.execute(
+        select(new.c.title, old.c.title)
+        .select_from(table.join(new, new.c.id == table.c.paper_id).join(old, old.c.id == table.c.related_paper_id))
+        .where(table.c.paper_id.in_(paper_ids))
+        .order_by(new.c.arxiv_id, table.c.similarity.desc())
+    ).all()
+    return [(a, b) for a, b in rows]
+
+
 def count_pending_digests(db: Session) -> int:
     return (
         db.query(models.Digest)

@@ -31,7 +31,13 @@ from app.services.email import (
     build_topic_section,
     render_digest_email,
 )
-from app.services.summarize import RatingAnchor, RatingContext, RelatedPaper, Summarizer
+from app.services.summarize import (
+    OverviewHistory,
+    RatingAnchor,
+    RatingContext,
+    RelatedPaper,
+    Summarizer,
+)
 from app.temporal.types import (
     AdvanceWatermarkInput,
     DigestContext,
@@ -304,9 +310,40 @@ def rate_relevance(input: SummarizePaperInput) -> int | None:
         db.close()
 
 
+def _overview_history(input: WriteOverviewInput) -> OverviewHistory | None:
+    """The topic's recent overviews and the batch's similar earlier papers.
+    An enhancement: any failure means writing the overview without them."""
+    settings = get_settings()
+    if not (settings.rag_overview_history and input.topic_id):
+        return None
+    db = SessionLocal()
+    try:
+        previous = crud.recent_overviews(
+            db, input.topic_id, exclude_digest_id=input.digest_id or None,
+            limit=settings.rag_overview_history_count,
+        )
+        style = settings.rag_overview_history_style
+        return OverviewHistory(
+            previous=tuple(
+                (f"{d.completed_at:%b} {d.completed_at.day}", d.overview) for d in previous
+            ),
+            earlier_papers=(
+                tuple(crud.similar_earlier_papers(db, input.paper_ids)) if style == "compare" else ()
+            ),
+            style=style,
+        )
+    except Exception:
+        logger.exception("Overview history failed for digest %s", input.digest_id)
+        return None
+    finally:
+        db.close()
+
+
 @activity.defn
 def write_overview(input: WriteOverviewInput) -> str | None:
-    return Summarizer().write_overview(input.topic_name, input.summaries)
+    return Summarizer().write_overview(
+        input.topic_name, input.summaries, history=_overview_history(input)
+    )
 
 
 @activity.defn

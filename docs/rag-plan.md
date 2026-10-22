@@ -484,6 +484,50 @@ Mean over the three topics, relevance from the production (combined) call:
   usefulness is untested. That needs reader feedback, which is the same gap
   §5.4 points to.
 
+### 5.6 Phase 4 results (2026-10-22): history-aware overviews
+
+`python -m evals.overviews` replays the 25 most recent completed digests
+(14 Numerical Analysis, 11 PINNs) that have at least 3 summarized papers and
+2 earlier overviews. Each is written without history (the old prompt) and
+with the history the activity would have had at the time. Two automatic
+measures: the overview's highest embedding similarity to the topic's
+previous overviews (lower = less repetition), and numbers absent from the
+writer's material. A blind A/B file was judged by Claude (not the project
+owner) for usefulness and factual errors before the key was opened. Reports:
+`evals/results/2026-10-22_1230_overviews_compare.json` and
+`2026-10-22_1237_overviews_avoid_repeats.json`, each with a `review` section.
+
+| | Similarity to previous overviews | Preferred over plain | Overviews with a factual error | Minor overstatements |
+|---|---|---|---|---|
+| plain (no history) | 0.85 | – | 0 / 25 | 0 |
+| **compare**: lead with what's new vs. previous overviews + similar earlier papers | **0.77** (less repetitive in 24/25) | 14 vs 9 (2 ties) | **7 / 25** | 8 |
+| **avoid_repeats**: see previous overviews only to avoid repeating them; never mention them | 0.81 (less repetitive in 22/25) | **15 vs 2** (8 ties) | **1 / 25** | 4 |
+
+- **Plain overviews really do repeat themselves.** Day after day they open
+  with "a broad range of approaches… improving efficiency, accuracy and
+  stability". The previous overviews in the review read almost identically.
+- **The `compare` style is the most different from earlier overviews, and
+  also the most wrong.** Its errors are cross-references: an invented
+  "October 2021 digest", a similar-paper link attached to the wrong paper, a
+  "departure from an earlier theoretical emphasis" the history never showed.
+  This is the same failure as phase 2's related-work notes: Gemma invents
+  relationships when asked to relate things.
+- **`avoid_repeats` keeps most of the gain without that risk.** Readers get
+  overviews about *this* batch's specifics (quaternion tensors, boson stars,
+  troubled-cell indicators) instead of field-level boilerplate. Its one
+  error called a poker-tournament algorithm "physically constrained". The
+  prompt also tells it not to refer to papers by number, which both plain
+  and `compare` overviews did, though email readers can't see the numbers.
+- **Shipped:** `RAG_OVERVIEW_HISTORY=true` with style `avoid_repeats`, using the
+  last 3 overviews (`rag_overview_history_count`). `compare` stays available
+  via `rag_overview_history_style` for re-evaluation, e.g. with a stronger model.
+- **Caveat:** round 2's blinding was partial. Its plain overviews were reused
+  from round 1, whose key had already been opened, so the plain side was
+  recognizable. The error count is the more objective of the two measures,
+  and it's the one the decision rests on.
+- **Unsupported numbers are mostly paper indices.** "(paper 19)" accounts
+  for nearly all of them. The only real one was the invented "2021".
+
 ## 6. Phases
 
 | # | Scope | Ships | Size |
@@ -492,7 +536,7 @@ Mean over the three topics, relevance from the production (combined) call:
 | 1 ✅ | pgvector, `paper_embeddings`, `Embedder`, `embed_papers` activity, backfill (see §5.2) | infra only, no change to outputs | M |
 | 2 ✅ | **A + B**: related-work context with checked citations, near-dup collapse, novelty ranking signal (see §5.3: LLM notes off, "Similar earlier paper" link instead) | email link, new ranking term | M |
 | 3 ✅ | **C**: `topics.description` + few-shot rating anchors (API: `PATCH /topics` accepts description); see §5.4: neither helped, anchors off, descriptions opt-in | no ranking gain | S–M |
-| 4 | **D**: history-aware overviews | better overview paragraph | S |
+| 4 ✅ | **D**: history-aware overviews (see §5.6: shipped in the `avoid_repeats` style) | less repetitive overview paragraph | S |
 | 5 | **E**: full-text chunk retrieval from arXiv HTML | more concrete summaries | L |
 
 Phases 2–4 each sit behind `rag_enabled` and keep the no-context code path

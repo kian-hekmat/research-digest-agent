@@ -77,6 +77,16 @@ class Settings(BaseSettings):
     # 0.52, on-topic 0.27 -> 0.02; docs/rag-plan.md §5.4).
     rag_rating_anchors: bool = False
     rag_anchors_per_band: int = 2
+    # History-aware overviews: show the writer this many of the topic's most
+    # recent previous overviews, plus each new paper's similar earlier paper.
+    rag_overview_history: bool = True
+    rag_overview_history_count: int = 3
+    # "avoid_repeats": the writer sees earlier overviews only so as not to
+    # repeat them and never mentions them (1/25 overviews with a factual
+    # error in review). "compare": it may relate the batch to them and to
+    # similar earlier papers - more cross-references, but 7/25 had an error.
+    # docs/rag-plan.md §5.6.
+    rag_overview_history_style: Literal["avoid_repeats", "compare"] = "avoid_repeats"
     # Novelty compares a paper with earlier ones published within this window.
     rag_novelty_window_days: int = 90
 

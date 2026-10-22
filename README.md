@@ -10,7 +10,7 @@ sleeping laptop delays a digest instead of losing it.
 
 > Built as a realistic backend/AI engineering project: an HTTP API, a relational
 > schema with migrations, durable workflow orchestration, external API
-> integration, local LLM inference, scheduled email delivery, and a 253-test
+> integration, local LLM inference, scheduled email delivery, and a 262-test
 > suite running in CI.
 
 ---
@@ -95,7 +95,7 @@ highest-ranked, not just the newest.
   test-environment leakage
 
 **Testing & CI**
-- 253 tests against a real Postgres built by running the migrations, so model
+- 262 tests against a real Postgres built by running the migrations, so model
   and migration drift fails the suite
 - Workflows run end to end against Temporal's time-skipping server, so minutes
   of retry backoff finish in about a second
@@ -151,7 +151,9 @@ Runs daily at 10:00 Pacific for every topic, and on demand via `POST /digests/{t
    the email as "Similar earlier paper" when it's close enough).
 4. **Summarize and rate** each new paper with Gemma, at most 4 calls at a time.
    One call returns both the summary and a 1–10 relevance rating.
-5. **Overview**: one LLM-written paragraph synthesizing the batch.
+5. **Overview**: one LLM-written paragraph synthesizing the batch. The writer also
+   sees the topic's last three overviews, so it says what is specific to this
+   batch instead of re-describing the field each time.
 6. **Finalize**: mark the digest completed and advance the topic's watermark.
 
 ### 2. Email delivery (`SendDigestEmailsWorkflow`)
@@ -199,7 +201,7 @@ regression test:
 ## Testing
 
 ```bash
-venv/bin/python3 -m pytest -q        # 253 tests
+venv/bin/python3 -m pytest -q        # 262 tests
 ```
 
 | Layer | How |
@@ -314,7 +316,7 @@ app/
 ├── backfill_embeddings.py  one-off: embed papers ingested before retrieval existed
 └── import_relevance_labels.py  one-off: load reference ratings (few-shot anchors)
 alembic/versions/           schema migrations
-tests/                      253 tests (see Testing)
+tests/                      262 tests (see Testing)
 docs/                       design notes
 ```
 

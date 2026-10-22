@@ -74,6 +74,7 @@ class FakeSummarizer:
     delay: float = 0.0
     in_flight = 0
     max_in_flight = 0
+    overview_histories: list = []
     _lock = threading.Lock()
 
     def summarize_paper(self, title, abstract):
@@ -99,7 +100,8 @@ class FakeSummarizer:
         type(self).rated.append((title, topic_name))
         return type(self).relevance.get(title, 5)
 
-    def write_overview(self, topic_name, summaries):
+    def write_overview(self, topic_name, summaries, history=None):
+        type(self).overview_histories.append(history)
         return f"Overview of {topic_name}: {len(summaries)} papers."
 
 
@@ -125,6 +127,7 @@ def _reset_fake_state():
     FakeSummarizer.delay = 0.0
     FakeSummarizer.in_flight = 0
     FakeSummarizer.max_in_flight = 0
+    FakeSummarizer.overview_histories = []
     FakeEmailSender.sent = []
     FakeEmailSender.fail_for = set()
 
@@ -251,6 +254,21 @@ async def test_digest_workflow_completes_when_embedding_fails(db_session, tempor
     assert refreshed.error is None
     assert all(p.summary for p in refreshed.papers)
     assert db_session.query(models.PaperEmbedding).count() == 0
+
+
+async def test_second_digest_overview_sees_the_first_ones(db_session, temporal_client, monkeypatch):
+    topic = _make_topic(db_session)
+    first = crud.create_digest(db_session, topic.id)
+    monkeypatch.setattr(temporal_activities, "search_arxiv", lambda query, since=None: [make_result("2408.0001", "Paper One")])
+    await _run_digest(temporal_client, first.id)
+    second = crud.create_digest(db_session, topic.id)
+    monkeypatch.setattr(temporal_activities, "search_arxiv", lambda query, since=None: [make_result("2408.0002", "Paper Two")])
+
+    await _run_digest(temporal_client, second.id)
+
+    first_history, second_history = FakeSummarizer.overview_histories
+    assert not first_history  # nothing earlier
+    assert [text for _, text in second_history.previous] == ["Overview of RLHF: 1 papers."]
 
 
 async def test_digest_workflow_no_new_papers_completes_empty(

@@ -90,6 +90,11 @@ class SummarizePaperInput:
 class WriteOverviewInput:
     topic_name: str
     summaries: list[str] = field(default_factory=list)
+    # For a history-aware overview; empty (as in workflows started before it
+    # existed) means no history.
+    topic_id: str = ""
+    digest_id: str = ""
+    paper_ids: list[str] = field(default_factory=list)
 
 
 @dataclass

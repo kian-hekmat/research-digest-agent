@@ -214,7 +214,11 @@ class DigestWorkflow:
                 overview = await workflow.execute_activity(
                     activities.write_overview,
                     types.WriteOverviewInput(
-                        topic_name=ctx.topic_name, summaries=all_summaries
+                        topic_name=ctx.topic_name,
+                        summaries=all_summaries,
+                        topic_id=ctx.topic_id,
+                        digest_id=digest_id,
+                        paper_ids=[p.paper_id for p in papers],
                     ),
                     start_to_close_timeout=_LLM_TIMEOUT,
                     retry_policy=_LLM_RETRY,

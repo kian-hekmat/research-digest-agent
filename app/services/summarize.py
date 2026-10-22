@@ -99,6 +99,30 @@ _OVERVIEW_SYSTEM = (
     "no lists, no markdown."
 )
 
+_OVERVIEW_WITH_HISTORY_SYSTEM = (
+    _OVERVIEW_SYSTEM
+    + " You are also given how this topic's previous digests opened and, for "
+    "some new papers, the most similar earlier paper the reader has seen. Lead "
+    "with what is new or different in this batch compared with that history, "
+    "and do not restate points the previous digests already made. Mention a "
+    "previous digest or an earlier paper only where the material given shows "
+    "the connection; never claim a trend or a continuation it does not show."
+)
+# History used only to avoid repetition: the writer sees what earlier
+# digests already said but may not mention or compare with them - the
+# comparing style above invented cross-references in 28% of overviews.
+_OVERVIEW_AVOID_REPEATS_SYSTEM = (
+    _OVERVIEW_SYSTEM
+    + " You are also shown how this topic's previous digests opened. The reader "
+    "has already read those, so do not repeat their general points (for "
+    "example that the field pursues efficiency, accuracy and stability); say "
+    "what is specific to this batch instead. Do not mention the previous "
+    "digests, earlier papers, or how this batch compares with them. Do not "
+    "refer to papers by number."
+)
+# Each previous overview is clipped so history can't crowd out the new batch.
+_HISTORY_OVERVIEW_CHARS = 900
+
 
 # On its own line, or tacked onto the end of the paragraph after a sentence.
 _RELATED_LINE = re.compile(
@@ -145,6 +169,22 @@ class RatingContext:
 
     def __bool__(self) -> bool:
         return bool(self.description or self.anchors)
+
+
+@dataclass(frozen=True)
+class OverviewHistory:
+    """What the reader has already seen of a topic, for a history-aware overview."""
+
+    # (label, text) of the topic's most recent previous overviews, oldest first.
+    previous: tuple[tuple[str, str], ...] = ()
+    # (new paper's title, title of the most similar earlier paper).
+    earlier_papers: tuple[tuple[str, str], ...] = ()
+    # "compare": lead with what's new relative to the history (may reference it).
+    # "avoid_repeats": use it only to avoid repeating points; never mention it.
+    style: str = "compare"
+
+    def __bool__(self) -> bool:
+        return bool(self.previous or self.earlier_papers)
 
 
 @dataclass(frozen=True)
@@ -305,13 +345,44 @@ class Summarizer:
         )
         return parse_relevance(text)
 
-    def write_overview(self, topic_name: str, summaries: list[str]) -> str | None:
+    def write_overview(
+        self, topic_name: str, summaries: list[str], history: OverviewHistory | None = None
+    ) -> str | None:
+        """Without `history` the prompt is exactly the pre-retrieval one."""
         if not self._settings.summaries_enabled:
             return None
         joined = "\n\n".join(f"{i}. {s}" for i, s in enumerate(summaries, 1))
+        if not history:
+            return self._complete(
+                system=_OVERVIEW_SYSTEM,
+                user=f"Topic: {topic_name}\n\nPaper summaries:\n{joined}",
+                max_tokens=500,
+            )
+        if history.style == "avoid_repeats":
+            previous = "\n".join(
+                f"- {_clip(text, _HISTORY_OVERVIEW_CHARS)}" for _, text in history.previous
+            )
+            return self._complete(
+                system=_OVERVIEW_AVOID_REPEATS_SYSTEM,
+                user=(
+                    f"Topic: {topic_name}\n\nWhat previous digests already said (do not repeat):\n"
+                    f"{previous}\n\nPaper summaries:\n{joined}"
+                ),
+                max_tokens=500,
+            )
+        parts = [f"Topic: {topic_name}"]
+        if history.previous:
+            previous = "\n".join(
+                f"[{label}] {_clip(text, _HISTORY_OVERVIEW_CHARS)}" for label, text in history.previous
+            )
+            parts.append(f"How this topic's previous digests opened, oldest first:\n{previous}")
+        if history.earlier_papers:
+            pairs = "\n".join(f'- "{new}" resembles "{old}"' for new, old in history.earlier_papers)
+            parts.append(f"New papers that closely resemble earlier ones the reader has seen:\n{pairs}")
+        parts.append(f"Paper summaries (new in this digest):\n{joined}")
         return self._complete(
-            system=_OVERVIEW_SYSTEM,
-            user=f"Topic: {topic_name}\n\nPaper summaries:\n{joined}",
+            system=_OVERVIEW_WITH_HISTORY_SYSTEM,
+            user="\n\n".join(parts),
             max_tokens=500,
         )
 
