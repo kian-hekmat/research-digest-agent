@@ -588,7 +588,8 @@ each with a blind `review`):
 - **What remains:** 2 of 20 still misread a number's context: prior work's
   efficiency figure again, and failure-case errors presented as success.
   That's right at the 10% bar. Readers preferred the full-text summaries
-  17 to 3. **Shipped on** (`RAG_FULLTEXT=true`), with this tradeoff stated;
+  17 to 3. **Shipped on** (`RAG_FULLTEXT=true`), and the project owner confirmed
+  keeping it on after seeing this tradeoff (2026-10-22);
   one flag turns it off.
 - **Bugs caught by reading the review material:** the formula collapser
   first ate the prose between two short formulas. It now pairs `$…$` left
