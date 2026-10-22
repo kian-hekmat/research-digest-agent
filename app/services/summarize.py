@@ -28,6 +28,7 @@ digests and emails still work, just without AI-written text.
 """
 from __future__ import annotations
 
+import dataclasses
 import re
 from dataclasses import dataclass
 
@@ -131,6 +132,19 @@ _RELATED_LINE = re.compile(
 # A note has to say something beyond its citations.
 _MIN_NOTE_WORDS = 5
 _ARXIV_ID = re.compile(r"\b\d{4}\.\d{4,5}\b")
+# Appended to a summary prompt that includes full-text excerpts.
+_FULLTEXT_NOTE = (
+    " You are also given excerpts from the paper's full text, each tagged with "
+    "its section. Use them to make the summary concrete - the specific method "
+    "and the setting it was tested in - but take the headline result from the "
+    "abstract when it states one. Report a number from an excerpt only if the "
+    "excerpt states it as this paper's own result; never use figures the paper "
+    "attributes to other work (cited with brackets such as [12]) and never "
+    "compute or estimate a number. Leave out implementation trivia (hardware, "
+    "timings of individual steps, hyperparameters). No formulas or LaTeX. Still "
+    "a single paragraph of 3-4 sentences."
+)
+
 # Each related paper's text in the prompt is capped, so 4 of them can't crowd
 # out the paper being summarized.
 _RELATED_TEXT_CHARS = 700
@@ -239,6 +253,19 @@ def parse_rated_summary(text: str, offered_ids: set[str] | None = None) -> Rated
     )
 
 
+_SENTENCE = re.compile(r"[^.!?]*[.!?]+(?:\s+|$)|[^.!?]+$")
+
+
+def drop_placeholder_sentences(summary: str | None) -> str | None:
+    """Excerpts show long formulas as "[formula]"; a summary sentence that
+    copies the placeholder (round-2 review: "incurs about a [formula] larger
+    CRPS") says nothing true, so it is dropped."""
+    if not summary or "[formula]" not in summary:
+        return summary
+    kept = [s for s in _SENTENCE.findall(summary) if "[formula]" not in s]
+    return "".join(kept).strip() or None
+
+
 def parse_relevance(text: str) -> int | None:
     match = _FIRST_INT.search(text)
     return _valid_relevance(match.group(1)) if match else None
@@ -269,6 +296,10 @@ def _topic_block(topic_name: str, topic_query: str, context: RatingContext | Non
 
 def _with_anchors_note(system: str, context: RatingContext | None) -> str:
     return system + _ANCHORS_NOTE if context and context.anchors else system
+
+
+def _with_fulltext_note(system: str, excerpts: list[str] | None) -> str:
+    return system + _FULLTEXT_NOTE if excerpts else system
 
 
 def _clip(text: str, limit: int) -> str:
@@ -302,23 +333,33 @@ class Summarizer:
         topic_query: str,
         related: list[RelatedPaper] | None = None,
         rating_context: RatingContext | None = None,
+        excerpts: list[str] | None = None,
     ) -> RatedSummary:
+        """`excerpts`: passages from the paper's full text to draw concrete
+        detail from (see app.services.retrieval.fulltext_excerpts)."""
         if not self._settings.summaries_enabled:
             return RatedSummary(summary=None, relevance=None)
         paper = f"Title: {title}\n\nAbstract: {abstract}"
+        if excerpts:
+            paper += "\n\nExcerpts from the full text:\n" + "\n\n".join(excerpts)
         topic = _topic_block(topic_name, topic_query, rating_context)
         if not related:
             text = self._complete(
-                system=_with_anchors_note(_RATED_SUMMARY_SYSTEM, rating_context),
+                system=_with_fulltext_note(
+                    _with_anchors_note(_RATED_SUMMARY_SYSTEM, rating_context), excerpts
+                ),
                 user=f"{topic}\n\n{paper}",
                 max_tokens=420,
             )
-            return parse_rated_summary(text)
+            return self._rate_separately_if(excerpts, parse_rated_summary(text), title, abstract,
+                                            topic_name, topic_query, rating_context)
         earlier = "\n".join(
             f"[{r.arxiv_id}] {r.title}: {_clip(r.text, _RELATED_TEXT_CHARS)}" for r in related
         )
         text = self._complete(
-            system=_with_anchors_note(_RATED_SUMMARY_WITH_RELATED_SYSTEM, rating_context),
+            system=_with_fulltext_note(
+                _with_anchors_note(_RATED_SUMMARY_WITH_RELATED_SYSTEM, rating_context), excerpts
+            ),
             user=(
                 f"{topic}\n\n"
                 f"Earlier papers the reader has seen:\n{earlier}\n\n"
@@ -326,7 +367,24 @@ class Summarizer:
             ),
             max_tokens=500,
         )
-        return parse_rated_summary(text, offered_ids={r.arxiv_id for r in related})
+        return self._rate_separately_if(
+            excerpts, parse_rated_summary(text, offered_ids={r.arxiv_id for r in related}),
+            title, abstract, topic_name, topic_query, rating_context,
+        )
+
+    def _rate_separately_if(
+        self, excerpts, rated: RatedSummary, title, abstract, topic_name, topic_query, rating_context
+    ) -> RatedSummary:
+        """With full-text excerpts in the prompt, the combined call's rating
+        drifts (within-1 agreement with reference labels fell from 60% to
+        42%), so the rating comes from a separate abstract-only call."""
+        if not excerpts:
+            return rated
+        return dataclasses.replace(
+            rated,
+            summary=drop_placeholder_sentences(rated.summary),
+            relevance=self.rate_relevance(title, abstract, topic_name, topic_query, rating_context),
+        )
 
     def rate_relevance(
         self,

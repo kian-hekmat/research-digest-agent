@@ -44,6 +44,7 @@ WORKFLOW_RUNNER = SandboxedWorkflowRunner(
         "app.services.summarize",
         "app.services.embed",
         "app.services.retrieval",
+        "app.services.fulltext",
         "app.services.email",
         "app.services.ranking",
         "app.services.scholar",
@@ -153,6 +154,22 @@ class DigestWorkflow:
                     activities.embed_papers,
                     types.EmbedPapersInput(paper_ids=[p.paper_id for p in papers]),
                     start_to_close_timeout=_LLM_TIMEOUT,
+                    retry_policy=_LLM_RETRY,
+                )
+            except ActivityError:
+                pass
+
+        # --- 2c. full text for this run's papers (no-op unless RAG_FULLTEXT) --
+        # One activity, one paper at a time: every arXiv request goes through
+        # the worker's shared rate gate, so a batch can take a few minutes
+        # when several topics fetch at once; heartbeats show it's alive.
+        if papers and workflow.patched("fetch-fulltext"):
+            try:
+                await workflow.execute_activity(
+                    activities.fetch_fulltext,
+                    types.FetchFulltextInput(paper_ids=[p.paper_id for p in papers]),
+                    start_to_close_timeout=timedelta(minutes=30),
+                    heartbeat_timeout=timedelta(minutes=3),
                     retry_policy=_LLM_RETRY,
                 )
             except ActivityError:

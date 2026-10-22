@@ -224,6 +224,12 @@ class Paper(Base):
     near_duplicate_of_id = Column(
         UUID(as_uuid=False), ForeignKey("papers.id", ondelete="SET NULL"), nullable=True
     )
+    # Full text (app.services.fulltext), stored as kind="chunk" rows in
+    # paper_embeddings: "ok", "unavailable" (arXiv has no HTML for it),
+    # "empty" (HTML with no body text), "error" (fetch failed); NULL = never
+    # tried. Checked once, at ingestion.
+    fulltext_status = Column(String(16), nullable=True)
+    fulltext_checked_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

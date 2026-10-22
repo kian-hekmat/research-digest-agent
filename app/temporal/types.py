@@ -73,6 +73,13 @@ class EmbedPapersInput:
 
 
 @dataclass
+class FetchFulltextInput:
+    """Papers from this run whose full text to fetch and index."""
+
+    paper_ids: list[str] = field(default_factory=list)
+
+
+@dataclass
 class SummarizePaperInput:
     """Summarize a paper and rate its relevance to the topic in one LLM call.
     Also the input to `rate_relevance`, for a paper that already has a

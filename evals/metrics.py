@@ -81,6 +81,8 @@ def agreement(a: Sequence[int | None], b: Sequence[int | None]) -> dict:
 
 
 def numbers_in(text: str) -> set[str]:
+    # LaTeX thousands separators ("15{,}000", from arXiv HTML) read as "15,000".
+    text = text.replace("{,}", ",")
     return {m.replace(",", "") for m in _NUMBER.findall(text)}
 
 

@@ -87,6 +87,12 @@ class Settings(BaseSettings):
     # similar earlier papers - more cross-references, but 7/25 had an error.
     # docs/rag-plan.md §5.6.
     rag_overview_history_style: Literal["avoid_repeats", "compare"] = "avoid_repeats"
+    # Full-text excerpts for summaries (phase E): fetch each new paper's arXiv
+    # HTML, chunk and embed it, and show the summarizer the best-matching
+    # chunks. Readers preferred the result 17 to 3; 2 of 20 misread a number's
+    # context (docs/rag-plan.md §5.7). Costs ~3s of fetch + ~4s of LLM per paper.
+    rag_fulltext: bool = True
+    rag_fulltext_excerpts: int = 3
     # Novelty compares a paper with earlier ones published within this window.
     rag_novelty_window_days: int = 90
 
@@ -104,6 +110,9 @@ class Settings(BaseSettings):
     # watermark so late-announced papers aren't dropped; already-ingested ones
     # are skipped by arxiv_id.
     arxiv_lookback_days: int = 7
+    # Full text (app.services.fulltext): arXiv's HTML rendering, from the
+    # export host arXiv asks scripts to use, through the same rate gate.
+    arxiv_html_url: str = "https://export.arxiv.org/html"
 
     # --- ranking (app.services.ranking) ---
     # Author h-indices come from Semantic Scholar when a key is set (fresher

@@ -528,6 +528,73 @@ owner) for usefulness and factual errors before the key was opened. Reports:
 - **Unsupported numbers are mostly paper indices.** "(paper 19)" accounts
   for nearly all of them. The only real one was the invented "2021".
 
+### 5.7 Phase 5 results (2026-10-22): full-text excerpts
+
+**arXiv's terms, and how the design follows them.**
+- [API terms](https://info.arxiv.org/help/api/tou.html): "retrieve, store,
+  and use the content of arXiv e-prints for your own personal use, or for
+  research purposes" is allowed. Storing *and serving* e-prints needs the
+  copyright holder's permission. So full text stays in the local database
+  and is never emailed. Emails carry only the model's own summary and the
+  arXiv link.
+- Rate limit: no more than one request every 3 seconds, over a single
+  connection, across all machines. `app.services.arxiv.throttle` is now one
+  locked gate for every arXiv call in the worker process. Before this phase
+  it wasn't thread-safe, even though topics' digests run concurrently.
+- [Bulk data](https://info.arxiv.org/help/bulk_data.html): scripts should use
+  `export.arxiv.org`, and the whole corpus should come from S3, not the API.
+  Only newly ingested papers are fetched, about 20 a day.
+  `arxiv.org/robots.txt` allows `/html` but sets a 15 s crawl delay for
+  crawlers, a further reason to use the export host.
+- **Before a public launch:** "personal use" covers this self-hosted digest.
+  A multi-user service storing full text needs a fresh read of the terms.
+
+**Pipeline.** `fetch_fulltext` (one activity per digest, one paper at a time,
+heartbeating) fetches `export.arxiv.org/html/<id>`. A stdlib parser keeps
+section titles, paragraphs and figure captions (math as short TeX), and
+drops the abstract, footnotes, tables and references. Text is packed into
+section-bounded chunks of ≤ 1,200 chars (≤ 80 per paper, about 60 on
+average) and stored as `kind="chunk"` rows in `paper_embeddings`. The summary
+gets the best chunk for each of three fixed queries: results, method,
+limitations. Outcomes are recorded in `papers.fulltext_status`.
+
+**Measurement** (`python -m evals.fulltext`, the 47 reference-labeled papers;
+reports `evals/results/2026-10-22_1313_fulltext.json` and `_1333_fulltext.json`,
+each with a blind `review`):
+
+| | Plain (abstract only) | Full text, round 1 | Full text, round 2 (shipped) |
+|---|---|---|---|
+| HTML available | – | 45 / 47 | 45 / 47 |
+| Numbers per summary | 0.02 | 2.18 | 1.69 |
+| Summaries citing a figure only in the full text | 0 | 22 / 45 | 12 / 45 |
+| Summaries with unsupported numbers | 0 | 3 / 45 | **0 / 45** |
+| Relevance vs reference (ρ, within 1) | 0.66, 60% | 0.60, 42% | **0.72, 67%** |
+| Blind review: preferred over plain (20 papers) | – | 15 vs 4 | **17 vs 3** |
+| Blind review: summaries with an error | 0 / 20 | 3 / 20 | 3 / 20 → **2 / 20** after the placeholder guard |
+| Latency per paper | 3.6 s | 6.7 s | 7.6 s (+ ~3.2 s fetch) |
+
+- **Round 1** made summaries far more concrete but brought in borrowed and
+  invented numbers. Examples: a prior paper's ~80% efficiency presented as
+  this paper's, a gap given symbolically "estimated" as 10%, an invented 20%
+  RLHF baseline. It also added setup trivia and LaTeX. And with excerpts in
+  the same call, ratings got worse.
+- **Round 2 changes:** the prompt now says to report a number only when the
+  excerpt states it as this paper's own result, never cited work's, never
+  computed; to take the headline result from the abstract; and to leave out
+  trivia and LaTeX. The "experimental setup" query was dropped (3 excerpts).
+  Long formulas become "[formula]". With excerpts present, relevance is rated
+  in a separate abstract-only call; rate-only was already the stronger rater
+  (§5.1).
+- **What remains:** 2 of 20 still misread a number's context: prior work's
+  efficiency figure again, and failure-case errors presented as success.
+  That's right at the 10% bar. Readers preferred the full-text summaries
+  17 to 3. **Shipped on** (`RAG_FULLTEXT=true`), with this tradeoff stated;
+  one flag turns it off.
+- **Bugs caught by reading the review material:** the formula collapser
+  first ate the prose between two short formulas. It now pairs `$…$` left
+  to right, with a regression test. And the eval's number matcher missed
+  TeX thousands separators (`15{,}000`).
+
 ## 6. Phases
 
 | # | Scope | Ships | Size |
@@ -537,7 +604,7 @@ owner) for usefulness and factual errors before the key was opened. Reports:
 | 2 ✅ | **A + B**: related-work context with checked citations, near-dup collapse, novelty ranking signal (see §5.3: LLM notes off, "Similar earlier paper" link instead) | email link, new ranking term | M |
 | 3 ✅ | **C**: `topics.description` + few-shot rating anchors (API: `PATCH /topics` accepts description); see §5.4: neither helped, anchors off, descriptions opt-in | no ranking gain | S–M |
 | 4 ✅ | **D**: history-aware overviews (see §5.6: shipped in the `avoid_repeats` style) | less repetitive overview paragraph | S |
-| 5 | **E**: full-text chunk retrieval from arXiv HTML | more concrete summaries | L |
+| 5 ✅ | **E**: full-text chunk retrieval from arXiv HTML (see §5.7: shipped on, 17 vs 3 preferred, 2/20 errors) | more concrete summaries | L |
 
 Phases 2–4 each sit behind `rag_enabled` and keep the no-context code path
 intact, so any one of them can be turned off without a deploy.

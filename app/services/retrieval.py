@@ -5,6 +5,7 @@ here commit only where noted.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -12,7 +13,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app import crud, models
-from app.services.embed import Embedder, document_text
+from app.services.embed import Embedder, document_text, query_text
+from app.services.fulltext import Chunk, chunk_sections, fetch_html, parse_sections
 
 ABSTRACT = "abstract"
 
@@ -332,3 +334,118 @@ def rating_anchors(
             for r in band
         ]
     return sorted(picked, key=lambda a: -a.rating)
+
+
+# ---------- full text (phase E) ----------
+CHUNK = "chunk"
+
+# What the summarizer most often lacks from an abstract. Each query pulls
+# the paper's best-matching chunk. (An "experimental setup" query was tried
+# and dropped: it mostly surfaced hardware and hyperparameter trivia.)
+FULLTEXT_QUERIES = (
+    "main quantitative results: accuracy, error, speedup, and comparison with baselines",
+    "the proposed method, model or algorithm and how it works",
+    "limitations, assumptions and failure cases",
+)
+
+
+def store_chunks(db: Session, embedder: Embedder, paper: models.Paper, chunks: list[Chunk]) -> int:
+    """Embed and store a paper's full-text chunks, replacing any it had for
+    this model. Does not commit. Returns how many were stored."""
+    db.query(models.PaperEmbedding).filter(
+        models.PaperEmbedding.paper_id == paper.id,
+        models.PaperEmbedding.model == embedder.model,
+        models.PaperEmbedding.kind == CHUNK,
+    ).delete(synchronize_session=False)
+    if not chunks:
+        return 0
+    texts = [document_text(f"{paper.title} - {c.section}", c.text) for c in chunks]
+    vectors = embedder.embed(texts)
+    for i, (chunk, vector) in enumerate(zip(chunks, vectors)):
+        db.add(
+            models.PaperEmbedding(
+                paper_id=paper.id,
+                model=embedder.model,
+                kind=CHUNK,
+                chunk_ix=i,
+                content=f"[{chunk.section}] {chunk.text}" if chunk.section else chunk.text,
+                embedding=vector,
+            )
+        )
+    return len(chunks)
+
+
+_query_vectors: dict[str, list[list[float]]] = {}
+
+
+def _fulltext_query_vectors(embedder: Embedder) -> list[list[float]]:
+    """The fixed queries' embeddings, computed once per process and model."""
+    if embedder.model not in _query_vectors:
+        _query_vectors[embedder.model] = embedder.embed([query_text(q) for q in FULLTEXT_QUERIES])
+    return _query_vectors[embedder.model]
+
+
+_BEST_CHUNK_SQL = """
+SELECT chunk_ix, content FROM paper_embeddings
+WHERE paper_id = :paper_id AND model = :model AND kind = :kind
+ORDER BY embedding <=> CAST(:query AS vector)
+LIMIT 1
+"""
+
+
+def fulltext_excerpts(
+    db: Session, embedder: Embedder, paper_id: str, *, max_excerpts: int = 4
+) -> list[str]:
+    """The paper's chunks that best answer FULLTEXT_QUERIES (one per query,
+    de-duplicated), in the paper's own order. Empty when it has none."""
+    found: dict[int, str] = {}
+    for vector in _fulltext_query_vectors(embedder):
+        row = db.execute(
+            text(_BEST_CHUNK_SQL),
+            {
+                "paper_id": paper_id,
+                "model": embedder.model,
+                "kind": CHUNK,
+                "query": "[" + ",".join(repr(float(x)) for x in vector) + "]",
+            },
+        ).first()
+        if row is not None:
+            found.setdefault(row.chunk_ix, row.content)
+        if len(found) >= max_excerpts:
+            break
+    return [_simplify_math(found[i]) for i in sorted(found)]
+
+
+_INLINE_MATH = re.compile(r"\$[^$]*\$")
+_LONG_FORMULA_CHARS = 25
+
+
+def _simplify_math(text_: str) -> str:
+    """Long inline formulas become "[formula]" so they don't leak into
+    summaries; short ones (`$n=50000$`) stay readable. Formulas are paired
+    left to right ($...$), so prose between two formulas is never touched."""
+    return _INLINE_MATH.sub(
+        lambda m: "[formula]" if len(m.group(0)) - 2 >= _LONG_FORMULA_CHARS else m.group(0), text_
+    )
+
+
+def index_fulltext(
+    db: Session, embedder: Embedder, paper: models.Paper, fetch=fetch_html
+) -> str:
+    """Fetch, parse, chunk and store one paper's full text, and record the
+    outcome in paper.fulltext_status ("ok" / "unavailable" / "empty" /
+    "error"). Commits. A fetch error is recorded, logged by the caller, and
+    never retried automatically - the summary just goes without full text."""
+    status = "error"
+    try:
+        html = fetch(paper.arxiv_id)
+        if html is None:
+            status = "unavailable"
+        else:
+            chunks = chunk_sections(parse_sections(html))
+            status = "ok" if store_chunks(db, embedder, paper, chunks) else "empty"
+    finally:
+        paper.fulltext_status = status
+        paper.fulltext_checked_at = datetime.now(timezone.utc)
+        db.commit()
+    return status

@@ -20,7 +20,14 @@ from app.config import get_settings
 from app.database import SessionLocal
 from app.services.arxiv import search_arxiv
 from app.services.ranking import venue_score
-from app.services.retrieval import compute_signals, embed_missing, rating_anchors, related_context
+from app.services.retrieval import (
+    compute_signals,
+    embed_missing,
+    fulltext_excerpts,
+    index_fulltext,
+    rating_anchors,
+    related_context,
+)
 from app.services.scholar import fetch_max_author_h_index
 from app.services.embed import Embedder
 from app.services.email import (
@@ -43,6 +50,7 @@ from app.temporal.types import (
     DigestContext,
     DueSubscription,
     EmbedPapersInput,
+    FetchFulltextInput,
     FinalizeDigestInput,
     GatherContentInput,
     GatheredContent,
@@ -200,6 +208,52 @@ def embed_papers(input: EmbedPapersInput) -> int:
         db.close()
 
 
+@activity.defn
+def fetch_fulltext(input: FetchFulltextInput) -> int:
+    """Fetch, chunk and embed the full text of this run's papers that were
+    never checked (see app.services.fulltext for how this stays within
+    arXiv's terms). One paper at a time through the shared arXiv rate gate,
+    heartbeating between papers. A paper whose fetch fails is marked "error"
+    and summarized without full text. Returns how many were indexed."""
+    settings = get_settings()
+    if not (settings.rag_fulltext and settings.embeddings_enabled):
+        return 0
+    embedder = Embedder()
+    db = SessionLocal()
+    indexed = 0
+    try:
+        papers = (
+            db.query(models.Paper)
+            .filter(models.Paper.id.in_(input.paper_ids), models.Paper.fulltext_status.is_(None))
+            .all()
+        )
+        for paper in papers:
+            activity.heartbeat(paper.arxiv_id)
+            try:
+                indexed += index_fulltext(db, embedder, paper) == "ok"
+            except Exception:
+                logger.exception("Full text failed for %s", paper.arxiv_id)
+        return indexed
+    finally:
+        db.close()
+
+
+def _excerpts(paper_id: str) -> list[str]:
+    """Full-text excerpts for the summary; empty when off, not indexed, or
+    on any failure (an enhancement, like the other retrieval steps)."""
+    settings = get_settings()
+    if not (settings.rag_fulltext and settings.embeddings_enabled):
+        return []
+    db = SessionLocal()
+    try:
+        return fulltext_excerpts(db, Embedder(), paper_id, max_excerpts=settings.rag_fulltext_excerpts)
+    except Exception:
+        logger.exception("Full-text excerpts failed for paper %s", paper_id)
+        return []
+    finally:
+        db.close()
+
+
 def _related_papers(paper_id: str) -> tuple[list[RelatedPaper], dict[str, tuple[str, float]]]:
     """Earlier papers to offer the summarizer, and arxiv_id -> (paper_id,
     similarity) for recording which ones its note cites. Retrieval is an
@@ -271,6 +325,7 @@ def summarize_paper(input: SummarizePaperInput) -> str | None:
         input.topic_query,
         related=related,
         rating_context=_rating_context(input.topic_id, input.paper_id),
+        excerpts=_excerpts(input.paper_id),
     )
     if rated.related_rejected:
         logger.info("Dropped a related-work note with unchecked citations for %s", input.paper_id)

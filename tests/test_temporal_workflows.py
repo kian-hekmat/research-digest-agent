@@ -46,6 +46,7 @@ ALL_ACTIVITIES = [
     temporal_activities.fetch_arxiv,
     temporal_activities.ingest_papers,
     temporal_activities.embed_papers,
+    temporal_activities.fetch_fulltext,
     temporal_activities.summarize_paper,
     temporal_activities.rate_relevance,
     temporal_activities.write_overview,
@@ -91,7 +92,7 @@ class FakeSummarizer:
             with cls._lock:
                 cls.in_flight -= 1
 
-    def summarize_and_rate(self, title, abstract, topic_name, topic_query, related=None, rating_context=None):
+    def summarize_and_rate(self, title, abstract, topic_name, topic_query, related=None, rating_context=None, excerpts=None):
         summary = self.summarize_paper(title, abstract)
         type(self).rated.append((title, topic_name))
         return RatedSummary(summary=summary, relevance=type(self).relevance.get(title, 5))

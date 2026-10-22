@@ -10,7 +10,7 @@ sleeping laptop delays a digest instead of losing it.
 
 > Built as a realistic backend/AI engineering project: an HTTP API, a relational
 > schema with migrations, durable workflow orchestration, external API
-> integration, local LLM inference, scheduled email delivery, and a 262-test
+> integration, local LLM inference, scheduled email delivery, and a 286-test
 > suite running in CI.
 
 ---
@@ -65,7 +65,7 @@ highest-ranked, not just the newest.
 - Normalized PostgreSQL schema: many-to-many join tables carrying data
   (per-topic relevance on `topic_paper`), native enums, cascading foreign keys,
   timezone-aware timestamps, indexed lookup columns
-- 11 hand-reviewed Alembic migrations, including a Postgres enum change that has
+- 12 hand-reviewed Alembic migrations, including a Postgres enum change that has
   to commit outside the migration's transaction, and a reversible downgrade that
   rebuilds the enum type
 
@@ -95,7 +95,7 @@ highest-ranked, not just the newest.
   test-environment leakage
 
 **Testing & CI**
-- 262 tests against a real Postgres built by running the migrations, so model
+- 286 tests against a real Postgres built by running the migrations, so model
   and migration drift fails the suite
 - Workflows run end to end against Temporal's time-skipping server, so minutes
   of retry backoff finish in about a second
@@ -149,12 +149,17 @@ Runs daily at 10:00 Pacific for every topic, and on demand via `POST /digests/{t
 3. **Embed** new papers with EmbeddingGemma into pgvector and compute retrieval
    signals: novelty, near duplicates, and the closest earlier paper (shown in
    the email as "Similar earlier paper" when it's close enough).
-4. **Summarize and rate** each new paper with Gemma, at most 4 calls at a time.
-   One call returns both the summary and a 1–10 relevance rating.
-5. **Overview**: one LLM-written paragraph synthesizing the batch. The writer also
+4. **Full text**: fetch each new paper's arXiv HTML (from `export.arxiv.org`,
+   one request per 3 s across the whole worker, kept locally and never
+   emailed), split it into section-aware chunks and embed them.
+5. **Summarize and rate** each new paper with Gemma, at most 4 calls at a time.
+   The summary draws on the full-text chunks that best match "main results",
+   "method" and "limitations"; the 1–10 relevance rating comes from the
+   abstract alone.
+6. **Overview**: one LLM-written paragraph synthesizing the batch. The writer also
    sees the topic's last three overviews, so it says what is specific to this
    batch instead of re-describing the field each time.
-6. **Finalize**: mark the digest completed and advance the topic's watermark.
+7. **Finalize**: mark the digest completed and advance the topic's watermark.
 
 ### 2. Email delivery (`SendDigestEmailsWorkflow`)
 Runs Mondays and Thursdays at 08:00 Pacific.
@@ -201,7 +206,7 @@ regression test:
 ## Testing
 
 ```bash
-venv/bin/python3 -m pytest -q        # 262 tests
+venv/bin/python3 -m pytest -q        # 286 tests
 ```
 
 | Layer | How |
@@ -303,6 +308,7 @@ app/
 │   ├── summarize.py        Gemma via Ollama: summaries, ratings, overviews
 │   ├── embed.py            EmbeddingGemma via Ollama: paper embeddings
 │   ├── retrieval.py        pgvector storage + nearest-neighbour queries
+│   ├── fulltext.py         arXiv HTML fetch (rate-gated), parse, chunk
 │   ├── ranking.py          multi-signal paper scoring (pure functions)
 │   ├── scholar.py          author h-index from Semantic Scholar / OpenAlex
 │   └── email.py            digest rendering + SMTP sender
@@ -316,7 +322,7 @@ app/
 ├── backfill_embeddings.py  one-off: embed papers ingested before retrieval existed
 └── import_relevance_labels.py  one-off: load reference ratings (few-shot anchors)
 alembic/versions/           schema migrations
-tests/                      262 tests (see Testing)
+tests/                      286 tests (see Testing)
 docs/                       design notes
 ```
 

@@ -33,6 +33,7 @@ ACTIVITIES = [
     activities.fetch_arxiv,
     activities.ingest_papers,
     activities.embed_papers,
+    activities.fetch_fulltext,
     activities.summarize_paper,
     activities.rate_relevance,
     activities.write_overview,

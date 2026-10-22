@@ -85,3 +85,7 @@ def test_ndcg_at_k():
     # Only the top k count: a perfect top 2 scores 1 whatever follows.
     assert metrics.ndcg_at_k([3, 2, 0, 1], 2) == pytest.approx(1.0)
     assert metrics.ndcg_at_k([0, 0], 2) is None
+
+
+def test_numbers_in_reads_latex_thousands_separators():
+    assert metrics.numbers_in("uses $15{,}000$ points") == {"15000"}

@@ -6,9 +6,9 @@ With embeddings off (`Settings.embeddings_enabled` False: RAG_ENABLED=false
 or SUMMARY_BACKEND=none) every method returns None immediately - no network
 call, no error - and the pipeline runs without retrieval.
 
-EmbeddingGemma is trained with task prompts; `document_text` is the one place
-that applies them. Papers are embedded as documents and compared document to
-document, so no query-side prompt is needed yet.
+EmbeddingGemma is trained with task prompts; `document_text` and `query_text`
+are the only places that apply them. Papers are embedded as documents and
+compared document to document; full-text chunks are found with queries.
 """
 from __future__ import annotations
 
@@ -20,6 +20,11 @@ from app.config import Settings, get_settings
 def document_text(title: str, abstract: str) -> str:
     """EmbeddingGemma's document prompt."""
     return f"title: {title} | text: {abstract}"
+
+
+def query_text(query: str) -> str:
+    """EmbeddingGemma's retrieval-query prompt, for matching documents."""
+    return f"task: search result | query: {query}"
 
 
 class Embedder:

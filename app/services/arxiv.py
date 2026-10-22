@@ -7,6 +7,7 @@ Temporal Activity.
 from __future__ import annotations
 
 import re
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -19,6 +20,7 @@ from app.config import get_settings
 _VERSION_SUFFIX = re.compile(r"v\d+$")  # 2408.12345v2 -> 2408.12345 (stable dedupe key)
 _FIELD_PREFIX = re.compile(r"^(ti|au|abs|co|jr|cat|rn|id|all):")  # arXiv search fields
 _last_request_at = 0.0
+_throttle_lock = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -38,16 +40,20 @@ def _clean(text: str | None) -> str | None:
     return (" ".join(text.split()) or None) if text else None
 
 
-def _throttle(delay: float) -> None:
-    """Space consecutive calls out by `delay` seconds. arXiv asks API clients
-    not to hammer the endpoint. Best-effort and deliberately not thread-safe -
-    the worst case is one slightly-too-early request."""
+def throttle(delay: float) -> None:
+    """Space consecutive arXiv requests at least `delay` seconds apart,
+    across every thread in this process - searches and full-text fetches
+    alike. arXiv's terms allow one request every 3 seconds over a single
+    connection, and digests for different topics run concurrently on the
+    worker's activity thread pool, so the gate is a lock held while waiting:
+    callers queue up and go out one at a time."""
     global _last_request_at
-    if delay > 0:
-        wait = delay - (time.monotonic() - _last_request_at)
-        if wait > 0:
-            time.sleep(wait)
-    _last_request_at = time.monotonic()
+    with _throttle_lock:
+        if delay > 0:
+            wait = delay - (time.monotonic() - _last_request_at)
+            if wait > 0:
+                time.sleep(wait)
+        _last_request_at = time.monotonic()
 
 
 def _parse_entry(entry) -> ArxivResult:
@@ -116,7 +122,7 @@ def search_arxiv(
         "max_results": max_results,
     }
 
-    _throttle(delay)
+    throttle(delay)
 
     owns_client = client is None
     client = client or httpx.Client(timeout=30.0, follow_redirects=True)
