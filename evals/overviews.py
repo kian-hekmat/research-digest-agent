@@ -83,7 +83,7 @@ def main(argv=None) -> None:
     args = ap.parse_args(argv)
     settings = get_settings()
     if not settings.summaries_enabled:
-        raise SystemExit("Summarization is off - set SUMMARY_BACKEND=ollama first.")
+        raise SystemExit("Summarization is off - set SUMMARY_BACKEND=openai first.")
     summarizer, embedder = Summarizer(settings), Embedder(settings)
     db = SessionLocal()
     rows = []

@@ -383,7 +383,7 @@ def test_render_notes_when_summaries_are_disabled():
 
     for body in (content.text_body, content.html_body):
         assert "summaries are currently disabled" in body
-        assert "SUMMARY_BACKEND=ollama" in body  # points at the free option
+        assert "SUMMARY_BACKEND=openai" in body
     assert "Paper a" in content.text_body  # still lists papers, just no summary text
 
 

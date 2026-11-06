@@ -2,6 +2,12 @@
 
 Status: proposal, nothing implemented. Written 2026-10-16 against `main` @ `81da41e`.
 
+> **Update, 2026-11-05:** summaries, ratings and overviews moved from
+> `gemma3:12b` to OpenAI's `gpt-5.4-mini`. Everything below is a record of the
+> Gemma work and is left as written, so LLM results in §5 describe Gemma and
+> have not been re-measured on the new model. Embeddings still use
+> `embeddinggemma`, so embedding-only results still apply.
+
 ## 1. Where the LLM phase stands today
 
 Every LLM call in `app/services/summarize.py` sees exactly one thing: the text

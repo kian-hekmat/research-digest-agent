@@ -3,8 +3,8 @@
 [![CI](https://github.com/kian-hekmat/research-digest-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/kian-hekmat/research-digest-agent/actions/workflows/ci.yml)
 
 **A self-hosted research alerting service.** It watches arXiv for new papers on
-topics you choose, summarizes and scores each paper with a locally hosted LLM
-(Gemma 3 via Ollama), ranks them, and emails you one combined digest on your
+topics you choose, summarizes and scores each paper with an LLM (OpenAI's
+GPT-5.4 mini), ranks them, and emails you one combined digest on your
 cadence. Summaries and overviews are retrieval-augmented: each paper's full text
 (from arXiv's HTML rendering), its nearest earlier papers (by embedding, in
 pgvector), and the topic's recent digests inform what the model writes. Every
@@ -14,8 +14,8 @@ sleeping laptop delays a digest instead of losing it.
 
 > Built as a realistic backend/AI engineering project: an HTTP API, a relational
 > schema with migrations, durable workflow orchestration, external API
-> integration, local LLM inference with retrieval (RAG) over a vector store, an
-> offline evaluation harness, scheduled email delivery, and a 286-test suite
+> integration, LLM summarization with retrieval (RAG) over a vector store, an
+> offline evaluation harness, scheduled email delivery, and a 292-test suite
 > running in CI.
 
 ---
@@ -27,7 +27,7 @@ sleeping laptop delays a digest instead of losing it.
 | **What it does** | arXiv → full text + embeddings → retrieval-augmented LLM summary and relevance rating → ranked, per-topic email digests |
 | **Backend** | Python 3.12, FastAPI, Pydantic, SQLAlchemy 2, PostgreSQL 16 + pgvector, Alembic |
 | **Orchestration** | Temporal (workflows, activities, retry policies, cron schedules) |
-| **AI / LLM** | Gemma 3 12B (`gemma3:12b`) and EmbeddingGemma (`embeddinggemma`) served locally by Ollama: no API key, no per-call cost |
+| **AI / LLM** | OpenAI `gpt-5.4-mini` for summaries, ratings and overviews; EmbeddingGemma (`embeddinggemma`) served locally by Ollama for embeddings |
 | **Retrieval** | pgvector (HNSW, cosine) over abstract and full-text chunk embeddings |
 | **External data** | arXiv Atom API and HTML full text, OpenAlex / Semantic Scholar (author h-index) |
 | **Email** | SMTP (Gmail or any relay), Mailpit for local development |
@@ -100,7 +100,9 @@ paper's text never does.
   degrade (the digest completes without them) rather than fail
 
 **Applied AI / LLM engineering**
-- Local inference with Ollama (Gemma 3 12B on Apple Silicon), reached from
+- Swappable summarization backends behind one interface: the OpenAI API by
+  default, or a local model through Ollama, with no change to the pipeline
+- Local embedding inference with Ollama on Apple Silicon, reached from
   containers via the host gateway
 - Prompt design for structured output: a summary plus a 1–10 relevance rating
   in one call, with a tolerant parser that never loses a summary over a
@@ -157,10 +159,12 @@ paper's text never does.
                        ┌───────────────────────────────┘      │    └──────────┐
                        ▼                                      ▼               ▼
               ┌──────────────────┐              ┌──────────────────┐   ┌────────────┐
-              │ arXiv API + HTML │              │ Ollama (on host) │   │ SMTP relay │
-              │ OpenAlex /       │              │ gemma3:12b       │   │ / Mailpit  │
-              │ Semantic Scholar │              │ embeddinggemma   │   └────────────┘
-              └──────────────────┘              └──────────────────┘
+              │ arXiv API + HTML │              │ OpenAI API       │   │ SMTP relay │
+              │ OpenAlex /       │              │ gpt-5.4-mini     │   │ / Mailpit  │
+              │ Semantic Scholar │              ├──────────────────┤   └────────────┘
+              └──────────────────┘              │ Ollama (on host) │
+                                                │ embeddinggemma   │
+                                                └──────────────────┘
 ```
 
 - **`api`** is fast and synchronous: CRUD on topics and subscriptions, and
@@ -171,9 +175,11 @@ paper's text never does.
 - **PostgreSQL** holds everything, including the vector index: paper and
   full-text chunk embeddings live in `paper_embeddings` (pgvector, HNSW), so
   there is no separate vector database to run.
-- **Ollama runs natively on the Mac**, not in Docker, so Gemma can use the Apple
-  Silicon GPU. Containers reach it at `host.docker.internal`; it stays bound to
-  localhost and isn't exposed to the network.
+- **OpenAI writes the text**: summaries, relevance ratings and overviews. The
+  API key lives only in the gitignored `.env`.
+- **Ollama runs natively on the Mac**, not in Docker, so embeddings can use the
+  Apple Silicon GPU. Containers reach it at `host.docker.internal`; it stays
+  bound to localhost and isn't exposed to the network.
 - **Temporal persists its state** to a volume, so schedules and in-flight
   workflows survive restarts and resume where they stopped.
 
@@ -191,9 +197,9 @@ Runs daily at 10:00 Pacific for every topic, and on demand via `POST /digests/{t
    signals: novelty, near duplicates, and the closest earlier paper (shown in
    the email as "Similar earlier paper" when it's close enough).
 4. **Full text**: fetch each new paper's arXiv HTML (from `export.arxiv.org`,
-   one request per 3 s across the whole worker, kept locally and never
+   one request per 3 s across the whole worker, stored locally and never
    emailed), split it into section-aware chunks and embed them.
-5. **Summarize and rate** each new paper with Gemma, at most 4 calls at a time.
+5. **Summarize and rate** each new paper with OpenAI, at most 4 calls at a time.
    The summary draws on the full-text chunks that best match "main results",
    "method" and "limitations"; the 1–10 relevance rating comes from the
    abstract alone.
@@ -239,6 +245,11 @@ retrieval, and each was measured on the same set of papers before deciding
 its default. The full plan, every number and every review are in
 [`docs/rag-plan.md`](docs/rag-plan.md); raw reports are in `evals/results/`.
 
+These results were measured with the previous summarization model, Gemma 3 12B
+(`gemma3:12b`). Results for LLM-written text (ratings, overviews, full-text
+summaries) have not been re-measured on `gpt-5.4-mini`, so they may not carry
+over. Results from embeddings alone still apply.
+
 **What's on**
 
 | Feature | What it does | Evidence |
@@ -276,7 +287,8 @@ its default. The full plan, every number and every review are in
 `export.arxiv.org`, fetched only for newly ingested papers (about 20 a day),
 at most one request every 3 seconds across the whole worker. It is stored
 locally for personal use, as arXiv's terms allow, and never sent in an email.
-A multi-user deployment would need a fresh read of those terms.
+Excerpts are sent to OpenAI as part of each summary prompt, along with titles
+and abstracts. A multi-user deployment would need a fresh read of those terms.
 
 ---
 
@@ -313,14 +325,14 @@ venv/bin/python3 -m pytest -q        # 286 tests
 | Retrieval | Real vector queries on synthetic embeddings whose similarities are known by construction (unit vectors at chosen angles) |
 | Workflows | Real workflows and activities on Temporal's **time-skipping** test server, so retry backoff is fast-forwarded |
 | Schedules | Temporal's local dev server (the time-skipping server has no Schedule API) |
-| HTTP integrations | `respx` mocks for arXiv (API and HTML), Ollama (chat and embed), OpenAlex and Semantic Scholar; no test reaches a real external service |
+| HTTP integrations | `respx` mocks for arXiv (API and HTML), OpenAI, Ollama (chat and embed), OpenAlex and Semantic Scholar; no test reaches a real external service |
 | Prompts | Exact request bodies asserted, including that every retrieval feature leaves the original prompt byte-for-byte unchanged when it has nothing to add |
 | Email | Full MIME output checked (multipart parts, UTF-8 round trip, well-formed HTML, escaping) |
 | Config | Static checks on `docker-compose.yml`: persistence, restart policies, worker env |
 
 CI (GitHub Actions) runs the full suite against a fresh Postgres + pgvector
 service container on every push. Model-quality evaluations live in `evals/`
-and run on demand against the real local model (see
+and run on demand against the real model (see
 [Retrieval and evaluation](#retrieval-and-evaluation)); only their pure metric
 helpers are unit-tested in CI.
 
@@ -328,17 +340,17 @@ helpers are unit-tested in CI.
 
 ## Running locally
 
-**Prerequisites:** Docker (colima on macOS) and [Ollama](https://ollama.com).
+**Prerequisites:** Docker (colima on macOS), [Ollama](https://ollama.com), and
+an [OpenAI API key](https://platform.openai.com/api-keys).
 
 ```bash
-# 1. Local LLM (runs natively for GPU access)
+# 1. Local embedding model (runs natively for GPU access)
 brew install ollama
 brew services start ollama
-ollama pull gemma3:12b            # ~8 GB
 ollama pull embeddinggemma        # ~0.6 GB, for retrieval
 
 # 2. Configure
-cp .env.example .env              # defaults work out of the box; email goes to Mailpit
+cp .env.example .env              # then set OPENAI_API_KEY in .env; email goes to Mailpit
 
 # 3. Start the stack: Postgres (+ pgvector), Temporal, Mailpit, API, worker
 docker-compose up -d --build
@@ -393,9 +405,11 @@ All settings are environment variables (see [`.env.example`](.env.example)).
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SUMMARY_BACKEND` | `ollama` | `ollama` for Gemma summaries; `none` to send digests without AI text |
-| `OLLAMA_MODEL` | `gemma3:12b` | Model for summaries, ratings and overviews |
-| `OLLAMA_BASE_URL` | `http://host.docker.internal:11434` (in Docker) | Where the worker reaches Ollama |
+| `SUMMARY_BACKEND` | `openai` | `openai` for summaries through the OpenAI API; `ollama` for a local model; `none` to send digests without AI text |
+| `OPENAI_API_KEY` | unset | Required with `SUMMARY_BACKEND=openai`. Keep it in `.env`, which is gitignored; never commit it |
+| `OPENAI_MODEL` | `gpt-5.4-mini` | Model for summaries, ratings and overviews. Must accept `reasoning_effort: none` |
+| `OLLAMA_BASE_URL` | `http://host.docker.internal:11434` (in Docker) | Where the worker reaches Ollama, for embeddings and the `ollama` backend |
+| `OLLAMA_MODEL` | `gemma3:12b` | Summary model with `SUMMARY_BACKEND=ollama` (`ollama pull gemma3:12b`, ~8 GB) |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_USE_TLS` / `SMTP_FROM_ADDRESS` | Mailpit | Outgoing email |
 | `SEMANTIC_SCHOLAR_API_KEY` | unset | Optional; without it, h-indices come from OpenAlex |
 | `ARXIV_MAX_RESULTS` / `ARXIV_LOOKBACK_DAYS` | `25` / `7` | Fetch size and publication-lag window |
@@ -424,7 +438,7 @@ app/
 ├── crud.py                 database access
 ├── services/
 │   ├── arxiv.py            arXiv Atom API client
-│   ├── summarize.py        Gemma via Ollama: summaries, ratings, overviews
+│   ├── summarize.py        OpenAI or Ollama: summaries, ratings, overviews
 │   ├── embed.py            EmbeddingGemma via Ollama: paper embeddings
 │   ├── retrieval.py        pgvector storage + nearest-neighbour queries
 │   ├── fulltext.py         arXiv HTML fetch (rate-gated), parse, chunk
@@ -477,7 +491,8 @@ that, or to backfill a new `EMBEDDING_MODEL` side by side:
 docker-compose exec worker python -m app.backfill_embeddings
 ```
 
-**Evaluations.** With the stack and Ollama up, from the repo root:
+**Evaluations.** With the stack and Ollama up, from the repo root (these call
+the configured summary model, so with `SUMMARY_BACKEND=openai` they cost money):
 ```bash
 venv/bin/python -m evals.rag run --variant baseline     # or rag-related, desc, anchors, ...
 venv/bin/python -m evals.ranking

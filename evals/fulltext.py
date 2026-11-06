@@ -62,7 +62,7 @@ def main(argv=None) -> None:
     args = ap.parse_args(argv)
     settings = get_settings()
     if not settings.embeddings_enabled:
-        raise SystemExit("Needs SUMMARY_BACKEND=ollama and RAG_ENABLED=true.")
+        raise SystemExit("Needs SUMMARY_BACKEND=openai and RAG_ENABLED=true.")
     embedder, summarizer = Embedder(settings), Summarizer(settings)
     db = SessionLocal()
     try:

@@ -28,7 +28,7 @@ def main() -> None:
     settings = get_settings()
     if not settings.embeddings_enabled:
         raise SystemExit(
-            "Embeddings are off - they need SUMMARY_BACKEND=ollama and RAG_ENABLED=true."
+            "Embeddings are off - they need SUMMARY_BACKEND=openai and RAG_ENABLED=true."
         )
     db = SessionLocal()
     try:

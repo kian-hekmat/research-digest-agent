@@ -7,6 +7,14 @@ arXiv → LLM summary/relevance → ranked email flow), not a rewrite.
 
 Status: draft, 2026-10-06.
 
+> **Update, 2026-11-05:** summaries, ratings and overviews now run on the OpenAI
+> API (`gpt-5.4-mini`), billed per token, instead of `gemma3:12b` on the Mac.
+> Embeddings stay on Ollama. The LLM plan below (§2 decision 4, §5, §7 decisions
+> 1 and 3) was written for local Gemma and needs revisiting before launch: the
+> Mac-worker design is no longer required for summaries, but per-token cost now
+> grows with the number of distinct active topics, and this draft has no budget
+> for it.
+
 ---
 
 ## 1. Where we are: gap audit

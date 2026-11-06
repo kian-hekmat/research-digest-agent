@@ -1,9 +1,10 @@
-"""LLM summarization with a local Gemma model (`gemma3:12b`) served by Ollama.
+"""LLM summarization through the OpenAI API, or a local model served by Ollama.
 
-Runs entirely on the host machine: no API key and no per-call cost. Each call
-is one non-streaming request to Ollama's `/api/chat` over plain HTTP (httpx).
-`Summarizer` can be injected as a FastAPI dependency and faked in tests, and
-its HTTP client is swappable via `http_client`.
+`SUMMARY_BACKEND` picks the backend. Each call is one non-streaming request
+over plain HTTP (httpx): OpenAI's `/chat/completions` (billed per token) or
+Ollama's `/api/chat` (local, no API key). `Summarizer` can be injected as a
+FastAPI dependency and faked in tests, and its HTTP client is swappable via
+`http_client`.
 
 The digest pipeline uses `summarize_and_rate`, which also rates the paper's
 relevance to the topic (1-10, feeding app.services.ranking) in the same call,
@@ -445,9 +446,42 @@ class Summarizer:
         )
 
     def _complete(self, *, system: str, user: str, max_tokens: int) -> str:
-        """One non-streaming /api/chat call. Left to raise on failure
-        (server down, model not pulled, timeout) - the activity's retry
-        policy governs attempts."""
+        """One non-streaming chat call. Left to raise on failure (server
+        down, bad key, rate limit, model not pulled, timeout) - the activity's
+        retry policy governs attempts."""
+        if self._settings.summary_backend == "openai":
+            return self._complete_openai(system=system, user=user, max_tokens=max_tokens)
+        return self._complete_ollama(system=system, user=user, max_tokens=max_tokens)
+
+    def _complete_openai(self, *, system: str, user: str, max_tokens: int) -> str:
+        if not self._settings.openai_api_key:
+            raise RuntimeError("SUMMARY_BACKEND=openai needs OPENAI_API_KEY to be set")
+        owns_client = self._http_client is None
+        client = self._http_client or httpx.Client(timeout=self._settings.openai_timeout)
+        try:
+            resp = client.post(
+                f"{self._settings.openai_base_url.rstrip('/')}/chat/completions",
+                headers={"Authorization": f"Bearer {self._settings.openai_api_key}"},
+                json={
+                    "model": self._settings.openai_model,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    "max_completion_tokens": max_tokens,
+                    # Reasoning tokens count against max_completion_tokens,
+                    # which is as low as 10 for a rating.
+                    "reasoning_effort": "none",
+                    "temperature": 0.2,
+                },
+            )
+            resp.raise_for_status()
+        finally:
+            if owns_client:
+                client.close()
+        return resp.json()["choices"][0]["message"]["content"].strip()
+
+    def _complete_ollama(self, *, system: str, user: str, max_tokens: int) -> str:
         owns_client = self._http_client is None
         client = self._http_client or httpx.Client(timeout=self._settings.ollama_timeout)
         try:

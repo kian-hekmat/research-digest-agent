@@ -1,8 +1,8 @@
 """Eval harness for the LLM summarization phase (phase 0 of docs/rag-plan.md).
 
 Measures today's prompts so each RAG phase can be compared against them on
-the same papers. Run from the repo root with the docker-compose DB and
-Ollama up:
+the same papers. Run from the repo root with the docker-compose DB and the
+configured summary backend up:
 
     venv/bin/python -m evals.rag sample              # write evals/labels.csv
     venv/bin/python -m evals.rag label               # hand-label it (resumable)
@@ -344,7 +344,7 @@ def corpus_stats(db: Session) -> dict:
 def cmd_run(args: argparse.Namespace) -> None:
     settings = get_settings()
     if not settings.summaries_enabled:
-        raise SystemExit("Summarization is off - set SUMMARY_BACKEND=ollama first.")
+        raise SystemExit("Summarization is off - set SUMMARY_BACKEND=openai first.")
     db = SessionLocal()
     try:
         labels = read_labels()
@@ -352,7 +352,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         variant = VARIANTS[args.variant](db, Summarizer(settings))
         report: dict = {
             "variant": args.variant,
-            "model": settings.ollama_model,
+            "model": settings.summary_model,
             "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "items": len(items),
             "corpus": corpus_stats(db),

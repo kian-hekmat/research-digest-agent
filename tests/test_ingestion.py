@@ -260,6 +260,68 @@ def test_ollama_errors_raise_so_the_activity_retries(response):
         Summarizer(settings=_ollama_settings()).summarize_paper("T", "A")
 
 
+OPENAI_CHAT = "http://openai.test/v1/chat/completions"
+
+
+def _openai_settings(**overrides):
+    values = {
+        "summary_backend": "openai",
+        "openai_api_key": "test-key",
+        "openai_base_url": "http://openai.test/v1/",
+        "openai_model": "test-model",
+    }
+    return Settings(**{**values, **overrides})
+
+
+def _openai_reply(text):
+    return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": text}}]})
+
+
+@respx.mock
+def test_openai_request_and_reply():
+    route = respx.post(OPENAI_CHAT).mock(return_value=_openai_reply("  A summary.\n"))
+
+    out = Summarizer(settings=_openai_settings()).summarize_paper("Some Title", "Some abstract.")
+
+    assert out == "A summary."
+    request = route.calls.last.request
+    assert request.headers["authorization"] == "Bearer test-key"
+    body = json.loads(request.content)
+    assert body["model"] == "test-model"
+    assert body["messages"][0]["role"] == "system"
+    assert "Some abstract." in body["messages"][1]["content"]
+    assert body["reasoning_effort"] == "none"  # a rating only gets 10 tokens
+    assert isinstance(body["max_completion_tokens"], int)
+
+
+@respx.mock
+def test_openai_rated_summary_parses_like_ollama():
+    respx.post(OPENAI_CHAT).mock(return_value=_openai_reply("Relevance: 8\n\nA tight summary."))
+
+    out = Summarizer(settings=_openai_settings()).summarize_and_rate("T", "A", "RLHF", "rlhf")
+
+    assert out.summary == "A tight summary."
+    assert out.relevance == 8
+
+
+@respx.mock
+def test_openai_without_a_key_raises_before_any_request():
+    route = respx.post(OPENAI_CHAT).mock(return_value=_openai_reply("unused"))
+
+    with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+        Summarizer(settings=_openai_settings(openai_api_key="")).summarize_paper("T", "A")
+    assert not route.called
+
+
+@respx.mock
+@pytest.mark.parametrize("status", [401, 429, 500])
+def test_openai_errors_raise_so_the_activity_retries(status):
+    respx.post(OPENAI_CHAT).mock(return_value=httpx.Response(status, json={"error": {}}))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        Summarizer(settings=_openai_settings()).summarize_paper("T", "A")
+
+
 @respx.mock
 def test_ollama_server_down_raises():
     respx.post(OLLAMA_CHAT).mock(side_effect=httpx.ConnectError("connection refused"))

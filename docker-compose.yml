@@ -80,8 +80,10 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg2://digest_user:digest_pass@db:5432/digest_db
-      SUMMARY_BACKEND: ${SUMMARY_BACKEND:-ollama}
-      # Ollama runs natively on the Mac (GPU), bound to 127.0.0.1 only;
+      SUMMARY_BACKEND: ${SUMMARY_BACKEND:-openai}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
+      # Ollama (embeddings) runs natively on the Mac (GPU), bound to 127.0.0.1 only;
       # colima routes host.docker.internal to the Mac's loopback.
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:12b}
@@ -116,8 +118,10 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg2://digest_user:digest_pass@db:5432/digest_db
-      SUMMARY_BACKEND: ${SUMMARY_BACKEND:-ollama}
-      # Ollama runs natively on the Mac (GPU), bound to 127.0.0.1 only;
+      SUMMARY_BACKEND: ${SUMMARY_BACKEND:-openai}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
+      # Ollama (embeddings) runs natively on the Mac (GPU), bound to 127.0.0.1 only;
       # colima routes host.docker.internal to the Mac's loopback.
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:12b}

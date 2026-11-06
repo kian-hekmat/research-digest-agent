@@ -184,6 +184,7 @@ class DigestWorkflow:
         # works through requests a few at a time, and each activity's timeout
         # clock runs while it waits in that queue - firing all 25 at once
         # would time out the back of the queue and retry work already done.
+        # The same cap keeps the OpenAI backend clear of its rate limits.
         to_summarize = [p for p in papers if not p.existing_summary]
         to_rate_only = [p for p in papers if p.existing_summary]
         llm_slots = asyncio.Semaphore(_MAX_CONCURRENT_SUMMARIES)

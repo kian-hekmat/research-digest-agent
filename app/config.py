@@ -19,30 +19,42 @@ class Settings(BaseSettings):
         "postgresql+psycopg2://digest_user:digest_pass@localhost:5432/digest_db"
     )
 
-    # --- summarization (local Gemma via Ollama) ---
-    # "ollama": summaries, relevance ratings and overviews come from a local
-    # open-weights model served by Ollama - no API key, no per-call cost.
+    # --- summarization ---
+    # "openai": summaries, relevance ratings and overviews come from the OpenAI
+    # API (needs OPENAI_API_KEY; billed per token).
+    # "ollama": they come from a local open-weights model served by Ollama, as
+    # they did until November 2026 - no API key, no per-call cost.
     # "none": summarization off; digests and emails still work, without
     # AI-written text.
-    summary_backend: Literal["ollama", "none"] = "ollama"
+    summary_backend: Literal["openai", "ollama", "none"] = "openai"
 
-    # Ollama listens on 127.0.0.1 only; docker-compose points containers at the
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_model: str = "gpt-5.4-mini"
+    openai_timeout: float = 60.0
+
+    # Ollama also serves embeddings, whichever backend writes the summaries.
+    # It listens on 127.0.0.1 only; docker-compose points containers at the
     # Mac via host.docker.internal instead (colima forwards it to loopback).
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "gemma3:12b"  # summaries, ratings and overviews
+    ollama_model: str = "gemma3:12b"  # used only with SUMMARY_BACKEND=ollama
     ollama_timeout: float = 120.0  # first call of a session also loads the model
 
     @property
     def summaries_enabled(self) -> bool:
         """When False, Summarizer skips the call cleanly instead of
-        failing/retrying. When True and the Ollama server is actually down,
-        calls fail and are retried like any other outage."""
-        return self.summary_backend == "ollama"
+        failing/retrying. When True and the backend is actually down or
+        misconfigured, calls fail and are retried like any other outage."""
+        return self.summary_backend != "none"
+
+    @property
+    def summary_model(self) -> str:
+        return self.openai_model if self.summary_backend == "openai" else self.ollama_model
 
     # --- retrieval (embeddings in pgvector, see docs/rag-plan.md) ---
-    # Paper embeddings come from the same Ollama server as summaries, so
-    # they're off whenever summaries are (SUMMARY_BACKEND=none) as well as
-    # with RAG_ENABLED=false.
+    # Paper embeddings always come from Ollama, whichever backend writes the
+    # summaries. They're off whenever summaries are (SUMMARY_BACKEND=none) as
+    # well as with RAG_ENABLED=false.
     rag_enabled: bool = True
     embedding_model: str = "embeddinggemma"
     # Must match the vector(N) column in paper_embeddings - changing models

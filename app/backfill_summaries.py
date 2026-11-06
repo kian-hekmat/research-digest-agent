@@ -75,7 +75,7 @@ def backfill(db: Session, summarizer: Summarizer) -> BackfillResult:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     if not get_settings().summaries_enabled:
-        raise SystemExit("Summarization is off - set SUMMARY_BACKEND=ollama first.")
+        raise SystemExit("Summarization is off - set SUMMARY_BACKEND=openai first.")
     db = SessionLocal()
     try:
         result = backfill(db, Summarizer())

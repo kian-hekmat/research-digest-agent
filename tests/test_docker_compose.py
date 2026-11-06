@@ -64,6 +64,8 @@ def test_worker_receives_the_summarization_settings():
     code_only = "\n".join(line for line in block.splitlines() if not line.strip().startswith("#"))
 
     assert re.search(r"SUMMARY_BACKEND: \$\{SUMMARY_BACKEND", code_only)
+    assert re.search(r"OPENAI_API_KEY: \$\{OPENAI_API_KEY", code_only)
+    assert re.search(r"OPENAI_MODEL: \$\{OPENAI_MODEL", code_only)
     assert re.search(r"OLLAMA_MODEL: \$\{OLLAMA_MODEL", code_only)
     base_url = re.search(r"OLLAMA_BASE_URL: \$\{OLLAMA_BASE_URL:-(\S+)\}", code_only)
     assert base_url, "worker must be given OLLAMA_BASE_URL"
