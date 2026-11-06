@@ -245,10 +245,27 @@ retrieval, and each was measured on the same set of papers before deciding
 its default. The full plan, every number and every review are in
 [`docs/rag-plan.md`](docs/rag-plan.md); raw reports are in `evals/results/`.
 
-These results were measured with the previous summarization model, Gemma 3 12B
-(`gemma3:12b`). Results for LLM-written text (ratings, overviews, full-text
-summaries) have not been re-measured on `gpt-5.4-mini`, so they may not carry
-over. Results from embeddings alone still apply.
+The tables below were first measured on the previous summarization model, Gemma
+3 12B (`gemma3:12b`). The main evals were re-run on `gpt-5.4-mini` on 2026-11-05
+([details](docs/rag-plan.md)):
+
+| Measure | `gemma3:12b` | `gpt-5.4-mini` |
+|---|---|---|
+| Rating vs reference labels, Spearman ρ (higher is better) | 0.71 | 0.77 |
+| Rating, on-topic papers only, ρ | 0.27 | 0.37 |
+| Rating spread, standard deviation | 2.47 | 2.85 |
+| Ranking NDCG@10, shipped graded scheme | 0.874 | 0.923 |
+| Latency, summary with rating | 3.7 s | 1.6 s |
+| Latency, full-text summary | 7.6 s | 2.7 s |
+| Numbers per full-text summary | 1.69 | 1.20 |
+| Summaries with numbers only in the full text, of 45 | 12 | 5 |
+| Full text preferred over abstract-only, of 20 | 17 vs 3 | 17 vs 1, 2 ties |
+| Full-text summaries with a factual error, of 20 | 3 | 0 |
+
+The evidence below stays as measured on Gemma. Each feature's on/off setting
+held up where it was re-tested, but related-work notes and rating anchors were
+not re-tested. The overview review was partial and its preference count isn't
+usable, because the two versions were recognizable by their opening words.
 
 **What's on**
 

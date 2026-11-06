@@ -4,8 +4,8 @@ Status: proposal, nothing implemented. Written 2026-10-16 against `main` @ `81da
 
 > **Update, 2026-11-05:** summaries, ratings and overviews moved from
 > `gemma3:12b` to OpenAI's `gpt-5.4-mini`. Everything below is a record of the
-> Gemma work and is left as written, so LLM results in §5 describe Gemma and
-> have not been re-measured on the new model. Embeddings still use
+> Gemma work and is left as written, so LLM results in §5.1-§5.7 describe Gemma.
+> §5.8 re-measures the main ones on the new model. Embeddings still use
 > `embeddinggemma`, so embedding-only results still apply.
 
 ## 1. Where the LLM phase stands today
@@ -601,6 +601,52 @@ each with a blind `review`):
   first ate the prose between two short formulas. It now pairs `$…$` left
   to right, with a regression test. And the eval's number matcher missed
   TeX thousands separators (`15{,}000`).
+
+### 5.8 Re-measured on `gpt-5.4-mini` (2026-11-05)
+
+Same commands, labels and code as the Gemma rounds, with these reports compared:
+`2026-10-16_1527_baseline`, `2026-10-16_1728_ranking_combined`,
+`2026-10-22_1237_overviews_avoid_repeats` and `2026-10-22_1333_fulltext` against
+`2026-11-05_1726_baseline`, `2026-11-05_1726_ranking_combined`,
+`2026-11-05_1728_overviews_avoid_repeats` and `2026-11-05_1731_fulltext`.
+
+| Measure | `gemma3:12b` | `gpt-5.4-mini` |
+|---|---|---|
+| Rate-only vs reference: ρ / MAE, n=47 | 0.71 / 1.45 | 0.77 / 1.36 |
+| Rate-only, on-topic: ρ / MAE, n=32 | 0.27 / 1.16 | 0.37 / 1.09 |
+| Combined call vs reference: ρ / MAE | 0.68 / 1.53 | 0.78 / 1.40 |
+| Combined call, on-topic: ρ / MAE | 0.24 / 1.16 | 0.42 / 0.91 |
+| Rating spread: std / share 7-9 | 2.47 / 66% | 2.85 / 43% |
+| Run-to-run stability: exact / ρ | not measured in this run | 81% / 0.98 |
+| Summaries with unsupported numbers, of 47 | 0 | 1 |
+| Ranking, graded: Spearman / NDCG@5 / NDCG@10 | 0.54 / 0.86 / 0.87 | 0.65 / 0.89 / 0.92 |
+| Ranking, gated: NDCG@10 | 0.84 | 0.83 |
+| Ranking, relevance only: NDCG@10 | 0.92 | 0.98 |
+| Overview similarity to previous: plain / history | 0.85 / 0.81 | 0.77 / 0.73 |
+| Overviews with unsupported numbers: plain / history | 2 / 1 | 0 / 0 |
+| Numbers per summary: plain / full text | 0.02 / 1.69 | 0.27 / 1.20 |
+| Summaries with numbers only in full text, of 45 | 12 | 5 |
+| Full-text blind review: preferred | 17 vs 3 | 17 vs 1, 2 ties |
+| Full-text blind review: summaries with an error | 3 | 0 |
+| Latency: summary / full-text summary | 3.7 s / 7.6 s | 1.6 s / 2.7 s |
+
+- **Ratings and ranking improved,** though n is small and only the gated
+  comparison has a confidence interval. Gated - graded NDCG@10 is (-0.401,
+  -0.021) on PINNs and (-0.274, 0.0) on RLHF, so graded stays the default.
+- **The full-text feature holds up.** The new summaries use fewer full-text
+  numbers than Gemma's did, but they carried no factual errors in review. One
+  plain summary had an error of its own. `RAG_FULLTEXT` stays on.
+- **Overview review is weaker evidence.** It covers 10 of 25 digests (all 9
+  small ones plus one large), reading each source summary to its first 520
+  characters. No factual errors were found on either side, against 1 of 25 for
+  Gemma, but the sample and the truncation limit what that shows. The history
+  side was preferred 10 to 0, and that count should be ignored: all 25 history
+  overviews open "This batch" or "A striking", and no plain one does, so the
+  review wasn't blind in practice. Inputs also differ from Gemma's round, since
+  only 11 of the 25 digests overlap and stored summaries are still Gemma's.
+- **Not re-measured:** related-work notes (§5.3), rating anchors (§5.4) and
+  descriptions as defaults. All three stay off. Reviews were done by
+  `claude-opus-5-5`, not the project owner, as in earlier rounds.
 
 ## 6. Phases
 
