@@ -1,11 +1,12 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
 from app import cadence, models, schemas
+from app.topic_query import normalize_query
 
 
 def _is_valid_uuid(value: str) -> bool:
@@ -19,13 +20,20 @@ def _is_valid_uuid(value: str) -> bool:
 
 
 def create_topic(db: Session, topic: schemas.TopicCreate) -> models.Topic:
-    db_topic = models.Topic(name=topic.name, query=topic.query, description=topic.description)
+    """Topics are unique by normalized query, not name: "RLHF" and '"rlhf"'
+    are one topic, so the second is a conflict."""
+    db_topic = models.Topic(
+        name=topic.name,
+        query=topic.query,
+        normalized_query=normalize_query(topic.query),
+        description=topic.description,
+    )
     db.add(db_topic)
     try:
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise ValueError(f"Topic '{topic.name}' already exists")
+        raise ValueError(f"A topic with the query '{topic.query}' already exists")
     db.refresh(db_topic)
     return db_topic
 
@@ -285,6 +293,24 @@ def count_pending_digests(db: Session) -> int:
 
 
 # ---------- Subscriptions ----------
+def get_or_create_subscriber(db: Session, email: str, *, confirmed: bool) -> models.Subscriber:
+    """The subscriber for `email`, matched case-insensitively (the same rule
+    as the unique index), created if new - with `confirmed_at` set now when
+    `confirmed`. An existing subscriber is returned as is. Does not commit."""
+    subscriber = (
+        db.query(models.Subscriber)
+        .filter(func.lower(models.Subscriber.email) == func.lower(email))
+        .first()
+    )
+    if subscriber is None:
+        subscriber = models.Subscriber(
+            email=email, confirmed_at=models.utcnow() if confirmed else None
+        )
+        db.add(subscriber)
+        db.flush()  # assign subscriber.id
+    return subscriber
+
+
 def create_subscription(
     db: Session,
     topic_id: str,
@@ -292,11 +318,14 @@ def create_subscription(
     cadence: models.SubscriptionCadence,
     max_papers: int | None = None,
 ) -> models.Subscription:
-    sub = models.Subscription(
-        topic_id=topic_id, email=email, cadence=cadence, max_papers=max_papers
-    )
-    db.add(sub)
+    """Subscribe `email` to a topic. Subscribers added through the admin API
+    are the owner's own, so they start out confirmed."""
     try:
+        subscriber = get_or_create_subscriber(db, email, confirmed=True)
+        sub = models.Subscription(
+            topic_id=topic_id, subscriber=subscriber, cadence=cadence, max_papers=max_papers
+        )
+        db.add(sub)
         db.commit()
     except IntegrityError:
         db.rollback()

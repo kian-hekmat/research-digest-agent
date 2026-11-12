@@ -12,6 +12,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     SmallInteger,
     Table,
@@ -23,6 +24,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.types import UserDefinedType
 
 from app.database import Base
+from app.topic_query import normalize_query
 
 
 def gen_uuid() -> str:
@@ -154,12 +156,26 @@ digest_paper_association = Table(
 )
 
 
+def _normalized_query_default(context) -> str:
+    """Fills Topic.normalized_query from the row's query when the caller didn't
+    set it, so a Topic built anywhere still gets the one canonical form."""
+    return normalize_query(context.get_current_parameters()["query"])
+
+
 class Topic(Base):
     __tablename__ = "topics"
+    __table_args__ = (
+        UniqueConstraint("normalized_query", name="uq_topics_normalized_query"),
+    )
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    name = Column(String(100), nullable=False, unique=True)
+    # Not unique: topics are shared by query, and two subscribers may well
+    # give different topics the same name.
+    name = Column(String(200), nullable=False)
     query = Column(String, nullable=False)  # arXiv search query for this topic
+    # app.topic_query.normalize_query(query): what makes two topics the same
+    # topic, so subscribers who type it differently share one arXiv fetch.
+    normalized_query = Column(String(200), nullable=False, default=_normalized_query_default)
     # What the reader does and doesn't want from this topic, in their words.
     # Shown to the relevance rater; most useful for whole-category queries
     # like `cat:math.NA`, where "relevant to the topic" says little.
@@ -323,10 +339,48 @@ class Digest(Base):
     )
 
 
+class Subscriber(Base):
+    """One person, by email (case-insensitive). The lifecycle timestamps live
+    here rather than on each subscription: confirming or unsubscribing is about
+    the person, not one topic."""
+
+    __tablename__ = "subscribers"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    email = Column(String, nullable=False)
+    confirmed_at = Column(DateTime(timezone=True), nullable=True)
+    unsubscribed_at = Column(DateTime(timezone=True), nullable=True)
+    waitlisted_at = Column(DateTime(timezone=True), nullable=True)
+    last_manage_link_sent_at = Column(DateTime(timezone=True), nullable=True)
+    us_resident_attested_at = Column(DateTime(timezone=True), nullable=True)
+    # Bumped to invalidate every link already emailed to this subscriber.
+    token_version = Column(Integer, nullable=False, server_default="0")
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=utcnow,
+    )
+
+    subscriptions = relationship(
+        "Subscription",
+        back_populates="subscriber",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+# "Me@Example.com" and "me@example.com" are one subscriber.
+Index("uq_subscribers_email_lower", func.lower(Subscriber.email), unique=True)
+
+
 class Subscription(Base):
     __tablename__ = "subscriptions"
     __table_args__ = (
-        UniqueConstraint("topic_id", "email", name="uq_subscription_topic_email"),
+        UniqueConstraint("topic_id", "subscriber_id", name="uq_subscription_topic_subscriber"),
     )
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
@@ -336,7 +390,17 @@ class Subscription(Base):
         nullable=False,
         index=True,
     )
-    email = Column(String, nullable=False)
+    subscriber_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("subscribers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # The subscriber's own display name for this shared topic. Display only:
+    # never sent to the LLM, which sees the normalized query.
+    label = Column(String(200), nullable=True)
+    # Set while this subscription's topic is held back by the topic cap.
+    waitlisted_at = Column(DateTime(timezone=True), nullable=True)
     cadence = Column(
         Enum(SubscriptionCadence, name="subscription_cadence"),
         nullable=False,
@@ -363,3 +427,10 @@ class Subscription(Base):
     )
 
     topic = relationship("Topic", back_populates="subscriptions")
+    subscriber = relationship("Subscriber", back_populates="subscriptions")
+
+    @property
+    def email(self) -> str:
+        """The subscriber's email, so code that only needs a recipient
+        (SubscriptionOut, the send workflow) doesn't care where it lives."""
+        return self.subscriber.email

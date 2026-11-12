@@ -183,3 +183,48 @@ def test_deleting_topic_cascades_to_its_subscriptions(client, db_session):
 
     db_session.expire_all()
     assert db_session.get(models.Subscription, sub["id"]) is None
+
+
+def test_same_email_any_case_is_one_subscriber(client, db_session):
+    from app import models
+
+    t1 = client.post("/topics", json={"name": "RLHF", "query": "rlhf"}).json()
+    t2 = client.post("/topics", json={"name": "PINNs", "query": "physics-informed neural networks"}).json()
+    client.post(f"/topics/{t1['id']}/subscriptions", json={"email": "Me@Example.com"})
+    client.post(f"/topics/{t2['id']}/subscriptions", json={"email": "me@example.com"})
+
+    assert db_session.query(models.Subscriber).count() == 1
+
+
+def test_same_email_other_case_on_same_topic_is_a_duplicate(client):
+    topic = client.post("/topics", json={"name": "RLHF", "query": "rlhf"}).json()
+
+    client.post(f"/topics/{topic['id']}/subscriptions", json={"email": "Me@Example.com"})
+    resp = client.post(f"/topics/{topic['id']}/subscriptions", json={"email": "me@example.com"})
+
+    assert resp.status_code == 409
+
+
+def test_admin_created_subscriber_is_confirmed(client, db_session):
+    from app import models
+
+    topic = client.post("/topics", json={"name": "RLHF", "query": "rlhf"}).json()
+    client.post(f"/topics/{topic['id']}/subscriptions", json={"email": "reader@example.com"})
+
+    assert db_session.query(models.Subscriber).one().confirmed_at is not None
+
+
+def test_deleting_subscriber_removes_subscriptions_not_topics(client, db_session):
+    from app import models
+
+    t1 = client.post("/topics", json={"name": "RLHF", "query": "rlhf"}).json()
+    t2 = client.post("/topics", json={"name": "PINNs", "query": "physics-informed neural networks"}).json()
+    client.post(f"/topics/{t1['id']}/subscriptions", json={"email": "reader@example.com"})
+    client.post(f"/topics/{t2['id']}/subscriptions", json={"email": "reader@example.com"})
+
+    db_session.expire_all()
+    db_session.delete(db_session.query(models.Subscriber).one())
+    db_session.commit()
+
+    assert db_session.query(models.Subscription).count() == 0
+    assert db_session.query(models.Topic).count() == 2

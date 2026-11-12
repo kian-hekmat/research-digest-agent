@@ -8,7 +8,7 @@ from app.models import DigestStatus, SubscriptionCadence
 
 # ---------- Topic ----------
 class TopicCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=100)
+    name: str = Field(..., min_length=1, max_length=200)
     query: str = Field(..., min_length=1, description="arXiv search query, e.g. 'RLHF'")
     description: Optional[str] = Field(
         None,

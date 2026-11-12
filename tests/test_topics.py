@@ -39,3 +39,23 @@ def test_delete_topic(client):
 
     get_resp = client.get(f"/topics/{topic_id}")
     assert get_resp.status_code == 404
+
+
+def test_topic_with_same_normalized_query_is_a_conflict(client):
+    client.post("/topics", json={"name": "RLHF", "query": "RLHF"})
+    assert client.post("/topics", json={"name": "Other name", "query": ' "rlhf" '}).status_code == 409
+
+
+def test_topic_names_need_not_be_unique(client):
+    client.post("/topics", json={"name": "Same", "query": "rlhf"})
+    assert client.post("/topics", json={"name": "Same", "query": "dpo"}).status_code == 201
+
+
+def test_topic_built_without_normalized_query_gets_one(db_session):
+    from app import models
+
+    topic = models.Topic(name="RLHF", query=' "RLHF" ')
+    db_session.add(topic)
+    db_session.commit()
+
+    assert topic.normalized_query == "rlhf"
