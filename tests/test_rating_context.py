@@ -215,6 +215,9 @@ def test_import_labels_stores_linked_valid_rows_and_counts_the_rest(db_session, 
 
 # ---------- the activities ----------
 class RecordingRater:
+    def __init__(self, *args, **kwargs):  # activities pass ledger= and topic_id=
+        pass
+
     contexts: list = []
 
     def rate_relevance(self, title, abstract, topic_name, topic_query, rating_context=None):

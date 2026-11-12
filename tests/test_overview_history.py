@@ -119,6 +119,9 @@ def test_similar_earlier_papers_from_paper_related(db_session):
 
 # ---------- activity ----------
 class RecordingWriter:
+    def __init__(self, *args, **kwargs):  # activities pass ledger= and topic_id=
+        pass
+
     histories: list = []
 
     def write_overview(self, topic_name, summaries, history=None):

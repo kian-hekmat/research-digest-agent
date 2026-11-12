@@ -261,6 +261,9 @@ def test_set_paper_related_replaces_previous_citations(db_session, topic):
 
 # ---------- the summarize activity ----------
 class RecordingSummarizer:
+    def __init__(self, *args, **kwargs):  # activities pass ledger= and topic_id=
+        pass
+
     offered: list = []
     reply: RatedSummary | None = None
 
