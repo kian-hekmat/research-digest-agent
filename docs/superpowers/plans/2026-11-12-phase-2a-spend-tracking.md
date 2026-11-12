@@ -295,3 +295,36 @@ No code.
 - [ ] **Step 2: Ask the owner for the alert address** and set `ALERT_EMAIL` in `.env` (gitignored), then restart `worker`. Until it's set, alerts only log.
 - [ ] **Step 3: Verify.** After the next daily run, `GET /admin/usage` (with the admin token) shows rows for `rating`, `summary` and `overview` against the owner's topics, with non-zero cost. `llm_usage` row count equals the number of OpenAI calls the worker logged.
 - [ ] **Step 4: Record the outcome** at the end of this plan (commits, live migration time, first day's cost per topic) and push.
+
+---
+
+## Outcome (2026-11-12)
+
+Built inline (executing-plans), one whole-plan review (verdict: ready to merge; all five Review Focus behaviours verified, including by concurrent and non-UTC probes). Commits `531ecb5`, `2532c79`, `99bbeb1`, `ef54dd7`, `647ee20`, `d44e62f` (review fixes). 422 tests pass. Live database migrated to `b2c3d4e5f6a8` at 15:17 PT after a `pg_dump` to `~/research-digest-backups/`; worker schedules unchanged; `GET /admin/usage` live.
+
+**Deviations, each a ruling:**
+- The price precheck runs only when a ledger is given. Existing ledger-less tests use an unpriced model, and the AST coverage test forbids ledger-less callers in `app/` and `evals/`.
+- `alembic/env.py` now keeps existing loggers (`disable_existing_loggers=False`). In-process migrations in the test suite had silenced every app logger.
+- Review fixes beyond the plan:
+  - `insufficient_quota` (out of credits) is treated like the hard spend limit.
+  - The 80% alert no longer claims new topics wait, since that isn't true until Phase 3.
+  - The backfill counts budget-blocked calls as skipped, not written.
+  - Concurrency and non-UTC tests now pin Review Focus 2 and 3.
+
+**Still to do from Task 5:**
+- Set `ALERT_EMAIL` in `.env` once the owner gives the address; until then alerts are only logged.
+- After the next daily run, check that `/admin/usage` shows rating, summary and overview rows with non-zero cost per topic, and record the first day's cost here.
+
+**Carried forward**
+- Phase 3: `spend_state` doesn't see OpenAI's own hard limit or out-of-credits. Signup reads it to waitlist new topics, so it needs a marker that works even without `ALERT_EMAIL`.
+- 2b: `OPENAI_PRICES` isn't validated, and an override replaces the whole dict, so it can drop the `text-embedding-3-small` price the embedder needs. Validate or merge it.
+- Phase 5 (before the Hetzner image deploy): pass `ALERT_EMAIL`, `OPENAI_MONTHLY_BUDGET_USD` and `OPENAI_PRICES` through `docker-compose.yml`. Today they only work through the bind-mounted `.env`.
+- Small, when the files are next touched:
+  - The purpose list is duplicated in three places with no equality test.
+  - `BudgetExhausted` and `PURPOSES` are unused.
+  - Evals keep running when the budget blocks them.
+  - The alert send holds a row lock during a slow SMTP send.
+  - `month_to_date_usd`'s `<= now` bound can hide clock-skewed rows briefly.
+  - The admin `spent_usd` is summed from rounded floats.
+  - Backfill and eval spend has no topic.
+  - The AST check can be dodged with `ledger=None`.
