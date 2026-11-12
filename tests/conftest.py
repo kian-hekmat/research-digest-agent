@@ -110,3 +110,59 @@ def client(db_session, fake_temporal_client):
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
+
+
+def make_subscriber(
+    db, email="me@example.com", *, confirmed=True, unsubscribed=False, waitlisted=False
+):
+    """A subscriber in the given lifecycle state; commits. Imported by tests
+    (`from tests.conftest import make_subscriber`), not a fixture, so a test
+    can create several."""
+    from datetime import datetime, timezone
+
+    from app import models
+
+    now = datetime.now(timezone.utc)
+    subscriber = models.Subscriber(
+        email=email,
+        confirmed_at=now if confirmed else None,
+        unsubscribed_at=now if unsubscribed else None,
+        waitlisted_at=now if waitlisted else None,
+    )
+    db.add(subscriber)
+    db.commit()
+    db.refresh(subscriber)
+    return subscriber
+
+
+def subscribe(
+    db,
+    topic,
+    subscriber,
+    *,
+    active=True,
+    waitlisted=False,
+    cadence="twice_weekly",
+    max_papers=None,
+    last_sent_at=None,
+):
+    """Subscribe `subscriber` to `topic`; commits. last_sent_at=None keeps the
+    column's default (now)."""
+    from datetime import datetime, timezone
+
+    from app import models
+
+    sub = models.Subscription(
+        topic_id=topic.id,
+        subscriber_id=subscriber.id,
+        active=active,
+        waitlisted_at=datetime.now(timezone.utc) if waitlisted else None,
+        cadence=models.SubscriptionCadence(cadence),
+        max_papers=max_papers,
+    )
+    if last_sent_at is not None:
+        sub.last_sent_at = last_sent_at
+    db.add(sub)
+    db.commit()
+    db.refresh(sub)
+    return sub

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import func, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, contains_eager
 from sqlalchemy.exc import IntegrityError
 
 from app import cadence, models, schemas
@@ -56,10 +56,32 @@ def list_topics(db: Session, skip: int = 0, limit: int = 50) -> list[models.Topi
     return db.query(models.Topic).offset(skip).limit(limit).all()
 
 
-def list_topic_ids(db: Session) -> list[str]:
-    """Every topic id, unpaginated - for the scheduled fan-out, which needs
-    all of them, not a page."""
-    return [row.id for row in db.query(models.Topic.id).all()]
+def active_subscriptions_query(db: Session):
+    """The one definition of an "active" subscription, shared by fetching,
+    sending and the summary backfill: the subscription is on and not held by
+    the topic cap, and its subscriber confirmed their email, hasn't
+    unsubscribed and isn't waitlisted. Anything looser would spend OpenAI
+    money, or email a stranger, for someone who never opted in.
+    Subscriber is eager-loaded since every caller reads `.email`."""
+    return (
+        db.query(models.Subscription)
+        .join(models.Subscription.subscriber)
+        .options(contains_eager(models.Subscription.subscriber))
+        .filter(
+            models.Subscription.active.is_(True),
+            models.Subscription.waitlisted_at.is_(None),
+            models.Subscriber.confirmed_at.is_not(None),
+            models.Subscriber.unsubscribed_at.is_(None),
+            models.Subscriber.waitlisted_at.is_(None),
+        )
+    )
+
+
+def list_active_topic_ids(db: Session) -> list[str]:
+    """Ids of topics with at least one active subscription, unpaginated - for
+    the scheduled fan-out. A topic nobody eligible wants is never fetched."""
+    rows = active_subscriptions_query(db).with_entities(models.Subscription.topic_id).distinct()
+    return [row.topic_id for row in rows]
 
 
 def delete_topic(db: Session, topic_id: str) -> bool:
@@ -371,17 +393,12 @@ def delete_subscription(db: Session, subscription_id: str) -> bool:
 
 
 def list_due_subscriptions(db: Session, now: datetime) -> list[models.Subscription]:
-    """Active subscriptions not sent anything since their cadence's most
+    """Active subscriptions (see active_subscriptions_query) not sent anything since their cadence's most
     recent send slot (see app.cadence), oldest subscription first so a
     recipient's topics appear in the order they subscribed. Filtered in
     Python, not SQL - the cutoff depends on each subscription's own cadence,
     and the table is small."""
-    subs = (
-        db.query(models.Subscription)
-        .filter(models.Subscription.active.is_(True))
-        .order_by(models.Subscription.created_at)
-        .all()
-    )
+    subs = active_subscriptions_query(db).order_by(models.Subscription.created_at).all()
     return [s for s in subs if cadence.is_due(s.cadence, s.last_sent_at, now)]
 
 

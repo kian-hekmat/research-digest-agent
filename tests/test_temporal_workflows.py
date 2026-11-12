@@ -35,7 +35,7 @@ from app.temporal.workflows import (
     RunAllTopicDigestsWorkflow,
     SendDigestEmailsWorkflow,
 )
-from tests.conftest import make_result
+from tests.conftest import make_result, make_subscriber, subscribe
 
 TASK_QUEUE = "test-digest-task-queue"
 
@@ -528,6 +528,10 @@ async def test_run_all_topic_digests_fans_out_one_digest_per_topic(
 ):
     rlhf = _make_topic(db_session, name="RLHF", query="rlhf")
     interp = _make_topic(db_session, name="Mech Interp", query="mechanistic interpretability")
+    # Only topics with a confirmed, active subscriber are fetched.
+    reader = make_subscriber(db_session)
+    subscribe(db_session, rlhf, reader)
+    subscribe(db_session, interp, reader)
 
     # Same paper matches both topics' queries - proves cross-topic dedup/link.
     monkeypatch.setattr(
@@ -1191,3 +1195,21 @@ async def test_send_still_goes_out_when_semantic_scholar_is_down(
     assert len(attempts) == 4  # _SCHOLAR_RETRY exhausted, then sent anyway
     [(_, content)] = FakeEmailSender.sent
     assert "Paper" in content.text_body
+
+
+async def test_send_digest_emails_skips_unconfirmed_subscriber(db_session, temporal_client):
+    topic = _make_topic(db_session)
+    eight_days_ago = datetime.now(timezone.utc) - timedelta(days=8)
+    confirmed = make_subscriber(db_session, "confirmed@example.com")
+    unconfirmed = make_subscriber(db_session, "pending@example.com", confirmed=False)
+    subscribe(db_session, topic, confirmed, last_sent_at=eight_days_ago)
+    subscribe(db_session, topic, unconfirmed, last_sent_at=eight_days_ago)
+    _make_completed_digest(
+        db_session, topic, generated_at=eight_days_ago + timedelta(hours=1),
+        papers=[("Paper One", "Summary one.")],
+    )
+
+    count = await _run_send_emails(temporal_client, "send-unconfirmed")
+
+    assert count == 1
+    assert [to for to, _ in FakeEmailSender.sent] == ["confirmed@example.com"]

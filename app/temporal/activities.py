@@ -69,11 +69,11 @@ logger = logging.getLogger(__name__)
 
 @activity.defn
 def list_active_topic_ids() -> list[str]:
-    """All topics right now. There's no per-topic enable/disable flag yet, so
-    every topic is "active"."""
+    """Topics with at least one confirmed, active subscriber right now. A topic
+    nobody eligible subscribes to is not fetched (each fetch costs money)."""
     db = SessionLocal()
     try:
-        return crud.list_topic_ids(db)
+        return crud.list_active_topic_ids(db)
     finally:
         db.close()
 

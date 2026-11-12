@@ -33,7 +33,7 @@ class BackfillResult:
 
 
 def _pending_digests(db: Session) -> list[models.Digest]:
-    subs = db.query(models.Subscription).filter(models.Subscription.active.is_(True)).all()
+    subs = crud.active_subscriptions_query(db).all()
     seen: dict[str, models.Digest] = {}
     for sub in subs:
         for digest in crud.list_completed_digests_since(db, sub.topic_id, sub.last_sent_at):
