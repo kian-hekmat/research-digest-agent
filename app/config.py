@@ -19,6 +19,10 @@ class Settings(BaseSettings):
         "postgresql+psycopg2://digest_user:digest_pass@localhost:5432/digest_db"
     )
 
+    # Shared secret for the admin JSON API (X-Admin-Token header). Empty means
+    # every admin route answers 401 - the API stays locked until one is set.
+    admin_token: str = ""
+
     # --- summarization ---
     # "openai": summaries, relevance ratings and overviews come from the OpenAI
     # API (needs OPENAI_API_KEY; billed per token).

@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
+from app.auth import require_admin
 from app.database import get_db
 
-router = APIRouter(prefix="/topics", tags=["topics"])
+router = APIRouter(prefix="/topics", tags=["topics"], dependencies=[Depends(require_admin)])
 
 
 @router.post("", response_model=schemas.TopicOut, status_code=201)

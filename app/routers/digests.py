@@ -3,12 +3,13 @@ from sqlalchemy.orm import Session
 from temporalio.client import Client
 
 from app import crud, schemas
+from app.auth import require_admin
 from app.config import get_settings
 from app.database import get_db
 from app.temporal.client import get_temporal_client
 from app.temporal.workflows import DigestWorkflow
 
-router = APIRouter(prefix="/digests", tags=["digests"])
+router = APIRouter(prefix="/digests", tags=["digests"], dependencies=[Depends(require_admin)])
 
 
 @router.post("/{topic_id}", response_model=schemas.DigestOut, status_code=201)

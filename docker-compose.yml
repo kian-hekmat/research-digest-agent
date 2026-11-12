@@ -80,6 +80,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg2://digest_user:digest_pass@db:5432/digest_db
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
       SUMMARY_BACKEND: ${SUMMARY_BACKEND:-openai}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}

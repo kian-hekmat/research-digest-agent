@@ -386,21 +386,25 @@ docker-compose exec worker python -m app.backfill_embeddings
 ### Example
 
 ```bash
+# Every endpoint except /health needs the admin token (ADMIN_TOKEN in .env)
+export ADMIN_TOKEN=...
+H="X-Admin-Token: $ADMIN_TOKEN"
+
 # Track a topic (exact phrase), or a whole arXiv category with "cat:math.NA"
-curl -X POST localhost:8000/topics -H 'Content-Type: application/json' \
+curl -H "$H" -X POST localhost:8000/topics -H 'Content-Type: application/json' \
   -d '{"name": "RLHF", "query": "reinforcement learning from human feedback"}'
 
 # Say what you do and don't want from it; the relevance rater reads this
-curl -X PATCH localhost:8000/topics/<topic_id> -H 'Content-Type: application/json' \
+curl -H "$H" -X PATCH localhost:8000/topics/<topic_id> -H 'Content-Type: application/json' \
   -d '{"description": "Reward modeling and preference optimization; not papers that only cite RLHF"}'
 
 # Subscribe: twice weekly, the 10 best papers per email
-curl -X POST localhost:8000/topics/<topic_id>/subscriptions -H 'Content-Type: application/json' \
+curl -H "$H" -X POST localhost:8000/topics/<topic_id>/subscriptions -H 'Content-Type: application/json' \
   -d '{"email": "you@example.com", "cadence": "twice_weekly", "max_papers": 10}'
 
 # Run a digest now, then poll it (pending -> completed)
-curl -X POST localhost:8000/digests/<topic_id>
-curl localhost:8000/digests/<digest_id>
+curl -H "$H" -X POST localhost:8000/digests/<topic_id>
+curl -H "$H" localhost:8000/digests/<digest_id>
 ```
 
 ### API

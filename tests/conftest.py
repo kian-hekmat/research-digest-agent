@@ -15,6 +15,10 @@ os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 # Ollama server. Tests that exercise the Ollama path pass their own Settings
 # and fake the HTTP layer with respx.
 os.environ["SUMMARY_BACKEND"] = "none"
+# The JSON API is admin-only and fails closed, so the suite needs a token set
+# before Settings is first built; `client` sends it, `anon_client` does not.
+os.environ["ADMIN_TOKEN"] = "test-admin-token"
+ADMIN_HEADERS = {"X-Admin-Token": "test-admin-token"}
 
 import pytest  # noqa: E402
 from alembic import command  # noqa: E402
@@ -107,9 +111,18 @@ def client(db_session, fake_temporal_client):
 
     from fastapi.testclient import TestClient
 
-    with TestClient(app) as c:
+    with TestClient(app, headers=ADMIN_HEADERS) as c:
         yield c
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(scope="function")
+def anon_client(client):
+    """The same app and overrides as `client`, but sends no admin token."""
+    from fastapi.testclient import TestClient
+
+    with TestClient(app) as c:
+        yield c
 
 
 def make_subscriber(
