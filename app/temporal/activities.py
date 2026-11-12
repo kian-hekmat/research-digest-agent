@@ -29,6 +29,7 @@ from app.services.retrieval import (
     related_context,
 )
 from app.services.scholar import fetch_max_author_h_index
+from app.spend_ledger import DbLedger
 from app.services.embed import Embedder
 from app.services.email import (
     DigestForEmail,
@@ -318,7 +319,7 @@ def summarize_paper(input: SummarizePaperInput) -> str | None:
     out (see Summarizer); its citations then replace the "similar earlier
     paper" link that embed_papers recorded."""
     related, by_arxiv_id = _related_papers(input.paper_id)
-    rated = Summarizer().summarize_and_rate(
+    rated = Summarizer(ledger=DbLedger(), topic_id=input.topic_id or None).summarize_and_rate(
         input.title,
         input.abstract or "",
         input.topic_name,
@@ -349,7 +350,7 @@ def summarize_paper(input: SummarizePaperInput) -> str | None:
 def rate_relevance(input: SummarizePaperInput) -> int | None:
     """Rate a paper that already has a summary (another topic ingested it
     first) for *this* topic - relevance is per topic, the summary isn't."""
-    relevance = Summarizer().rate_relevance(
+    relevance = Summarizer(ledger=DbLedger(), topic_id=input.topic_id or None).rate_relevance(
         input.title,
         input.abstract or "",
         input.topic_name,
@@ -396,7 +397,7 @@ def _overview_history(input: WriteOverviewInput) -> OverviewHistory | None:
 
 @activity.defn
 def write_overview(input: WriteOverviewInput) -> str | None:
-    return Summarizer().write_overview(
+    return Summarizer(ledger=DbLedger(), topic_id=input.topic_id or None).write_overview(
         input.topic_name, input.summaries, history=_overview_history(input)
     )
 

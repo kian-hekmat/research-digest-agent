@@ -37,6 +37,7 @@ from app.database import SessionLocal
 from app.services.embed import Embedder
 from app.services.retrieval import fulltext_excerpts, index_fulltext
 from app.services.summarize import Summarizer
+from app.spend_ledger import DbLedger
 from evals import metrics
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
@@ -63,7 +64,7 @@ def main(argv=None) -> None:
     settings = get_settings()
     if not settings.embeddings_enabled:
         raise SystemExit("Needs SUMMARY_BACKEND=openai and RAG_ENABLED=true.")
-    embedder, summarizer = Embedder(settings), Summarizer(settings)
+    embedder, summarizer = Embedder(settings), Summarizer(settings, ledger=DbLedger())
     db = SessionLocal()
     try:
         rows = db.execute(text("""

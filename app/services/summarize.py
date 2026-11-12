@@ -26,6 +26,13 @@ With `SUMMARY_BACKEND=none` (`Settings.summaries_enabled` is False), every
 method returns `None` (or a RatedSummary of Nones) immediately - no network
 call, no retry/backoff, no error. This is a deliberate "no-summary mode":
 digests and emails still work, just without AI-written text.
+
+Spend (app.services.spend): given a `ledger`, every OpenAI call is checked
+against the monthly budget first and recorded, with its purpose and topic,
+as soon as it's paid for. A call the budget doesn't allow - or one OpenAI
+refuses because its own hard spend limit is reached - returns no text,
+exactly like no-summary mode, instead of raising. Ollama calls are free and
+neither checked nor recorded.
 """
 from __future__ import annotations
 
@@ -33,9 +40,20 @@ import dataclasses
 import re
 from dataclasses import dataclass
 
+import logging
+
 import httpx
 
 from app.config import Settings, get_settings
+from app.services.spend import (
+    SpendLedger,
+    Usage,
+    cost_usd,
+    is_spend_limit_error,
+    usage_from_openai,
+)
+
+logger = logging.getLogger(__name__)
 
 _PER_PAPER_SYSTEM = (
     "You summarize academic paper abstracts for a research alerting digest. "
@@ -313,9 +331,16 @@ class Summarizer:
         self,
         settings: Settings | None = None,
         http_client: httpx.Client | None = None,
+        *,
+        ledger: SpendLedger | None = None,
+        topic_id: str | None = None,
     ) -> None:
         self._settings = settings or get_settings()
         self._http_client = http_client
+        # None: nothing recorded or budget-checked (tests, ad-hoc use). Every
+        # production caller passes one - tests/test_spend_coverage.py.
+        self._ledger = ledger
+        self._topic_id = topic_id
 
     def summarize_paper(self, title: str, abstract: str) -> str | None:
         if not self._settings.summaries_enabled:
@@ -324,6 +349,7 @@ class Summarizer:
             system=_PER_PAPER_SYSTEM,
             user=f"Title: {title}\n\nAbstract: {abstract}",
             max_tokens=400,
+            purpose="summary",
         )
 
     def summarize_and_rate(
@@ -351,7 +377,10 @@ class Summarizer:
                 ),
                 user=f"{topic}\n\n{paper}",
                 max_tokens=420,
+                purpose="summary",
             )
+            if text is None:
+                return RatedSummary(summary=None, relevance=None)
             return self._rate_separately_if(excerpts, parse_rated_summary(text), title, abstract,
                                             topic_name, topic_query, rating_context)
         earlier = "\n".join(
@@ -367,7 +396,10 @@ class Summarizer:
                 f"New paper:\n{paper}"
             ),
             max_tokens=500,
+            purpose="summary",
         )
+        if text is None:
+            return RatedSummary(summary=None, relevance=None)
         return self._rate_separately_if(
             excerpts, parse_rated_summary(text, offered_ids={r.arxiv_id for r in related}),
             title, abstract, topic_name, topic_query, rating_context,
@@ -401,8 +433,9 @@ class Summarizer:
             system=_with_anchors_note(_RELEVANCE_SYSTEM, rating_context),
             user=f"{_topic_block(topic_name, topic_query, rating_context)}\n\nTitle: {title}\n\nAbstract: {abstract}",
             max_tokens=10,
+            purpose="rating",
         )
-        return parse_relevance(text)
+        return None if text is None else parse_relevance(text)
 
     def write_overview(
         self, topic_name: str, summaries: list[str], history: OverviewHistory | None = None
@@ -416,6 +449,7 @@ class Summarizer:
                 system=_OVERVIEW_SYSTEM,
                 user=f"Topic: {topic_name}\n\nPaper summaries:\n{joined}",
                 max_tokens=500,
+                purpose="overview",
             )
         if history.style == "avoid_repeats":
             previous = "\n".join(
@@ -428,6 +462,7 @@ class Summarizer:
                     f"{previous}\n\nPaper summaries:\n{joined}"
                 ),
                 max_tokens=500,
+                purpose="overview",
             )
         parts = [f"Topic: {topic_name}"]
         if history.previous:
@@ -443,19 +478,28 @@ class Summarizer:
             system=_OVERVIEW_WITH_HISTORY_SYSTEM,
             user="\n\n".join(parts),
             max_tokens=500,
+            purpose="overview",
         )
 
-    def _complete(self, *, system: str, user: str, max_tokens: int) -> str:
+    def _complete(self, *, system: str, user: str, max_tokens: int, purpose: str) -> str | None:
         """One non-streaming chat call. Left to raise on failure (server
         down, bad key, rate limit, model not pulled, timeout) - the activity's
-        retry policy governs attempts."""
+        retry policy governs attempts. None means the spend guard stopped the
+        call: callers treat it like no-summary mode."""
         if self._settings.summary_backend == "openai":
-            return self._complete_openai(system=system, user=user, max_tokens=max_tokens)
+            return self._complete_openai(system=system, user=user, max_tokens=max_tokens, purpose=purpose)
         return self._complete_ollama(system=system, user=user, max_tokens=max_tokens)
 
-    def _complete_openai(self, *, system: str, user: str, max_tokens: int) -> str:
+    def _complete_openai(self, *, system: str, user: str, max_tokens: int, purpose: str) -> str | None:
         if not self._settings.openai_api_key:
             raise RuntimeError("SUMMARY_BACKEND=openai needs OPENAI_API_KEY to be set")
+        model = self._settings.openai_model
+        if self._ledger is not None:
+            # A model without a price could never be recorded: refuse it
+            # before spending anything.
+            cost_usd(model, Usage(0, 0, 0), self._settings.openai_prices)
+            if not self._ledger.allow(purpose):
+                return None
         owns_client = self._http_client is None
         client = self._http_client or httpx.Client(timeout=self._settings.openai_timeout)
         try:
@@ -463,7 +507,7 @@ class Summarizer:
                 f"{self._settings.openai_base_url.rstrip('/')}/chat/completions",
                 headers={"Authorization": f"Bearer {self._settings.openai_api_key}"},
                 json={
-                    "model": self._settings.openai_model,
+                    "model": model,
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},
@@ -475,11 +519,32 @@ class Summarizer:
                     "temperature": 0.2,
                 },
             )
+            if self._ledger is not None and is_spend_limit_error(resp):
+                self._ledger.hard_limit_hit()
+                return None
             resp.raise_for_status()
         finally:
             if owns_client:
                 client.close()
-        return resp.json()["choices"][0]["message"]["content"].strip()
+        body = resp.json()
+        if self._ledger is not None:
+            # Recorded before parsing: a reply we can't use was still paid for.
+            self._ledger.record(
+                model=model, purpose=purpose, topic_id=self._topic_id,
+                usage=self._usage(body, system, user, max_tokens),
+            )
+        return body["choices"][0]["message"]["content"].strip()
+
+    @staticmethod
+    def _usage(body: dict, system: str, user: str, max_tokens: int) -> Usage:
+        try:
+            return usage_from_openai(body)
+        except ValueError:
+            # OpenAI always reports usage on non-streaming calls; if it ever
+            # doesn't, over-estimate rather than record nothing (~3 chars per
+            # token in, the whole output allowance out).
+            logger.warning("OpenAI response had no usage; recording an estimate")
+            return Usage(len(system + user) // 3, 0, max_tokens, estimated=True)
 
     def _complete_ollama(self, *, system: str, user: str, max_tokens: int) -> str:
         owns_client = self._http_client is None

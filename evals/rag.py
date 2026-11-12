@@ -45,6 +45,7 @@ from app.services.summarize import (
     RelatedPaper,
     Summarizer,
 )
+from app.spend_ledger import DbLedger
 from evals import metrics
 
 EVALS_DIR = Path(__file__).resolve().parent
@@ -349,7 +350,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     try:
         labels = read_labels()
         items = load_items(db, labels)
-        variant = VARIANTS[args.variant](db, Summarizer(settings))
+        variant = VARIANTS[args.variant](db, Summarizer(settings, ledger=DbLedger()))
         report: dict = {
             "variant": args.variant,
             "model": settings.summary_model,

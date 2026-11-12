@@ -76,7 +76,13 @@ class FakeSummarizer:
     in_flight = 0
     max_in_flight = 0
     overview_histories: list = []
+    # Constructor kwargs of every instance: activities must pass a spend
+    # ledger and the topic id (app.services.spend).
+    constructed: list[dict] = []
     _lock = threading.Lock()
+
+    def __init__(self, *args, **kwargs):
+        type(self).constructed.append(kwargs)
 
     def summarize_paper(self, title, abstract):
         cls = type(self)
@@ -129,6 +135,7 @@ def _reset_fake_state():
     FakeSummarizer.in_flight = 0
     FakeSummarizer.max_in_flight = 0
     FakeSummarizer.overview_histories = []
+    FakeSummarizer.constructed = []
     FakeEmailSender.sent = []
     FakeEmailSender.fail_for = set()
 
@@ -202,6 +209,76 @@ async def test_digest_workflow_happy_path(db_session, temporal_client, monkeypat
 
     refreshed_topic = db_session.get(models.Topic, topic.id)
     assert refreshed_topic.last_checked_at is not None
+
+
+async def test_llm_activities_pass_a_spend_ledger_and_the_topic(db_session, temporal_client, monkeypatch):
+    from app.spend_ledger import DbLedger
+
+    topic = _make_topic(db_session)
+    digest = crud.create_digest(db_session, topic.id)
+    monkeypatch.setattr(
+        temporal_activities, "search_arxiv", lambda query, since=None: [make_result("2408.0001", "Paper One")]
+    )
+
+    await _run_digest(temporal_client, digest.id)
+
+    # summarize_paper, then write_overview
+    assert len(FakeSummarizer.constructed) == 2
+    for kwargs in FakeSummarizer.constructed:
+        assert isinstance(kwargs["ledger"], DbLedger)
+        assert kwargs["topic_id"] == topic.id
+
+
+async def test_at_100_percent_of_budget_digests_and_emails_go_out_without_ai_text(
+    db_session, temporal_client, monkeypatch
+):
+    """The spend guard end to end: with this month's spend at the cap, a
+    scheduled send still ingests and emails the new paper, with no OpenAI
+    call and no AI-written text."""
+    from decimal import Decimal
+
+    import respx
+
+    from app.config import get_settings
+    from app.services.summarize import Summarizer
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "summary_backend", "openai")
+    monkeypatch.setattr(settings, "openai_api_key", "test-key")
+    monkeypatch.setattr(settings, "openai_base_url", "http://openai.test/v1")
+    monkeypatch.setattr(settings, "rag_enabled", False)  # no embedding server in tests
+    monkeypatch.setattr(temporal_activities, "Summarizer", Summarizer)
+    monkeypatch.setattr(
+        temporal_activities, "search_arxiv", lambda query, since=None: [make_result("2408.0001", "Paper One")]
+    )
+
+    topic = _make_topic(db_session)
+    _make_subscription(
+        db_session, topic, "reader@example.com", last_sent_at=datetime.now(timezone.utc) - timedelta(days=8)
+    )
+    db_session.add(
+        models.LlmUsage(
+            model="gpt-5.4-mini", purpose="summary", input_tokens=1, cached_input_tokens=0,
+            output_tokens=1, cost_usd=Decimal("20"),
+        )
+    )
+    db_session.commit()
+
+    with respx.mock(assert_all_called=False) as router:
+        openai = router.post("http://openai.test/v1/chat/completions")
+        count = await _run_send_emails(temporal_client, "send-over-budget")
+
+    assert not openai.called
+    assert count == 1
+    (to, content), = FakeEmailSender.sent
+    assert to == "reader@example.com"
+    assert "Paper One" in content.text_body
+
+    db_session.expire_all()
+    paper = db_session.query(models.Paper).filter_by(arxiv_id="2408.0001").one()
+    assert paper.summary is None
+    assert crud.relevance_by_paper(db_session, topic.id, [paper.id]) == {}
+    assert db_session.query(models.LlmUsage).count() == 1  # only the seeded row
 
 
 class FakeEmbedder:

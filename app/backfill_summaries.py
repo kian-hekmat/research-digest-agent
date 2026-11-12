@@ -21,6 +21,7 @@ from app import crud, models
 from app.config import get_settings
 from app.database import SessionLocal
 from app.services.summarize import Summarizer
+from app.spend_ledger import DbLedger
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ def main() -> None:
         raise SystemExit("Summarization is off - set SUMMARY_BACKEND=openai first.")
     db = SessionLocal()
     try:
-        result = backfill(db, Summarizer())
+        result = backfill(db, Summarizer(ledger=DbLedger()))
     finally:
         db.close()
     logger.info(

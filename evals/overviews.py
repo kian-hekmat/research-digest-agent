@@ -34,6 +34,7 @@ from app.config import get_settings
 from app.database import SessionLocal
 from app.services.embed import Embedder
 from app.services.summarize import OverviewHistory, Summarizer
+from app.spend_ledger import DbLedger
 from evals import metrics
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
@@ -84,7 +85,7 @@ def main(argv=None) -> None:
     settings = get_settings()
     if not settings.summaries_enabled:
         raise SystemExit("Summarization is off - set SUMMARY_BACKEND=openai first.")
-    summarizer, embedder = Summarizer(settings), Embedder(settings)
+    summarizer, embedder = Summarizer(settings, ledger=DbLedger()), Embedder(settings)
     db = SessionLocal()
     rows = []
     try:
