@@ -287,3 +287,18 @@ No code. Exit criterion: "the current deployment migrates with no data loss."
 - [ ] **Step 3: Add `ADMIN_TOKEN`** (32+ random bytes, `python -c "import secrets; print(secrets.token_urlsafe(32))"`) to the local `.env` (gitignored). Never print it in chat.
 - [ ] **Step 4: Apply.** Run `alembic upgrade head` in the `api` container, then restart `api` and `worker` (`docker compose up -d --build api worker`). Expected: worker logs "Daily digest schedule: unchanged", `GET /health` 200, `GET /topics` 401 without the header and 200 with it, and `list_active_topic_ids` returns all 3 topics.
 - [ ] **Step 5: Record** the migration in the README's incidents/changes section if the project keeps one there; commit and push.
+
+---
+
+## Outcome (2026-11-12)
+
+Done. Commits `9c67f5f`, `1d0524b`, `2972771`, `ab90b4c`, `c951b37` (final-review fixes). 355 tests pass. The live database was migrated to `a1b2c3d4e5f7` at 10:00 PT after the daily run, with a `pg_dump` taken first (`~/research-digest-backups/`); counts preserved, 3 topics active, API returns 401 without `X-Admin-Token`.
+
+**Deviation from Task 5 Step 4:** the worker was stopped before `alembic upgrade head` and started after it, because old worker code can't run on the new schema and new code can't run on the old one.
+
+**Carried forward**
+- Phase 3: map typographic apostrophes (`’`, `‘`) to `'` before validating public queries; turn `"empty query"` into a user-facing message; handle concurrent subscriber creation on the signup path (`INSERT … ON CONFLICT` or retry), since `crud.create_subscription` reports every `IntegrityError` as "already subscribed"; re-check eligibility at send time so an unsubscribe between listing and delivery is honoured; decide whether admin re-adding an unsubscribed subscriber clears `unsubscribed_at`; merges don't carry `waitlisted_at`.
+- Phase 3: the public-field guard in `tests/test_admin_auth.py` only sees JSON models; add behaviour tests on rendered pages for the "no public email, description or cadence" rule.
+- Phase 5 (before any internet exposure): disable or protect `/docs`, `/redoc` and `/openapi.json`.
+- Admin-only, parked: a query whose characters expand under `lower()` (e.g. `İ`) can pass the 200-character raw cap and overflow `normalized_query` (500 instead of 422).
+- Small test gaps, add when the files are next touched: length/character error messages and `CAT:`-style prefixes in `tests/test_topic_query.py`; a non-ASCII or same-length wrong admin token; a fan-out workflow test for a topic with only an ineligible subscriber.
