@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Column,
@@ -12,8 +13,10 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Identity,
     Index,
     Integer,
+    Numeric,
     SmallInteger,
     Table,
     UniqueConstraint,
@@ -434,3 +437,52 @@ class Subscription(Base):
         """The subscriber's email, so code that only needs a recipient
         (SubscriptionOut, the send workflow) doesn't care where it lives."""
         return self.subscriber.email
+
+
+# Purposes an OpenAI call can be recorded under (app.services.spend.PURPOSES;
+# duplicated here so the check constraint doesn't import the service layer).
+LLM_USAGE_PURPOSES = ("rating", "summary", "overview", "embedding", "preview")
+
+
+class LlmUsage(Base):
+    """One OpenAI call: what it was for, which topic, its tokens and cost.
+    Written by app.spend_ledger.DbLedger as soon as the call is paid for; the
+    spend guard sums this table for the month. Topic deletion keeps the row
+    (the money was still spent)."""
+
+    __tablename__ = "llm_usage"
+    __table_args__ = (
+        CheckConstraint(
+            "purpose IN (" + ", ".join(f"'{p}'" for p in LLM_USAGE_PURPOSES) + ")",
+            name="ck_llm_usage_purpose",
+        ),
+    )
+
+    id = Column(BigInteger, Identity(), primary_key=True)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    model = Column(String, nullable=False)
+    purpose = Column(String(16), nullable=False)
+    topic_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("topics.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    input_tokens = Column(Integer, nullable=False)
+    cached_input_tokens = Column(Integer, nullable=False)
+    output_tokens = Column(Integer, nullable=False)
+    cost_usd = Column(Numeric(12, 6), nullable=False)
+    # True when OpenAI's response carried no usage and tokens were estimated.
+    estimated = Column(Boolean, nullable=False, server_default="false", default=False)
+
+
+class SentAlert(Base):
+    """An operational alert that has been emailed, by key (e.g.
+    "spend-80:2026-11"), so each one goes out at most once."""
+
+    __tablename__ = "sent_alerts"
+
+    key = Column(String, primary_key=True)
+    sent_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
