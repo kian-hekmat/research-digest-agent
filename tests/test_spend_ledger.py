@@ -186,3 +186,80 @@ def test_failed_alert_never_fails_record(db_session, monkeypatch):
 
     assert db_session.query(models.LlmUsage).count() == 2
     assert db_session.query(models.SentAlert).count() == 0
+
+
+def test_80_percent_alert_claims_nothing_that_isnt_enforced_yet(db_session, monkeypatch):
+    # Waitlisting new topics arrives with public signup (Phase 3); until then
+    # the alert must not say topics are waiting.
+    monkeypatch.setattr(get_settings(), "alert_email", "owner@example.com")
+    bodies = []
+
+    def capture(db, key, subject, body, **kwargs):
+        bodies.append((key, body))
+        return True
+
+    _usage_row(db_session, NOV, "16")
+    DbLedger(now=lambda: NOV, alert=capture).record(
+        model="gpt-5.4-mini", purpose="summary", topic_id=None, usage=Usage(1, 0, 1)
+    )
+
+    ((key, body),) = bodies
+    assert key == "spend-80:2026-11"
+    assert "$16.00 of the $20 budget" in body
+    assert "new topics" not in body.lower()
+
+
+class SlowSender:
+    def __init__(self) -> None:
+        self.sent = []
+        self._lock = __import__("threading").Lock()
+
+    def send(self, to, content):
+        __import__("time").sleep(0.3)
+        with self._lock:
+            self.sent.append(content.subject)
+
+
+def test_concurrent_records_crossing_80_send_one_alert(db_session, monkeypatch):
+    import threading
+
+    monkeypatch.setattr(get_settings(), "alert_email", "owner@example.com")
+    sender = SlowSender()
+    monkeypatch.setattr("app.alerts._default_sender", lambda: sender)
+    _usage_row(db_session, NOV, "15.99")
+    ledger = _ledger()
+    barrier = threading.Barrier(4)
+    errors = []
+
+    def record():
+        try:
+            barrier.wait()
+            ledger.record(model="gpt-5.4-mini", purpose="summary", topic_id=None, usage=Usage(0, 0, 2_300))
+        except Exception as exc:  # pragma: no cover - surfaced by the assert below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=record) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []
+    assert len(sender.sent) == 1
+    assert db_session.query(models.LlmUsage).count() == 5
+
+
+def test_month_boundary_holds_in_a_non_utc_database_session(db_session):
+    from sqlalchemy import text
+
+    # Session-level, so it would outlive this test on the pooled connection:
+    # always reset it.
+    db_session.execute(text("SET TIME ZONE 'America/Los_Angeles'"))
+    try:
+        _usage_row(db_session, datetime(2026, 10, 31, 23, 59, tzinfo=timezone.utc), "5")
+        _usage_row(db_session, datetime(2026, 11, 1, 0, 0, 30, tzinfo=timezone.utc), "2")
+        assert month_to_date_usd(db_session, NOV) == Decimal("2")
+    finally:
+        db_session.rollback()
+        db_session.execute(text("RESET TIME ZONE"))
+        db_session.commit()

@@ -124,3 +124,40 @@ def test_ignores_topics_nobody_is_actively_subscribed_to(db_session):
     backfill(db_session, fake)
 
     assert fake.summarized == []
+
+
+class BlockedSummarizer:
+    """The spend guard said no: every call returns no text."""
+
+    def summarize_paper(self, title, abstract):
+        return None
+
+    def write_overview(self, topic_name, summaries):
+        return None
+
+
+def test_calls_the_budget_blocked_are_skipped_not_counted_as_written(db_session):
+    topic = _topic(db_session, "RLHF")
+    _subscribe(db_session, topic)
+    _digest(db_session, topic, LAST_SENT + timedelta(days=1), ["New A", "New B"])
+
+    result = backfill(db_session, BlockedSummarizer())
+
+    assert result.summaries_written == 0
+    assert result.skipped == 2
+    assert result.failures == 0
+
+
+class SummariesOnlySummarizer(RecordingSummarizer):
+    def write_overview(self, topic_name, summaries):
+        return None
+
+
+def test_a_blocked_overview_is_skipped_not_counted(db_session):
+    topic = _topic(db_session, "RLHF")
+    _subscribe(db_session, topic)
+    _digest(db_session, topic, LAST_SENT + timedelta(days=1), ["New A"])
+
+    result = backfill(db_session, SummariesOnlySummarizer())
+
+    assert (result.summaries_written, result.overviews_written, result.skipped) == (1, 0, 1)

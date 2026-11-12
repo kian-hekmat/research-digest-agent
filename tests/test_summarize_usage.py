@@ -178,3 +178,13 @@ def test_ollama_backend_records_nothing():
     )
     assert s.summarize_paper("T", "A") == "A summary."
     assert ledger.records == [] and ledger.asked == []
+
+
+@respx.mock
+def test_out_of_credits_429_returns_none_and_reports():
+    respx.post(OPENAI_CHAT).mock(
+        return_value=httpx.Response(429, json={"error": {"code": "insufficient_quota"}})
+    )
+    ledger = FakeLedger()
+    assert _summarizer(ledger).write_overview("RLHF", ["s1"]) is None
+    assert ledger.hard_limits == 1

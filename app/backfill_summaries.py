@@ -31,6 +31,9 @@ class BackfillResult:
     summaries_written: int = 0
     overviews_written: int = 0
     failures: int = 0
+    # Calls that returned no text (the spend guard said no, or summaries are
+    # off): not written, left for a re-run.
+    skipped: int = 0
 
 
 def _pending_digests(db: Session) -> list[models.Digest]:
@@ -51,11 +54,15 @@ def backfill(db: Session, summarizer: Summarizer) -> BackfillResult:
             if paper.summary:
                 continue
             try:
-                paper.summary = summarizer.summarize_paper(paper.title, paper.abstract or "")
+                summary = summarizer.summarize_paper(paper.title, paper.abstract or "")
             except Exception:
                 logger.exception("Summary failed for %s", paper.arxiv_id)
                 result.failures += 1
                 continue
+            if summary is None:
+                result.skipped += 1
+                continue
+            paper.summary = summary
             db.commit()
             result.summaries_written += 1
             logger.info("Summarized %s", paper.arxiv_id)
@@ -63,11 +70,15 @@ def backfill(db: Session, summarizer: Summarizer) -> BackfillResult:
         summaries = [p.summary for p in digest.papers if p.summary]
         if digest.overview is None and summaries:
             try:
-                digest.overview = summarizer.write_overview(digest.topic.name, summaries)
+                overview = summarizer.write_overview(digest.topic.name, summaries)
             except Exception:
                 logger.exception("Overview failed for digest %s", digest.id)
                 result.failures += 1
                 continue
+            if overview is None:
+                result.skipped += 1
+                continue
+            digest.overview = overview
             db.commit()
             result.overviews_written += 1
     return result
@@ -83,11 +94,13 @@ def main() -> None:
     finally:
         db.close()
     logger.info(
-        "Done: %d summaries, %d overviews written, %d failures%s",
+        "Done: %d summaries, %d overviews written, %d failures, %d skipped (no text: "
+        "spend limit or summaries off)%s",
         result.summaries_written,
         result.overviews_written,
         result.failures,
-        " (re-run to retry them)" if result.failures else "",
+        result.skipped,
+        " (re-run to retry them)" if result.failures or result.skipped else "",
     )
 
 

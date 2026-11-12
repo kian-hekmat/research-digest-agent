@@ -117,10 +117,10 @@ class DbLedger:
             self._safe_alert(
                 db,
                 f"openai-hard-limit:{_month_key(now)}",
-                "Research digest: OpenAI's spend limit was hit",
-                "OpenAI refused a call because the project's own hard spend limit "
-                "is reached. AI summaries are paused until it resets or is raised; "
-                "digests still go out without AI text.",
+                "Research digest: OpenAI is refusing paid calls",
+                "OpenAI refused a call because the project's hard spend limit is "
+                "reached or the account is out of credits. AI summaries are paused "
+                "until that's fixed; digests still go out without AI text.",
             )
         finally:
             db.close()
@@ -138,7 +138,7 @@ class DbLedger:
             f"spend-80:{month}",
             f"Research digest: OpenAI spend at {pct}% of ${budget:g}",
             f"Month-to-date OpenAI spend is ${spent:.2f} of the ${budget:g} budget "
-            f"({month}, UTC). New topics now wait until the 1st; existing topics run as usual.",
+            f"({month}, UTC). Everything still runs; at 100% AI summaries pause until the 1st.",
         )
         if state == "hard":
             self._safe_alert(

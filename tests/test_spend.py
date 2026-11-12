@@ -92,3 +92,10 @@ def test_spend_limit_detection_tolerates_non_json():
 def test_prices_overridable_from_env(monkeypatch):
     monkeypatch.setenv("OPENAI_PRICES", '{"m": {"input": 1, "cached_input": 1, "output": 2}}')
     assert Settings().openai_prices == {"m": {"input": 1.0, "cached_input": 1.0, "output": 2.0}}
+
+
+def test_out_of_credits_counts_as_a_spend_stop():
+    # OpenAI's "you've run out of prepaid credits / quota" 429: retrying can't
+    # help either, and the owner needs the same alert.
+    r = httpx.Response(429, json={"error": {"code": "insufficient_quota", "type": "insufficient_quota"}})
+    assert is_spend_limit_error(r) is True

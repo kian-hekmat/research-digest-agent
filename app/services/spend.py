@@ -19,9 +19,14 @@ import httpx
 
 PURPOSES = ("rating", "summary", "overview", "embedding", "preview")
 
-# 429 error codes OpenAI returns once a project's or organization's hard
-# monthly spend limit is reached. Retrying can't help until the month resets.
-_SPEND_LIMIT_CODES = {"project_spend_limit_exceeded", "organization_spend_limit_exceeded"}
+# 429 error codes meaning OpenAI won't take more paid calls: a project's or
+# organization's hard monthly spend limit is reached, or the account is out
+# of credits. Retrying can't help until the limit resets or money is added.
+_SPEND_LIMIT_CODES = {
+    "project_spend_limit_exceeded",
+    "organization_spend_limit_exceeded",
+    "insufficient_quota",
+}
 _PER_MILLION = Decimal(1_000_000)
 _MICRO_DOLLAR = Decimal("0.000001")
 
