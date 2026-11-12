@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -107,3 +107,30 @@ class SubscriptionOut(BaseModel):
     active: bool
     last_sent_at: datetime
     created_at: datetime
+
+
+# ---------- Admin: OpenAI usage ----------
+class PurposeUsage(BaseModel):
+    calls: int
+    input_tokens: int
+    cached_input_tokens: int
+    output_tokens: int
+    cost_usd: float
+
+
+class TopicUsage(BaseModel):
+    # None groups calls with no topic, or whose topic has since been deleted.
+    topic_id: Optional[str] = None
+    topic_name: Optional[str] = None
+    calls: int
+    cost_usd: float
+
+
+class UsageReport(BaseModel):
+    month: str  # YYYY-MM, UTC
+    budget_usd: float
+    spent_usd: float
+    # Spend-guard state; only meaningful for the current month, else None.
+    state: Optional[Literal["ok", "soft", "hard"]] = None
+    by_purpose: dict[str, PurposeUsage]
+    by_topic: list[TopicUsage]  # most expensive first

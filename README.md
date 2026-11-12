@@ -437,6 +437,7 @@ curl -H "$H" localhost:8000/digests/<digest_id>
 | `POST /topics`, `GET /topics`, `GET /topics/{id}`, `PATCH /topics/{id}`, `DELETE /topics/{id}` | Manage tracked topics (`PATCH` edits the description). Topics are unique by normalized query, so `RLHF` and `"rlhf"` are one topic (409) |
 | `POST /digests/{topic_id}`, `GET /digests`, `GET /digests/{id}` | Trigger and inspect digest runs |
 | `GET /papers/by-topic/{topic_id}` | Papers ingested for a topic |
+| `GET /admin/usage?month=YYYY-MM` | OpenAI spend for a month (UTC, default the current one): total against the budget, the spend-guard state, and breakdowns by purpose and by topic |
 | `POST`/`GET /topics/{id}/subscriptions` | Subscribe an email to a topic (an admin-added subscriber counts as confirmed), list subscribers |
 | `PATCH`/`DELETE /subscriptions/{id}` | Change cadence, cap or active flag; unsubscribe |
 | `GET /health` | Health check (the only route without the admin token) |
@@ -457,6 +458,9 @@ All settings are environment variables (see [`.env.example`](.env.example)).
 | `SUMMARY_BACKEND` | `openai` | `openai` for summaries through the OpenAI API; `ollama` for a local model; `none` to send digests without AI text |
 | `OPENAI_API_KEY` | unset | Required with `SUMMARY_BACKEND=openai`. Keep it in `.env`, which is gitignored; never commit it |
 | `OPENAI_MODEL` | `gpt-5.4-mini` | Model for summaries, ratings and overviews. Must accept `reasoning_effort: none` |
+| `OPENAI_MONTHLY_BUDGET_USD` | `20` | Monthly OpenAI cap, enforced in the app: alert at 80%, AI text paused at 100% until the 1st (UTC). Every call is recorded in `llm_usage` |
+| `ALERT_EMAIL` | unset | Where spend alerts are emailed; while unset they're only logged |
+| `OPENAI_PRICES` | `gpt-5.4-mini` and `text-embedding-3-small` | USD per 1M tokens per model, as JSON. A model with no price can't be called, so spend is never unrecorded |
 | `OLLAMA_BASE_URL` | `http://host.docker.internal:11434` (in Docker) | Where the worker reaches Ollama, for embeddings and the `ollama` backend |
 | `OLLAMA_MODEL` | `gemma3:12b` | Summary model with `SUMMARY_BACKEND=ollama` (`ollama pull gemma3:12b`, ~8 GB) |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_USE_TLS` / `SMTP_FROM_ADDRESS` | Mailpit | Outgoing email |
