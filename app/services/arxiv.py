@@ -18,7 +18,7 @@ import httpx
 from app.config import get_settings
 
 _VERSION_SUFFIX = re.compile(r"v\d+$")  # 2408.12345v2 -> 2408.12345 (stable dedupe key)
-_FIELD_PREFIX = re.compile(r"^(ti|au|abs|co|jr|cat|rn|id|all):")  # arXiv search fields
+FIELD_PREFIX = re.compile(r"^(ti|au|abs|co|jr|cat|rn|id|all):")  # arXiv search fields
 _last_request_at = 0.0
 _throttle_lock = threading.Lock()
 
@@ -91,7 +91,7 @@ def _build_search_query(query: str) -> str:
     category, whose papers rarely contain the category's name as a phrase.
     """
     query = query.strip()
-    if _FIELD_PREFIX.match(query):
+    if FIELD_PREFIX.match(query):
         return query
     phrase = query.strip('"')
     return f'all:"{phrase}"'

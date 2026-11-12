@@ -148,6 +148,21 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = False
     smtp_from_address: str = "digest@example.com"
 
+    # --- public limits (app.topic_query, public signup) ---
+    # Caps that keep a small public service within its budget: arXiv and
+    # OpenAI cost scale with active topics, so both people and topics are bounded.
+    max_subscribers: int = 200
+    max_topics_per_subscriber: int = 5
+    max_active_topics: int = 100  # distinct topics across all subscribers
+    max_query_length: int = 200
+    # Papers per topic a public subscriber may ask for, and the default.
+    public_papers_per_topic_min: int = 5
+    public_papers_per_topic_max: int = 10
+    public_papers_per_topic_default: int = 5
+    # Public topics are plain phrases: letters, digits and light punctuation
+    # only, so nothing can smuggle arXiv query syntax or odd input through.
+    public_query_pattern: str = r"^[\w\s\-.,'+/()&]+$"
+
 
 @lru_cache
 def get_settings() -> Settings:
