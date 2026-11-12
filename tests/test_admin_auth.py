@@ -69,21 +69,36 @@ def _field_names(model, seen=None):
     return names
 
 
-def test_no_public_route_exposes_emails_descriptions_or_cadence():
+def _names_in(annotation):
+    """Field names of every pydantic model in `annotation`, unwrapping
+    list[...], Optional[...] and the like."""
+    from pydantic import BaseModel
+
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return _field_names(annotation)
+    names = set()
+    for arg in getattr(annotation, "__args__", ()):
+        names |= _names_in(arg)
+    return names
+
+
+def test_public_routes_never_return_emails_descriptions_or_cadence_nor_accept_cadence_or_descriptions():
+    """Nothing public *returns* an email, a topic description or a cadence,
+    or *accepts* a cadence or a description. Public routes may accept an
+    email (Phase 3's signup must)."""
     from fastapi.routing import APIRoute
 
     from app.auth import PUBLIC_PATHS
     from app.main import app
 
-    forbidden = {"email", "description", "cadence"}
+    never_returned = {"email", "description", "cadence"}
+    never_accepted = {"cadence", "description"}
     public = [r for r in app.routes if isinstance(r, APIRoute) and r.path in PUBLIC_PATHS]
     assert public, "PUBLIC_PATHS matches no route"
     for route in public:
-        models = []
         if route.response_model is not None:
-            models.append(route.response_model)
+            returned = _names_in(route.response_model)
+            assert not (returned & never_returned), (route.path, "response", returned & never_returned)
         if route.body_field is not None:
-            models.append(route.body_field.field_info.annotation)
-        for m in models:
-            if isinstance(m, type) and hasattr(m, "model_fields"):
-                assert not (_field_names(m) & forbidden), (route.path, m)
+            accepted = _names_in(route.body_field.field_info.annotation)
+            assert not (accepted & never_accepted), (route.path, "body", accepted & never_accepted)

@@ -1,3 +1,6 @@
+import pytest
+
+
 def test_create_topic(client):
     resp = client.post("/topics", json={"name": "RLHF", "query": "reinforcement learning human feedback"})
     assert resp.status_code == 201
@@ -45,6 +48,16 @@ def test_topic_with_same_normalized_query_is_a_conflict(client):
     client.post("/topics", json={"name": "RLHF", "query": "RLHF"})
     assert client.post("/topics", json={"name": "Other name", "query": ' "rlhf" '}).status_code == 409
 
+
+
+def test_topic_query_longer_than_200_characters_is_rejected(client):
+    assert client.post("/topics", json={"name": "Long", "query": "a" * 201}).status_code == 422
+    assert client.post("/topics", json={"name": "Long", "query": "a" * 200}).status_code == 201
+
+
+@pytest.mark.parametrize("query", ['""', "  ", "“ ”"])
+def test_topic_query_that_normalizes_to_nothing_is_invalid_not_a_conflict(client, query):
+    assert client.post("/topics", json={"name": "Empty", "query": query}).status_code == 422
 
 def test_topic_names_need_not_be_unique(client):
     client.post("/topics", json={"name": "Same", "query": "rlhf"})

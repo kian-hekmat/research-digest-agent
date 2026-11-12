@@ -1,20 +1,34 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models import DigestStatus, SubscriptionCadence
+from app.topic_query import normalize_query
 
 
 # ---------- Topic ----------
 class TopicCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
-    query: str = Field(..., min_length=1, description="arXiv search query, e.g. 'RLHF'")
+    # 200 = topics.normalized_query's length; normalizing never lengthens a query.
+    query: str = Field(
+        ..., min_length=1, max_length=200, description="arXiv search query, e.g. 'RLHF'"
+    )
     description: Optional[str] = Field(
         None,
         max_length=2000,
         description="What you do and don't want from this topic; guides the relevance rating",
     )
+
+    @field_validator("query")
+    @classmethod
+    def _query_is_not_empty(cls, query: str) -> str:
+        # Checked here so it is a 422, not the router's 409 for a duplicate.
+        try:
+            normalize_query(query)
+        except ValueError:
+            raise ValueError("query must contain more than quotes and whitespace")
+        return query
 
 
 class TopicUpdate(BaseModel):

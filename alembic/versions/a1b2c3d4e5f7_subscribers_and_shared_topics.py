@@ -125,7 +125,22 @@ def upgrade() -> None:
         for dup in duplicates:
             ids = {"keep": keeper.id, "dup": dup.id}
             # A subscriber already on the keeper keeps that subscription; their
-            # one on the duplicate goes with the duplicate's delete below.
+            # one on the duplicate goes with the duplicate's delete below. It
+            # stays active if either was, and resumes from the earlier send so
+            # nothing either one hadn't been sent yet is skipped.
+            bind.execute(
+                sa.text(
+                    """
+                    UPDATE subscriptions k
+                    SET active = k.active OR d.active,
+                        last_sent_at = least(k.last_sent_at, d.last_sent_at)
+                    FROM subscriptions d
+                    WHERE k.topic_id = :keep AND d.topic_id = :dup
+                      AND d.subscriber_id = k.subscriber_id
+                    """
+                ),
+                ids,
+            )
             bind.execute(
                 sa.text(
                     """
@@ -147,6 +162,16 @@ def upgrade() -> None:
                     SELECT :keep, paper_id, relevance, reference_relevance, reference_labeler
                     FROM topic_paper WHERE topic_id = :dup
                     ON CONFLICT (topic_id, paper_id) DO NOTHING
+                    """
+                ),
+                ids,
+            )
+            # The oldest duplicate's description fills a keeper that has none.
+            bind.execute(
+                sa.text(
+                    """
+                    UPDATE topics SET description = (SELECT description FROM topics WHERE id = :dup)
+                    WHERE id = :keep AND description IS NULL
                     """
                 ),
                 ids,
@@ -195,6 +220,19 @@ def downgrade() -> None:
     # Merged topics, cadence and max_papers are not restored: the merged-away
     # rows are gone, and the old values are not kept anywhere. Topics that
     # share a name are renamed (below) so the old unique name fits again.
+    #
+    # The old code emails every active subscription, so first switch off any
+    # that the new code wouldn't email: the person never confirmed, has
+    # unsubscribed or is waitlisted, or the subscription itself is waitlisted.
+    op.execute(
+        """
+        UPDATE subscriptions s SET active = false
+        FROM subscribers u
+        WHERE u.id = s.subscriber_id
+          AND (s.waitlisted_at IS NOT NULL OR u.confirmed_at IS NULL
+               OR u.unsubscribed_at IS NOT NULL OR u.waitlisted_at IS NOT NULL)
+        """
+    )
     op.add_column("subscriptions", sa.Column("email", sa.String(), nullable=True))
     op.execute(
         "UPDATE subscriptions s SET email = u.email FROM subscribers u WHERE u.id = s.subscriber_id"

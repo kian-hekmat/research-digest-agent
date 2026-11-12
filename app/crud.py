@@ -317,8 +317,9 @@ def count_pending_digests(db: Session) -> int:
 # ---------- Subscriptions ----------
 def get_or_create_subscriber(db: Session, email: str, *, confirmed: bool) -> models.Subscriber:
     """The subscriber for `email`, matched case-insensitively (the same rule
-    as the unique index), created if new - with `confirmed_at` set now when
-    `confirmed`. An existing subscriber is returned as is. Does not commit."""
+    as the unique index), created if new. With `confirmed`, `confirmed_at` is
+    set now if it isn't already, on a new or an existing (pending) subscriber;
+    otherwise an existing subscriber is returned as is. Does not commit."""
     subscriber = (
         db.query(models.Subscriber)
         .filter(func.lower(models.Subscriber.email) == func.lower(email))
@@ -330,6 +331,8 @@ def get_or_create_subscriber(db: Session, email: str, *, confirmed: bool) -> mod
         )
         db.add(subscriber)
         db.flush()  # assign subscriber.id
+    elif confirmed and subscriber.confirmed_at is None:
+        subscriber.confirmed_at = models.utcnow()
     return subscriber
 
 

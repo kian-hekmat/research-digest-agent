@@ -6,7 +6,8 @@ from app.config import get_settings
 
 # Routes served without the admin token. Everything else is admin-only via the
 # routers' dependencies; Phase 3 adds its public signup routes here, and a test
-# checks that nothing listed here exposes emails, descriptions or cadence.
+# checks that nothing listed here returns emails, descriptions or cadence, or
+# accepts a cadence or description.
 PUBLIC_PATHS = {"/health"}
 
 

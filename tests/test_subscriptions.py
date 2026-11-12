@@ -214,6 +214,22 @@ def test_admin_created_subscriber_is_confirmed(client, db_session):
     assert db_session.query(models.Subscriber).one().confirmed_at is not None
 
 
+def test_admin_subscribing_a_pending_subscriber_confirms_them(client, db_session):
+    # A person who signed up but never confirmed, then added by the owner:
+    # the owner's add counts as confirmation, or they would never be emailed.
+    from app import models
+    from tests.conftest import make_subscriber
+
+    make_subscriber(db_session, "pending@example.com", confirmed=False)
+    topic = client.post("/topics", json={"name": "RLHF", "query": "rlhf"}).json()
+
+    resp = client.post(f"/topics/{topic['id']}/subscriptions", json={"email": "Pending@Example.com"})
+
+    assert resp.status_code == 201
+    db_session.expire_all()
+    subscriber = db_session.query(models.Subscriber).one()
+    assert subscriber.confirmed_at is not None
+
 def test_deleting_subscriber_removes_subscriptions_not_topics(client, db_session):
     from app import models
 
