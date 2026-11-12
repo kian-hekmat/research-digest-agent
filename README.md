@@ -15,8 +15,18 @@ sleeping laptop delays a digest instead of losing it.
 > Built as a realistic backend/AI engineering project: an HTTP API, a relational
 > schema with migrations, durable workflow orchestration, external API
 > integration, LLM summarization with retrieval (RAG) over a vector store, an
-> offline evaluation harness, scheduled email delivery, and a 292-test suite
+> offline evaluation harness, scheduled email delivery, and a 355-test suite
 > running in CI.
+
+**Status (2026-11-12): being turned into a small public service.** The plan is
+[`docs/public-launch-plan.md`](docs/public-launch-plan.md) (v2.1): free
+twice-weekly digests for US readers, capped at 200 subscribers and $20/month of
+OpenAI spend. Phase 1 of 6 is done and deployed: real subscriber records,
+topics shared by a normalized query, fetching and emailing only for confirmed
+subscribers, and the JSON API locked behind an admin token. There is no public
+signup yet; the service still runs for its owner. Next is Phase 2 (spend
+tracking, OpenAI embeddings, a two-pass pipeline and a redesigned email). Each
+phase's implementation plan is in [`docs/superpowers/plans/`](docs/superpowers/plans/).
 
 ---
 
@@ -59,8 +69,9 @@ September 28, 2026
 + 4 more RLHF papers not shown (showing the top 10).
 ```
 
-Each subscriber chooses topics, a cadence (twice weekly, weekly or biweekly), and
-a cap on papers per topic. When the cap cuts a topic down, the papers kept are the
+Each subscriber chooses topics and a cap on papers per topic. Every subscription
+is currently twice weekly; the weekly and biweekly cadences still exist but are
+admin-only, and the public launch will offer twice weekly only. When the cap cuts a topic down, the papers kept are the
 highest-ranked, not just the newest. A paper that is a near-duplicate of another
 in the same section is folded under it ("Also (near-duplicate): ...") instead of
 taking a slot. Only the model's own summary and links to arXiv go out; the
@@ -72,7 +83,10 @@ paper's text never does.
 
 **Backend & API design**
 - REST API with FastAPI: typed request/response models, validation, meaningful
-  status codes (201/204/404/409/422), partial updates via `PATCH`
+  status codes (201/204/401/404/409/422), partial updates via `PATCH`
+- Admin-token auth on every route except `/health`: constant-time comparison,
+  fails closed when no token is configured, and a test that sweeps every route
+  so a new one can't ship unprotected by accident
 - Dependency injection throughout (DB session, Temporal client, SMTP client, LLM
   HTTP client), so every external boundary can be faked in tests
 
@@ -84,9 +98,11 @@ paper's text never does.
 - pgvector without an extra driver dependency: a small SQLAlchemy `Vector` type
   and one module (`retrieval.py`) that owns all vector SQL; embeddings keyed by
   model so a new model can be backfilled side by side
-- 12 hand-reviewed Alembic migrations, including a Postgres enum change that has
-  to commit outside the migration's transaction, and a reversible downgrade that
-  rebuilds the enum type
+- 13 hand-reviewed Alembic migrations, including a Postgres enum change that has
+  to commit outside the migration's transaction, a reversible downgrade that
+  rebuilds the enum type, and a data migration that moves emails into a
+  `subscribers` table (case-insensitive) and merges topics whose queries
+  normalize the same, rehearsed on a copy of the live database before it ran
 
 **Distributed workflows (Temporal)**
 - Deterministic workflow code with all I/O isolated in activities, each with its
@@ -133,7 +149,7 @@ paper's text never does.
   the export host arXiv asks scripts to use
 
 **Testing & CI**
-- 286 tests against a real Postgres built by running the migrations, so model
+- 355 tests against a real Postgres built by running the migrations, so model
   and migration drift fails the suite
 - Workflows run end to end against Temporal's time-skipping server, so minutes
   of retry backoff finish in about a second
@@ -168,7 +184,8 @@ paper's text never does.
 ```
 
 - **`api`** is fast and synchronous: CRUD on topics and subscriptions, and
-  starting workflows. It never does slow external work itself.
+  starting workflows, all behind an admin token. It never does slow external
+  work itself.
 - **`worker`** runs every workflow and activity. All external calls (arXiv, the
   LLM and embedding model, scholarly APIs, SMTP) happen here, each behind a
   retry policy.
@@ -188,7 +205,9 @@ paper's text never does.
 ## How it works
 
 ### 1. Daily digest pipeline (`DigestWorkflow`)
-Runs daily at 10:00 Pacific for every topic, and on demand via `POST /digests/{topic_id}`.
+Runs daily at 10:00 Pacific for every topic with at least one active
+subscription from a confirmed subscriber, and on demand for any topic via
+`POST /digests/{topic_id}`.
 
 1. **Fetch** new papers from arXiv. Free-text topics are sent as exact-phrase
    searches; queries like `cat:math.NA` track a whole arXiv category.
@@ -213,7 +232,9 @@ Runs Mondays and Thursdays at 08:00 Pacific.
 
 1. **Refresh first**: run a digest pass and wait for any in-flight digests, so
    the email never goes out before fresh content is ready.
-2. **Find due subscriptions**, each judged against its own cadence.
+2. **Find due subscriptions**, each judged against its own cadence. Only active
+   subscriptions of confirmed subscribers who haven't unsubscribed and aren't
+   waitlisted count, the same rule that decides which topics are fetched.
 3. **Enrich**: look up author h-indices (Semantic Scholar with a key, OpenAlex
    without), done at send time because both lag arXiv by a day or more.
 4. **Rank, cap and render** one email per recipient, with a section per topic
@@ -333,12 +354,14 @@ regression test:
 ## Testing
 
 ```bash
-venv/bin/python3 -m pytest -q        # 286 tests
+venv/bin/python -m pytest -q        # 355 tests
 ```
 
 | Layer | How |
 |---|---|
 | Database | Real PostgreSQL with pgvector; schema built by running the Alembic migrations, torn down per test |
+| Data migrations | Old-schema rows seeded with raw SQL, then upgrade, downgrade and upgrade again, asserting which rows survive a merge, not just counts |
+| Auth | Every route except `/health` is swept with no token, a wrong token and an empty one, and must return 401 |
 | Retrieval | Real vector queries on synthetic embeddings whose similarities are known by construction (unit vectors at chosen angles) |
 | Workflows | Real workflows and activities on Temporal's **time-skipping** test server, so retry backoff is fast-forwarded |
 | Schedules | Temporal's local dev server (the time-skipping server has no Schedule API) |
@@ -367,7 +390,7 @@ brew services start ollama
 ollama pull embeddinggemma        # ~0.6 GB, for retrieval
 
 # 2. Configure
-cp .env.example .env              # then set OPENAI_API_KEY in .env; email goes to Mailpit
+cp .env.example .env              # then set OPENAI_API_KEY and ADMIN_TOKEN in .env; email goes to Mailpit
 
 # 3. Start the stack: Postgres (+ pgvector), Temporal, Mailpit, API, worker
 docker-compose up -d --build
@@ -411,12 +434,16 @@ curl -H "$H" localhost:8000/digests/<digest_id>
 
 | Method & path | Purpose |
 |---|---|
-| `POST /topics`, `GET /topics`, `GET /topics/{id}`, `PATCH /topics/{id}`, `DELETE /topics/{id}` | Manage tracked topics (`PATCH` edits the description) |
+| `POST /topics`, `GET /topics`, `GET /topics/{id}`, `PATCH /topics/{id}`, `DELETE /topics/{id}` | Manage tracked topics (`PATCH` edits the description). Topics are unique by normalized query, so `RLHF` and `"rlhf"` are one topic (409) |
 | `POST /digests/{topic_id}`, `GET /digests`, `GET /digests/{id}` | Trigger and inspect digest runs |
 | `GET /papers/by-topic/{topic_id}` | Papers ingested for a topic |
-| `POST`/`GET /topics/{id}/subscriptions` | Subscribe to a topic, list subscribers |
+| `POST`/`GET /topics/{id}/subscriptions` | Subscribe an email to a topic (an admin-added subscriber counts as confirmed), list subscribers |
 | `PATCH`/`DELETE /subscriptions/{id}` | Change cadence, cap or active flag; unsubscribe |
-| `GET /health` | Health check |
+| `GET /health` | Health check (the only route without the admin token) |
+
+Every route except `/health` needs the `X-Admin-Token` header and returns 401
+without it. The public signup, confirmation and unsubscribe pages come in a later
+phase of the launch plan.
 
 ---
 
@@ -426,6 +453,7 @@ All settings are environment variables (see [`.env.example`](.env.example)).
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `ADMIN_TOKEN` | unset | Required for every API route except `/health`; when unset, the API refuses everything. Generate one with `python -c "import secrets; print(secrets.token_urlsafe(32))"` and keep it in `.env` |
 | `SUMMARY_BACKEND` | `openai` | `openai` for summaries through the OpenAI API; `ollama` for a local model; `none` to send digests without AI text |
 | `OPENAI_API_KEY` | unset | Required with `SUMMARY_BACKEND=openai`. Keep it in `.env`, which is gitignored; never commit it |
 | `OPENAI_MODEL` | `gpt-5.4-mini` | Model for summaries, ratings and overviews. Must accept `reasoning_effort: none` |
@@ -454,9 +482,11 @@ came from.
 ```
 app/
 ├── main.py                 FastAPI app
+├── auth.py                 admin-token check, and the list of public paths
 ├── routers/                topics, papers, digests, subscriptions endpoints
 ├── models.py, schemas.py   SQLAlchemy models, Pydantic schemas
-├── crud.py                 database access
+├── crud.py                 database access, incl. the one "active subscription" rule
+├── topic_query.py          query normalization and public-input validation
 ├── services/
 │   ├── arxiv.py            arXiv Atom API client
 │   ├── summarize.py        OpenAI or Ollama: summaries, ratings, overviews
@@ -484,10 +514,11 @@ evals/                      offline evaluation harness (not run in CI)
 ├── metrics.py              pure metric helpers (unit-tested)
 ├── labels.csv              reference labels (47 topic-paper pairs, labeler marked)
 └── results/                every report the decisions in docs/rag-plan.md rest on
-tests/                      286 tests (see Testing)
+tests/                      355 tests (see Testing)
 docs/
 ├── rag-plan.md             the retrieval plan, measurements and decisions
-└── public-launch-plan.md   multi-user launch plan
+├── public-launch-plan.md   public launch plan (v2.1); Phase 1 of 6 done
+└── superpowers/plans/      one implementation plan per launch phase, with its outcome
 ```
 
 <details>
