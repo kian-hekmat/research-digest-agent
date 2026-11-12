@@ -44,6 +44,24 @@ class Settings(BaseSettings):
     ollama_model: str = "gemma3:12b"  # used only with SUMMARY_BACKEND=ollama
     ollama_timeout: float = 120.0  # first call of a session also loads the model
 
+    # --- spend (app.services.spend, app.spend_ledger) ---
+    # Hard monthly cap on OpenAI spend, enforced in the app: at
+    # spend_alert_fraction of it the owner is alerted (and, from Phase 3, new
+    # topics wait); at 100% AI text stops until the 1st (UTC). Raising the cap
+    # is this one setting. docs/public-launch-plan.md §3.6.
+    openai_monthly_budget_usd: float = 20.0
+    spend_alert_fraction: float = 0.8
+    # USD per 1M tokens, by model. Settings rather than code so a price change
+    # needs no deploy; overridable as JSON in OPENAI_PRICES. A model missing
+    # here can't be called at all - spend must never go unrecorded.
+    openai_prices: dict[str, dict[str, float]] = {
+        "gpt-5.4-mini": {"input": 0.75, "cached_input": 0.075, "output": 4.50},
+        "text-embedding-3-small": {"input": 0.02, "cached_input": 0.02, "output": 0.0},
+    }
+    # Where spend and other operational alerts are emailed. Empty: alerts are
+    # only logged.
+    alert_email: str = ""
+
     @property
     def summaries_enabled(self) -> bool:
         """When False, Summarizer skips the call cleanly instead of
