@@ -6,9 +6,42 @@ papers they want per topic, confirms by email, and gets a twice-weekly digest.
 Built on the existing pipeline (FastAPI, Postgres, Temporal, the arXiv → LLM
 rating/summary → ranked email flow), not a rewrite.
 
-Status: v2, 2026-11-12. Replaces the 2026-10-06 draft, which assumed
-summaries ran on local Gemma on the owner's Mac. That version is in git
-history.
+Status: v2.1, 2026-11-12. v2.1 folds in an audit of v2 against the code,
+the live data and current vendor terms (changes listed in §0.1). v2 replaced
+the 2026-10-06 draft, which assumed summaries ran on local Gemma on the
+owner's Mac. Both are in git history.
+
+---
+
+## Who it's for and what success means
+
+**The reader.** Someone with a real tie to a field: they work in it now, or
+used to. They don't want to read everything. They want to stay connected
+without watching arXiv themselves.
+
+**What every email has to do**, in order of importance:
+1. **Show where the topic is going.** The overview is the heart of the email,
+   not garnish. Someone who reads only the overview should still learn
+   something real about the period's research.
+2. **Sell the papers worth reading.** The overview and each paper's short
+   summary should make the one or two papers that matter to this reader stand
+   out, so they actually open them.
+3. **Leave the reader feeling they learned something.** That is what keeps
+   them subscribed.
+
+**Anti-goal.** Emails that feel generic or interchangeable: the reader isn't
+interested in the overview, no paper stands out, and they quietly stop
+opening them. An email that is technically correct but forgettable is a
+failure.
+
+**How the overview mentions papers.** Freely. There is no required list of
+papers to name. When the overview states a specific finding, it cites the
+paper it came from, wherever that paper ranks, and the citation is a link to
+arXiv. So the pointer works even when that paper isn't in this reader's list.
+
+**Persuasive, never inflated.** "Selling" means making real findings vivid
+and saying why a paper might matter. It never means claiming more than the
+abstract supports. The eval harness checks both (Phase 2).
 
 ---
 
@@ -20,7 +53,7 @@ history.
 | Embeddings | Ollama on the Mac (not addressed) | An OpenAI embedding model, called from the server | Removes the last dependency on the laptop |
 | Budget | None ("no paid LLM") | **$20/month hard cap** on OpenAI, enforced in the app | Per-token cost grows with the number of distinct topics |
 | Cost visibility | None: token usage isn't recorded | Every OpenAI call logged with its tokens and cost | The cap and the topic limit need real numbers |
-| Full text | Fetched for every new paper | Only for papers that make it into an email (two passes, §3.5) | At 200 topics, v1 meant about 4h a day of arXiv requests at 1 per 3s. Also saves tokens |
+| Full text | Fetched for every new paper | Only for papers that make it into an email (two passes, §3.5). *Superseded in v2.1: off at launch (§0.1)* | At 200 topics, v1 meant about 4h a day of arXiv requests at 1 per 3s. Also saves tokens |
 | Cadence | Each subscriber chooses | **Twice-weekly for everyone** at launch | One overview per topic per send; simpler signup |
 | Send time | Mon/Thu 08:00 Pacific (when the laptop was awake) | **Mon/Thu 08:00 Eastern** | US-only audience; the server is always on |
 | Audience | Unspecified (worldwide) | **US residents** (terms plus a signup checkbox) | Only US law applies |
@@ -32,6 +65,24 @@ history.
 | Beta | 10–20 people, 2 weeks | About 20 people, **3 weeks** | About 6 send days of cost data; doubles as the sending domain's warm-up |
 | Workflow | One or more pull requests per phase | Commits straight to `main`, CI green on each | The owner's normal workflow |
 
+### 0.1 What changed from v2 to v2.1 (audit, 2026-11-12)
+
+| Area | v2 | v2.1 | Why |
+|---|---|---|---|
+| Full text | Fetched for each topic's top K at send prep | **Off at launch: summaries and overviews use abstracts only.** The full-text code stays behind `RAG_FULLTEXT` (default off). The owner asks arXiv support (Phase 0); if they allow it, turning it back on is a setting plus an eval re-run | arXiv's API terms allow retrieving, storing and using e-print content "for your own personal use, or for research purposes". A public service is a grey area. Metadata, abstracts included, is CC0 |
+| Host | Hetzner, US region, "about €5–7" | **Hetzner EU (Nuremberg or Helsinki), CX23, 2 vCPU / 4 GB, about €6/month.** Fallback: Hetzner's EU ARM plan (CI then builds ARM images) | The cheap CX line isn't sold in the US. The cheapest US 4 GB plan (CPX21) is €32.49/month. Server location doesn't matter for an email service. Running on the Mac was considered and rejected: unsubscribe links, confirmation links, Brevo webhooks and the 08:00 ET send all need an always-on host |
+| Papers per topic | 1–10, default 5 | **5–10, default 5** | Owner's call: few enough to stay focused on the highest-value papers |
+| Overview | Written from the top K's summaries | Written from the abstracts of the period's highest-ranked papers (up to 25), cites papers by arXiv ID wherever a specific finding is stated, citations become links | The overview should reflect the whole period and point to whichever paper a finding came from, not just the reader's top K |
+| Summary and overview prompts | Unchanged | Rewritten to sell papers (why it's worth reading; vivid, concrete findings) without overclaiming, checked by the evals | The reader-facing goal above |
+| Topic queries | Free text, `cat:` prefix supported | **Phrase topics only for the public.** Field-prefixed queries (`cat:`, `ti:`, ...) are admin-only. **Phrases matching more than about 25 papers a day are refused at signup** with a prompt to narrow them | Anything over the 25-results-per-fetch limit silently drops papers (`cat:math.NA` returned exactly 25 on three days in a row), and costs two to three times as much per topic. Broad phrases like "large language models" have the same problem |
+| Cost estimate | Unknown; placeholder topic cap 100 | Rough estimate about $0.15–0.20 per topic per month abstract-only at K = 5 (below). The placeholder stays until Phase 2 measures it | Estimated from the real prompt sizes, an average abstract of ~1,300 characters, and `gpt-5.4-mini` at $0.75 / $4.50 per million input / output tokens |
+| OpenAI backstop | "Check whether the project budget hard-stops" | Projects support a hard monthly limit (since July 2026) that returns 429 `project_spend_limit_exceeded`. Set it slightly above the app's cap; the app treats that error as "budget exhausted", never retries it | Verified against OpenAI's spend-limits docs |
+| Embeddings | New vector width, migration | `text-embedding-3-small` with `dimensions=768` fits the existing `vector(768)` column: no width migration | The model supports shortened embeddings |
+| Recalibration | The 0.75 similar-paper cutoff | Also `rag_min_similarity` (0.72), `rag_near_duplicate_similarity` (0.9) and the ranking novelty anchors (0.85 / 0.45 in `app/services/ranking.py`). EmbeddingGemma's task prompts (`document_text`, `query_text`) are not applied to OpenAI | All of them were tuned to EmbeddingGemma's similarity scale |
+| arXiv gate | "Background fetches are awaited one at a time" | A dedicated arXiv task queue whose worker runs one activity at a time, and a separate preview task queue with its own threads | Today every topic's fetch starts at once; `fetch_arxiv`'s 60s timeout counts time spent waiting on the gate, so beyond about 20 topics fetches time out and retry. The gate's lock also has no ordering, so a preview could wait indefinitely |
+| Send windows | Per-subscriber `last_sent_at`; "the send window is the same for everyone" | Windows are defined by send slots: each send covers papers ingested since the previous slot. `last_sent_at` is set at confirmation, not at signup | Per-subscriber watermarks made windows differ (new, paused or failed-send subscribers), which breaks one shared overview per topic |
+| Images | `temporalio/admin-tools:latest`, `axllent/mailpit:latest` | Pinned versions in production | Reproducible deploys and rollbacks |
+
 ---
 
 ## 1. Constraints everything else derives from
@@ -41,11 +92,13 @@ history.
 | OpenAI spend | $20/month, hard | Owner's budget |
 | Subscribers | 200 maximum; a waitlist after that | Brevo's free 300/day: 200 digests on a send day leaves about 100 for confirmation and manage-link emails |
 | Topics per subscriber | 5 | v1 default, kept |
-| Papers per topic per email | 1–10, default 5 | Today it's uncapped. A bounded number bounds full-text cost |
+| Papers per topic per email | 5–10, default 5 | Owner's call. Today it's uncapped; a bounded number bounds summary cost. The minimum of 5 guarantees every reader gets a topic's picks (§3.9) |
 | Global active topics | Set from measured cost (below); placeholder 100 | Budget |
+| Topic queries (public) | Phrases only; field-prefixed queries (`cat:`, `ti:`, ...) admin-only | §0.1 |
 | Cadence | Twice-weekly: Mon and Thu 08:00 `America/New_York` | §0 |
 | Audience | US residents, age 13 or older | Terms |
-| Host | One Hetzner VM in a US region, about 2 vCPU / 4 GB | §3.8 |
+| Host | One Hetzner CX23 (2 vCPU / 4 GB) in the EU, about €6/month | §3.8 |
+| arXiv content | Metadata and abstracts only at launch; no full-text fetching until arXiv says it's allowed | §0.1 |
 
 **Cost model.** Sends happen 2 × 52 / 12 ≈ 8.7 times a month.
 
@@ -56,9 +109,19 @@ monthly OpenAI ≈ active_topics × (30 × ingest_cost_per_topic_day
 ```
 
 - `ingest_cost_per_topic_day`: embedding and rating each new paper on its abstract.
-- `prep_cost_per_topic_send`: full-text chunk embeddings and summaries for that
-  topic's top K papers (K = the largest papers-per-topic among its subscribers),
-  plus one overview.
+- `prep_cost_per_topic_send`: abstract-only summaries for that topic's top K
+  papers (K = the largest papers-per-topic among its subscribers), plus one
+  call that writes the overview and chooses the picks.
+
+**Rough estimate (v2.1, before measurement).** A rating call is about 400
+input tokens and a few output tokens: about $0.0003 per paper. A phrase topic
+gets about 3–5 new papers a day: about $0.04 a month. An abstract-only summary
+is about 500 input and 170 output tokens: about $0.0011. An overview reading up
+to 25 abstracts is about 9,000 input and 300 output tokens: about $0.008. At
+K = 5 that is about $0.014 per send, or about $0.12 a month. Total: roughly
+**$0.15–0.20 per topic per month** at K = 5, nearer $0.25 at K = 10. That would
+put the cap around 65–100 topics. Retries, previews and rate-only calls aren't
+in this estimate.
 
 Both are measured in Phase 2 and again in the beta. The global topic cap is then
 `floor(0.8 × $20 / measured monthly cost per topic)`, which leaves 20% headroom
@@ -79,7 +142,8 @@ assume that, and have to change before strangers can use it:
 | Unsubscribe | None. Emails have no unsubscribe link | One-click unsubscribe (a link plus `List-Unsubscribe` headers) and a manage link in every email. Probably not legally required for a free, ad-free digest (§7), but mailbox providers expect it, and it's what keeps spam complaints down |
 | Topics | Global, unique by name, created through the admin API | Created on demand from user input. Deduplicated by normalized query, with similar existing topics suggested. Each subscription keeps its own display label |
 | What gets fetched | Every topic, every day | Only topics with at least one confirmed, active subscriber |
-| arXiv politeness | A process-wide, thread-safe gate already spaces the worker's arXiv API and HTML requests 3s apart (`app/services/arxiv.py`) | Keep exactly one process making arXiv requests: previews run as activities on the worker, never in the web processes. Full text only for emailed papers, so the daily volume stays small |
+| arXiv politeness | A process-wide, thread-safe gate already spaces the worker's arXiv API and HTML requests 3s apart (`app/services/arxiv.py`). But every topic's fetch starts at once, and `fetch_arxiv`'s 60s timeout counts time spent waiting on the gate | Keep exactly one process making arXiv requests: a dedicated arXiv task queue run one activity at a time, plus a preview queue; never from the web processes. No full-text fetching at launch, so arXiv traffic is one search per active topic per day |
+| arXiv terms | `app/services/fulltext.py` fetches full text under the "personal use" permission, with a `User-Agent` saying "personal research digest" | Abstract-only at launch (full text off). Update the `User-Agent` to describe the public service with a contact address. Nothing in the name or pages implies arXiv endorsement |
 | LLM | OpenAI `gpt-5.4-mini`, no record of spend | Token usage logged, a spend guard, rating split from summarizing (§3.5) |
 | Embeddings | Ollama with `embeddinggemma`, running natively on the Mac | An OpenAI embedding model, so nothing runs on the Mac |
 | Email | Mailpit locally | Brevo on your own domain with SPF/DKIM/DMARC, bounce and complaint handling, and a warm-up period |
@@ -135,42 +199,80 @@ Browser ──HTTPS──▶ Caddy (TLS) ──▶ FastAPI ──▶ Postgres (+
      query. As someone types a new query, the signup form embeds it and offers
      existing topics above a calibrated cosine threshold ("Join the existing
      *RLHF* topic?"). Accepting reuses that topic and keeps the user's label.
+     A wrong suggestion costs little (the user declines), so a rough threshold
+     from the few existing topics is enough to launch; tune it from beta data.
+   - **Public queries are phrases only.** Normalization (trim, lowercase,
+     collapse whitespace and quotes) applies to phrases. Field-prefixed queries
+     (`cat:`, `ti:`, `au:`, ...) are rejected on public input and accepted
+     unchanged, never lowercased, through the admin API.
+   - A publicly created topic's `name` is its normalized query, since `name`
+     goes into the rating and overview prompts. The user's wording lives only
+     in their subscription's `label`.
 
 4. **LLM and embeddings: OpenAI, all on the server.**
    - Summaries, ratings and overviews stay on `gpt-5.4-mini`.
-   - Embeddings move to an OpenAI embedding model, chosen in Phase 2;
-     `text-embedding-3-small` is the obvious candidate. That means:
-     - a migration for the new vector width,
-     - a backfill, using the existing side-by-side `EMBEDDING_MODEL` support,
-     - a re-run of the retrieval evals to recalibrate the 0.75
-       similar-paper cutoff and confirm the neighbours-share-a-topic rate
-       (89% on `embeddinggemma`).
+   - Embeddings move to `text-embedding-3-small`, requested with
+     `dimensions=768` so they fit the existing `vector(768)` column (no width
+     migration). That means:
+     - an OpenAI embedder that applies no EmbeddingGemma task prompts
+       (`document_text` / `query_text` stay for the Ollama backend only);
+     - a backfill, using the existing side-by-side `EMBEDDING_MODEL` support
+       (rows are keyed by model), then a cut-over;
+     - a re-run of the retrieval evals to recalibrate every threshold tuned to
+       EmbeddingGemma's scale: the 0.75 similar-paper cutoff,
+       `rag_min_similarity` (0.72), `rag_near_duplicate_similarity` (0.9) and
+       the ranking's novelty anchors (0.85 / 0.45), and to confirm the
+       neighbours-share-a-topic rate (89% on `embeddinggemma`).
    - Ollama stays available as a local development backend only.
    - `_MAX_CONCURRENT_SUMMARIES` (4, set for a local Ollama server) gets
      re-tuned for OpenAI's rate limits.
+   - **Full text is off at launch** (`RAG_FULLTEXT=false` by default). The
+     code stays; if arXiv allows it, prep fetches full text for the top K only,
+     and the full-text evals are re-run before it's switched on.
 
-5. **Two-pass pipeline: cheap every day, expensive only for emailed papers.**
+5. **Two-pass pipeline: cheap every day, the expensive calls only for emailed
+   papers.**
    - **Daily ingest (21:30 ET, after arXiv's ~20:00 ET announcement).** For each
      active topic: fetch new papers from the arXiv API, embed their abstracts,
-     and rate relevance from the abstract. Rating gets its own short call, split
-     from summarizing. It must not fall below today's ρ = 0.77 against the
-     reference labels (re-run the ranking eval).
-   - **Send prep (Mon and Thu 01:00 ET).** For each topic, rank its papers in
-     the send window and take the top K, where K is the largest papers-per-topic
-     among its subscribers. For those papers only: fetch arXiv HTML, embed
-     chunks, and write full-text summaries. Then write the topic's one overview,
-     history-aware as today.
+     and rate relevance from the abstract. Rating is its own short call (the
+     existing `rate_relevance`), split from summarizing. It must not fall below
+     today's ρ = 0.77 against the reference labels (re-run the ranking eval).
+   - **Send windows are defined by send slots.** A send's window for a topic is
+     every paper the topic ingested since the previous send slot. Everyone on
+     a topic gets the same window, so one overview and one set of picks per
+     topic is correct for all of them. `last_sent_at` is set when a subscriber
+     confirms (not at signup) and is still advanced on each successful send;
+     it's used only to skip a subscriber who was already sent this slot. A
+     subscriber who misses a slot (failed send, paused) gets the current
+     slot's content next time, not a backlog.
+   - **Send prep (Mon and Thu 01:00 ET).** For each topic with active
+     subscribers:
+     1. Look up author h-indices for the window's papers (moved here from send
+        time) and rank them with the existing ranking.
+     2. Write abstract-only summaries for the top K, where K is the largest
+        papers-per-topic among its subscribers (5–10).
+     3. One call writes the overview and chooses the picks (§3.9). It reads
+        the abstracts of up to the 25 highest-ranked papers in the window, plus
+        the topic's recent overviews (history-aware, `avoid_repeats`, as today).
+        It returns the overview, with arXiv IDs cited wherever it states a
+        specific paper's finding, and up to two picks from the top 5 with a
+        one-line hook each.
+     4. Store all of it, keyed to the topic and the slot.
    - **Send (Mon and Thu 08:00 ET).** Assemble each subscriber's email from
-     stored content, with no LLM or arXiv calls at send time. A paper whose
-     full-text step failed falls back to an abstract-only summary.
-   - **arXiv load.** Ingest takes about topics × pages × 3s, around 5 minutes at
-     100 topics. Prep takes about topics × K × 3s, around 25 minutes at 100
-     topics with K = 5, or 50 minutes at K = 10. Both fit well inside the 7-hour
-     prep window.
-   - **Previews never wait behind a backlog.** Background workflows await each
-     arXiv request before scheduling the next, so the gate holds at most one
-     background request plus any previews. A preview waits at most about 6s plus
-     its own fetch. Results are cached for 1h per normalized query.
+     stored content, with no LLM, arXiv or h-index calls at send time. A topic
+     whose prep failed is sent with whatever was stored (ranked papers without
+     AI text in the worst case), never held back.
+   - **arXiv load.** Ingest is one search per active topic: about 5 minutes at
+     100 topics. Prep makes no arXiv requests while full text is off.
+   - **One arXiv request at a time, previews never stuck behind it.** The worker
+     process runs a dedicated `arxiv` task queue with one activity slot for all
+     background fetches, and a separate `preview` task queue with its own small
+     thread pool for signup previews. Both go through the existing process-wide
+     gate, so at most one background request plus any previews are ever
+     waiting. Fetch timeouts are set so time spent in the queue never counts as
+     a failed attempt. A preview waits at most about 6s plus its own fetch.
+     Preview results are cached for 1h per normalized query in Postgres (the web
+     app runs several processes, so an in-memory cache wouldn't be shared).
 
 6. **Cost control.**
    - **Usage log.** Every OpenAI call writes an `llm_usage` row: model, purpose
@@ -180,13 +282,22 @@ Browser ──HTTPS──▶ Caddy (TLS) ──▶ FastAPI ──▶ Postgres (+
    - **Spend guard**, on month-to-date cost:
      - At **80%** of the cap, new topics go to a waitlist. Signups that only use
        existing topics still go through. You get an alert.
-     - At **100%**, LLM calls stop. Digests still send, ranked without AI text
-       (the existing `SUMMARY_BACKEND=none` path), until the 1st of the month.
-       You get an alert.
+     - At **100%**, chat-model calls (ratings, summaries, overviews and picks)
+       stop. Embeddings keep running: they cost about a thousandth as much, and
+       ranking, previews and similar-topic suggestions depend on them. Signups
+       and previews keep working; new topics stay waitlisted. Digests still
+       send, ranked without AI text, until the 1st of the month. You get an
+       alert. *(Builder's call, v2.1.)*
+     - **After the reset**, the next prep first rates any paper in its window
+       that was ingested unrated, then proceeds as normal. That's a few days of
+       ratings at once, a few cents per topic. *(Builder's call, v2.1.)*
      - Raising the cap is a single setting.
-   - **OpenAI backstop.** A dedicated production project and key, with its
-     monthly budget set to $20. Check whether OpenAI's project budget hard-stops
-     or only notifies. Either way, the guard in the app is the real stop.
+   - **OpenAI backstop.** A dedicated production project and key with an
+     enforced hard monthly spend limit a little above the app's cap (for
+     example $22). When it trips, OpenAI returns 429
+     `project_spend_limit_exceeded`; the app treats that as "budget exhausted"
+     (the 100% behaviour), marks it non-retryable, and alerts. The guard in the
+     app is still the real stop.
    - **Topic cap** derived from measured cost (§1).
 
 7. **Email: Brevo free tier over SMTP.**
@@ -194,17 +305,63 @@ Browser ──HTTPS──▶ Caddy (TLS) ──▶ FastAPI ──▶ Postgres (+
    - Confirmation and manage-link emails rate-limited per address.
    - Move to Amazon SES (pay per use) when the waitlist starts to matter.
    - Check Brevo's sending policy for footer requirements before Phase 3's
-     templates are final.
+     templates are final. Third-party reviews say the free plan adds a Brevo
+     logo to every email; launch with it and revisit (removal is a paid add-on
+     of roughly $10–12/month).
 
-8. **Hosting: one Hetzner VM in a US region (Ashburn or Hillsboro).**
-   - The CX23 may only be sold in EU regions. Pick the closest 2 vCPU / 4 GB
-     plan Hetzner offers in the US. With embeddings off the box and no staging
-     stack, 4 GB should be enough; confirm it in Phase 2's rehearsal.
+8. **Hosting: one Hetzner CX23 in the EU (Nuremberg or Helsinki), about
+   €6/month.**
+   - The cheap CX line isn't sold in Hetzner's US regions, where the cheapest
+     4 GB plan is €32.49/month. Server location doesn't matter for an email
+     service; the privacy policy says where data is stored.
+   - CX capacity is limited. If a CX23 can't be ordered, use Hetzner's EU ARM
+     plan with 4 GB and have CI build `linux/arm64` images.
+   - With embeddings off the box, no full text and no staging stack, 4 GB
+     should be enough; confirm it in Phase 2's rehearsal.
+   - Running on the owner's Mac was considered and rejected: unsubscribe and
+     confirmation links, Brevo webhooks and the 08:00 ET send all need a host
+     that is always on.
    - Production compose file with Caddy for automatic TLS. No standing staging
-     (§0).
+     (§0). Every image is pinned to a version (no `:latest`).
    - Temporal stays on its dev-server binary with its SQLite file: single-node,
      fine at this scale, and schedules rebuild themselves on startup.
    - Postgres is self-hosted, with a nightly `pg_dump` off-site.
+
+9. **The email: picks first, then the overview, then the rest.** Chosen from
+   mockups on 2026-11-12. For each topic section, in this order:
+   - **Start here:** up to two picks chosen by the model from the topic's top 5
+     (so every reader has them, since the minimum is 5). Each has a one-line
+     hook saying why it's worth reading, and a link. A pick can be any of the
+     top 5, not necessarily #1 by score.
+   - **The period in brief:** the overview, about 80–120 words, stating concrete
+     findings. Whenever it states a specific paper's finding it cites that paper,
+     and the citation renders as an arXiv link, even if the paper isn't in this
+     reader's list. There is no required number of citations.
+   - **Also new:** the rest of the reader's top K, each with a one-line "why
+     read it" and one or two concrete sentences on what it did. No "The paper
+     addresses..." openers.
+   - A header line per section: the topic label, the date range, and "N new
+     papers this period, your top K below".
+   - Footer: manage link, unsubscribe link, the arXiv thank-you, and the AI
+     disclaimer.
+   - With several topics, each section has its own picks. There is no
+     cross-topic "start here".
+   - **Prompts.** The summary prompt and the overview-and-picks prompt are
+     rewritten to sell: concrete, vivid, and specific about why a paper might
+     matter, never claiming more than the abstract supports. Picks and
+     citations come back as structured output (arXiv IDs), and any ID not in the
+     input is dropped, like the existing related-work citation check.
+   - **Eval gates** (Phase 2), against the current prompts on the same papers:
+     overview factual errors no worse than today's 1 in 25; every citation
+     points to a paper whose abstract supports the claim; summaries judged more
+     informative in blind pairwise review; no overclaiming beyond the abstract.
+     The ranking eval is unaffected.
+
+10. **The signup page: one page** (chosen from mockups on 2026-11-12). Email;
+    up to 5 topics, each with its live preview, similar-topic suggestion,
+    label and papers per email (5–10, default 5); the residency checkbox with
+    links to the terms and privacy policy; one submit button; "Digests arrive
+    Monday and Thursday mornings."
 
 ---
 
@@ -221,18 +378,29 @@ These have lead times, so start them now:
 - **Brevo.** Create the account, authenticate the sending subdomain (SPF,
   DKIM), and publish DMARC at `p=none` with reports. The beta doubles as the
   domain's warm-up: about 20 recipients, then a gradual ramp at launch.
-- **OpenAI.** A production project with its own key and a $20 monthly budget.
-- **Hetzner.** Create the account and confirm which US-region plan to use.
+- **OpenAI.** A production project with its own key and an enforced hard
+  monthly spend limit a little above $20 (§3.6).
+- **Hetzner.** Create the account and confirm in the console that a CX23 can be
+  ordered in Nuremberg or Helsinki (fallback: the EU ARM plan, §3.8).
 - **Cloudflare.** A Turnstile site key for the domain.
+- **arXiv.** Write to arXiv support: describe the free public digest and ask
+  whether it may fetch arXiv's HTML full text to write summaries, given that
+  only the summaries and links to arXiv are emailed and no e-print content is
+  served. Full text stays off until they say yes. Claude can draft the message.
+- **Sentry and backup storage.** Free-tier accounts (no lead time, needed by
+  Phase 5).
+- **Name.** Nothing in the name or branding may imply arXiv endorses the
+  service (arXiv's terms).
 
 ### Phase 1: Multi-user data model and lockdown
 
 **Build**
 - `Subscriber` table: `email` (unique, case-insensitive), `confirmed_at`,
   `unsubscribed_at`, `token_version`, `created_at`, `last_manage_link_sent_at`,
-  `us_resident_attested_at`.
+  `us_resident_attested_at`, `waitlisted_at` (nullable; §Phase 3 waitlist).
 - `Subscription` references `subscriber_id` instead of holding `email`, and
-  gains `label`. The unique constraint becomes `(topic_id, subscriber_id)`.
+  gains `label` and `waitlisted_at`. The unique constraint becomes
+  `(topic_id, subscriber_id)`. Active-only filtering skips waitlisted rows.
 - `Topic` gains `normalized_query` (unique). Name uniqueness is dropped.
   `description` stays admin-only.
 - **Cadence:**
@@ -241,7 +409,11 @@ These have lead times, so start them now:
   - Public schemas don't accept a cadence; the admin API still can.
   - The column stays, so cadence choice can come back later without a
     migration.
-- `max_papers` is bounded to 1–10 (default 5) on public input.
+- `max_papers` is bounded to 5–10 (default 5) on public input. The migration
+  sets existing NULL (uncapped) subscriptions to 10.
+- Public topic input accepts phrases only (§3.3); a publicly created topic's
+  `name` is its normalized query. The admin API still accepts field-prefixed
+  queries such as the owner's `cat:math.NA`.
 - **Data migration:** create a subscriber per distinct existing email, marked
   confirmed (that's you). Existing topics get a normalized query; merge any
   duplicates.
@@ -262,7 +434,8 @@ These have lead times, so start them now:
   then downgrade, then upgrade again. Data is preserved; duplicate topics
   merge; every subscription ends up `twice_weekly`.
 - Normalization (unit): `"RLHF"`, `" rlhf "`, `'"RLHF"'` all map to one topic;
-  `cat:cs.LG` passes through unchanged.
+  through the admin API, `cat:cs.LG` passes through unchanged; on public input,
+  any field-prefixed query is rejected.
 - Workflow: an unconfirmed or unsubscribed subscriber is never emailed, and
   their topic isn't fetched unless someone else needs it.
 - API: every admin route returns 401 without a token or with a wrong one;
@@ -279,25 +452,30 @@ deployment migrates with no data loss.
   one place every OpenAI call goes through (`_complete` and the embedder),
   month-to-date queries, the 80% and 100% behaviour, and alerts.
 - **OpenAI embeddings** (§3.4):
-  - an OpenAI embedder, the vector-width migration, and the backfill;
-  - re-run the retrieval evals and recalibrate the thresholds;
-  - topic-query embeddings, with a calibrated threshold for similar-topic
+  - an OpenAI embedder (`dimensions=768`, no task prompts) and the backfill;
+  - re-run the retrieval evals and recalibrate every EmbeddingGemma-tuned
+    threshold, the ranking's novelty anchors included;
+  - topic-query embeddings, with a rough threshold for similar-topic
     suggestions.
 - **Two passes** (§3.5):
-  - Split rating from summarizing, then re-run the ranking eval.
+  - Rating runs alone at ingest; re-run the ranking eval.
   - New schedules in `America/New_York`: ingest 21:30 daily, prep 01:00
     Mon/Thu, send 08:00 Mon/Thu. Update `SEND_TIME_ZONE_NAME` and `DAILY_CRON`.
+  - Slot-based send windows; `last_sent_at` set at confirmation.
+  - Prep: h-index lookup, ranking, top-K summaries, then one overview-and-picks
+    call per topic, all stored per topic and slot.
   - The send workflow stops running its own digest pass; it assembles what prep
     stored.
-  - Full text is fetched only in prep, for the top K.
-- **One arXiv process.**
-  - Make sure exactly one worker process makes arXiv requests.
-  - Previews (Phase 3) run as activities on that worker.
-  - Background fetches are awaited one at a time.
+  - Full text off by default (`RAG_FULLTEXT=false`); the full-text code path
+    moves into prep, for the top K only, ready for when arXiv allows it.
+- **The new email** (§3.9): the picks-first template (picks, the period in
+  brief, also new), citations rendered as arXiv links, and the rewritten
+  summary and overview-and-picks prompts.
+- **One arXiv process** (§3.5): the `arxiv` task queue with one activity slot,
+  the `preview` queue (used from Phase 3), and fetch timeouts that don't count
+  queue time.
 - **Bounded fan-out.** `RunAllTopicDigestsWorkflow` and prep run their children
   in batches rather than all at once.
-- **Overviews:** one per topic per send, written in prep. Every subscriber is on
-  the same cadence, so the send window is the same for everyone.
 
 **Tests**
 - Usage log: every OpenAI call path, faked with `respx`, writes exactly one
@@ -309,12 +487,30 @@ deployment migrates with no data loss.
 - arXiv: across 50 topics' ingest and prep, recorded through a fake, there is
   never more than one request in flight and always at least 3s between
   requests. A preview issued mid-prep completes within about 10s of fake time.
-- Prep fetches full text only for each topic's top K papers, where K comes
-  from its subscribers' settings.
-- Send makes no LLM or arXiv calls (the fakes assert it). A paper whose
-  full-text step failed is sent with its abstract summary.
+- Prep summarizes only each topic's top K papers, where K comes from its
+  subscribers' settings; with full text off it makes no arXiv requests.
+- Picks and citations: an ID the model returns that wasn't in its input is
+  dropped; picks always come from the top 5; every subscriber of a topic gets
+  the same picks and overview.
+- Send windows: a subscriber who confirmed mid-window gets the current slot's
+  content; one whose last send failed gets the current slot's content next
+  time, not a backlog; a slot that fires twice sends once.
+- Send makes no LLM, arXiv or h-index calls (the fakes assert it). A topic
+  whose prep failed is still sent, without AI text.
+- Email rendering: section order (picks, overview, also new), citations render
+  as working arXiv links, HTML in labels and model output is escaped.
 - Evals (manual; they cost money): the ranking eval stays at ρ ≥ 0.77 with the
-  split rating call; the retrieval evals hold on the new embedding model.
+  rating call alone; the retrieval evals hold on the new embedding model; the
+  new prompts pass the §3.9 gates (factual errors, citation support, blind
+  pairwise preference, no overclaiming).
+- **Who judges the §3.9 gates** (owner's call, v2.1): the owner, by hand, as
+  with past reviews. The eval harness produces about 25 overviews with their
+  picks and citations, and about 20 blind summary pairs (old prompt vs new),
+  in the existing blind-review file format: roughly an hour of review. If a
+  gate fails, the prompts are revised and reviewed again. **Launch waits for
+  the gates to pass.** There is no fallback to the old email format, because
+  the old prompts can't produce picks or citations. Phases 3 and 4 can be built
+  on the new template meanwhile; only the launch is blocked.
 - **Cost and load rehearsal**, run locally with fakes for every external call:
   - Seed 200 subscribers and 100 topics, then run ingest, prep and send end to
     end.
@@ -343,10 +539,24 @@ been applied until it does; the cap is set.
   - Enumeration-safe: the response is identical whether or not the email
     exists.
   - An already-confirmed address gets a manage link instead of a second account.
-  - At the subscriber cap, or when a new topic would pass the topic cap or the
-    80% spend line, the signup is waitlisted and the response says so.
-- `GET /confirm?token=`: activates the subscriber. The first digest arrives at
-  the next Mon/Thu 08:00 ET send.
+  - **Waitlist** *(builder's call, v2.1)*:
+    - Waitlisted people still confirm their email first, so the waitlist holds
+      only real, consenting addresses.
+    - At the subscriber cap, the whole signup is waitlisted.
+    - Under the subscriber cap, only the topics that are blocked are
+      waitlisted: a new topic that would pass the topic cap or the 80% spend
+      line. The rest of the signup goes through. A topic with no current
+      subscribers counts as new, since rejoining it brings its cost back.
+    - Waitlisted subscribers and subscriptions carry a `waitlisted_at`
+      timestamp (Phase 1 adds the columns). A daily job admits them oldest
+      first whenever there's room, after the month resets or when a place
+      opens. Each admitted person gets one short "you're in" email, counted
+      against the daily email budget. The admin API can also admit by hand.
+    - The response and the confirmation page say plainly what was waitlisted
+      and why.
+- `GET /confirm?token=`: activates the subscriber and sets `last_sent_at` to
+  the confirmation time. The first digest arrives at the next Mon/Thu 08:00 ET
+  send and covers that slot's whole window (§3.5).
 - Manage page (`/manage?token=`): edit topics, labels and papers per topic;
   pause; "delete my data", which cascades to the subscriber's subscriptions
   but never to shared topics.
@@ -363,6 +573,13 @@ been applied until it does; the cap is set.
     normalized query.
   - A query with no matches in 30 days shows a warning before signup, not after
     the first empty email.
+  - **Too-broad phrases are refused** (owner's call, v2.1). The preview shows
+    roughly how many papers a day the phrase matches. Above about 25 a day
+    (the per-fetch limit), signup asks the person to narrow it ("this matches
+    about 120 papers a day; try something more specific") instead of accepting
+    it, because a sample of the newest 25 can't honestly be "the best papers of
+    the period". The threshold is a setting. Signup checks it again
+    server-side, so it doesn't rely on the preview having run.
 - Abuse controls:
   - Cloudflare Turnstile on signup.
   - Rate limits, stored in Postgres so they survive restarts and work across app
@@ -401,10 +618,10 @@ touching the admin API.
 - Pages:
   - Landing page: what it is, a sample digest, how papers are ranked, arXiv
     attribution, "for US residents".
-  - Signup: email; up to 5 topics, each with a live preview, similar-topic
-    suggestions and a label; papers per topic; the residency checkbox; links to
-    the terms and privacy policy. No cadence picker: "Digests arrive Monday and
-    Thursday mornings".
+  - Signup, all on one page (§3.10): email; up to 5 topics, each with a live
+    preview, similar-topic suggestions and a label; papers per topic (5–10);
+    the residency checkbox; links to the terms and privacy policy. No cadence
+    picker: "Digests arrive Monday and Thursday mornings".
   - "Check your inbox", waitlisted, confirmed, manage, unsubscribed, privacy,
     terms.
 - Plain semantic HTML, a classless CSS base, works without JavaScript except
@@ -432,8 +649,9 @@ touching the admin API.
   - Only Caddy publishes ports (80/443). Postgres, Temporal, its UI and the
     worker stay on the internal network; reach the Temporal UI over an SSH
     tunnel.
-  - No `--reload`, no source volume mounts; images are built in CI. Several
-    uvicorn workers; exactly one worker process (§3.5).
+  - No `--reload`, no source volume mounts; images are built in CI (also for
+    `linux/arm64` if the ARM fallback is used). Every image pinned to a
+    version. Several uvicorn workers; exactly one worker process (§3.5).
   - Secrets live in a server-side env file (never committed): Postgres
     password, `SECRET_KEY`, admin token, OpenAI key, SMTP credentials, Turnstile
     secret, Brevo webhook secret.
@@ -495,8 +713,9 @@ each alert tripped once (on a local stack or production with test data).
   - what's collected: email, topics, labels, papers per topic, send history,
     the IP addresses used for rate limiting and how long they're kept;
   - who it's shared with (processors): Hetzner (hosting), Brevo (email), OpenAI
-    (sees topic queries and paper text, never email addresses), Cloudflare
+    (sees topic queries and paper abstracts, never email addresses), Cloudflare
     (Turnstile), Sentry, and the backup storage provider;
+  - where data is stored: Hetzner's data centre in Germany or Finland;
   - how to review, change or delete your data (the manage page);
   - how the site responds to Do Not Track signals;
   - an effective date, and how changes are announced.
@@ -526,16 +745,24 @@ checklist (§6) signed off.
 ## 5. Cost levers (if the topic cap comes out too low)
 
 In rough order of how little each costs in quality:
-1. Lower the default papers per topic (5 → 3); this shrinks K and the
-   full-text work.
-2. Lower `ARXIV_MAX_RESULTS` for ingest (fewer abstracts rated per topic).
-3. Cap the full-text excerpt budget per summary (fewer input tokens).
-4. Turn off overviews for topics with fewer than N subscribers.
-5. Abstract-only summaries for the lowest-ranked of the top K.
-6. Raise the budget.
+1. Order prompts so the fixed instructions come first and long enough to hit
+   OpenAI's automatic prompt caching (cached input is about a tenth of the
+   price).
+2. Lower the overview's input from 25 abstracts to fewer.
+3. Use OpenAI's Batch API (half price) for ingest ratings on days whose
+   ratings aren't needed by the next prep. Its 24h completion window is too
+   slow for the Sunday and Wednesday ingests.
+4. Lower `ARXIV_MAX_RESULTS` for ingest (fewer abstracts rated per topic).
+5. Lower the maximum papers per topic (10 → 8); the minimum of 5 stays.
+6. Turn off overviews for topics with fewer than N subscribers.
+7. Raise the budget.
 
-Fixed monthly costs besides OpenAI: the VM (about €5–7), the domain (about
-$10–20/year), off-site backup storage (free tier), Brevo (free), Sentry (free).
+Turning full text on later (if arXiv allows it) raises the cost per topic;
+re-measure before switching it on.
+
+Fixed monthly costs besides OpenAI: the VM (about €6), the domain (about
+$10–20/year), off-site backup storage (free tier), Brevo (free, with its logo
+in emails), Sentry (free).
 
 ---
 
@@ -550,6 +777,8 @@ $10–20/year), off-site backup storage (free tier), Brevo (free), Sentry (free)
 - [ ] Spend guard tested at 80% and 100%; OpenAI project budget set
 - [ ] Global topic cap set from measured cost per topic; subscriber cap at 200
 - [ ] Terms (US-only, age 13+) and a CalOPPA-compliant privacy policy live
+- [ ] Full text off in production unless arXiv has said yes in writing
+- [ ] Email prompts passed the §3.9 eval gates
 - [ ] Beta feedback triaged; no open P0/P1 issues
 
 ---
@@ -561,14 +790,20 @@ $10–20/year), off-site backup storage (free tier), Brevo (free), Sentry (free)
 | 1 | Goal | A small real service: public, deliberately capped, lean ops (decided 2026-11-12) |
 | 2 | Budget | $20/month hard cap on OpenAI; spend guard closes new topics at 80% and drops AI text at 100% (decided 2026-11-12) |
 | 3 | LLM | OpenAI `gpt-5.4-mini` for ratings, summaries and overviews (decided 2026-11-05) |
-| 4 | Embeddings | An OpenAI embedding model; thresholds recalibrated by eval (decided 2026-11-12) |
-| 5 | Full text | Only for papers that rank into an email (two-pass pipeline) (decided 2026-11-12) |
-| 6 | Topics | Free text with live preview, similar-topic suggestions by embedding, limits; `cat:` prefix still supported (decided 2026-11-12) |
+| 4 | Embeddings | `text-embedding-3-small` at 768 dimensions; every EmbeddingGemma-tuned threshold recalibrated by eval (decided 2026-11-12) |
+| 5 | Full text | Off at launch; abstract-only summaries. The owner asks arXiv; if allowed, full text for the top K only (decided 2026-11-12, v2.1) |
+| 6 | Topics | Phrase topics with live preview, similar-topic suggestions by embedding, limits. Field-prefixed queries (`cat:` etc.) admin-only (decided 2026-11-12, v2.1) |
 | 7 | Cadence | Twice-weekly for everyone at launch; per-subscriber cadence deferred (decided 2026-11-12) |
 | 8 | Send time | Mon and Thu 08:00 Eastern, one slot for everyone (decided 2026-11-12) |
 | 9 | Audience | US residents only, through the terms plus a signup checkbox; no IP geo-blocking (decided 2026-11-12) |
 | 10 | Legal | No postal address or virtual mailbox; CalOPPA-compliant privacy policy; CAN-SPAM practices followed voluntarily (decided 2026-11-12; not legal advice) |
 | 11 | Email | Brevo free tier over SMTP, 200-subscriber cap with a waitlist; SES if outgrown |
-| 12 | Hosting | One Hetzner VM in a US region, self-hosted Postgres with off-site dumps; no standing staging (decided 2026-11-12) |
+| 12 | Hosting | One Hetzner CX23 in the EU (about €6/month), self-hosted Postgres with off-site dumps; no standing staging. The Mac was considered and rejected (decided 2026-11-12, v2.1) |
 | 13 | Beta | About 20 people for 3 weeks, doubling as the domain warm-up (decided 2026-11-12) |
 | 14 | Name and domain | **Open**: owner picks from the shortlist this week (Phase 0) |
+| 15 | Reader and success | People with a tie to a field who want to stay connected; success is learning something from every email and finding a paper worth opening (decided 2026-11-12, v2.1) |
+| 16 | Papers per topic | 5–10, default 5 (decided 2026-11-12, v2.1) |
+| 17 | Email format | Picks first, per topic: up to two "start here" picks with hooks, a short overview citing papers as links, then the rest (decided 2026-11-12, v2.1) |
+| 18 | Signup page | One page (decided 2026-11-12, v2.1) |
+| 19 | Broad topics | Refused at signup above about 25 matching papers a day, with a prompt to narrow the phrase (decided 2026-11-12, v2.1) |
+| 20 | Prompt eval gates | Judged by the owner by hand; launch waits until they pass; no fallback to the old email format (decided 2026-11-12, v2.1) |
