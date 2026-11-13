@@ -4,6 +4,7 @@ from decimal import Decimal
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
 from app.config import Settings
 from app.services.spend import (
@@ -91,7 +92,27 @@ def test_spend_limit_detection_tolerates_non_json():
 
 def test_prices_overridable_from_env(monkeypatch):
     monkeypatch.setenv("OPENAI_PRICES", '{"m": {"input": 1, "cached_input": 1, "output": 2}}')
-    assert Settings().openai_prices == {"m": {"input": 1.0, "cached_input": 1.0, "output": 2.0}}
+    prices = Settings().openai_prices
+    assert prices["m"] == {"input": 1.0, "cached_input": 1.0, "output": 2.0}
+    assert "gpt-5.4-mini" in prices  # an override adds to the defaults
+
+
+def test_price_override_merges_with_defaults(monkeypatch):
+    monkeypatch.setenv("OPENAI_PRICES", '{"gpt-5.4-mini": {"input": 1, "cached_input": 0.1, "output": 5}}')
+    prices = Settings().openai_prices
+    assert prices["gpt-5.4-mini"]["input"] == 1.0
+    assert prices["text-embedding-3-small"]["input"] == 0.02
+
+
+def test_price_entry_missing_a_key_is_rejected(monkeypatch):
+    monkeypatch.setenv("OPENAI_PRICES", '{"m": {"input": 1, "output": 2}}')
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_negative_price_is_rejected():
+    with pytest.raises(ValidationError):
+        Settings(openai_prices={"m": {"input": -1, "cached_input": 0, "output": 0}})
 
 
 def test_out_of_credits_counts_as_a_spend_stop():

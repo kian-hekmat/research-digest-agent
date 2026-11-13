@@ -1,7 +1,16 @@
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# USD per 1M tokens, by model. An OPENAI_PRICES override is merged over these,
+# so overriding one model never drops another's price.
+DEFAULT_OPENAI_PRICES: dict[str, dict[str, float]] = {
+    "gpt-5.4-mini": {"input": 0.75, "cached_input": 0.075, "output": 4.50},
+    "text-embedding-3-small": {"input": 0.02, "cached_input": 0.02, "output": 0.0},
+}
+_PRICE_KEYS = {"input", "cached_input", "output"}
 
 
 class Settings(BaseSettings):
@@ -52,12 +61,20 @@ class Settings(BaseSettings):
     openai_monthly_budget_usd: float = 20.0
     spend_alert_fraction: float = 0.8
     # USD per 1M tokens, by model. Settings rather than code so a price change
-    # needs no deploy; overridable as JSON in OPENAI_PRICES. A model missing
-    # here can't be called at all - spend must never go unrecorded.
-    openai_prices: dict[str, dict[str, float]] = {
-        "gpt-5.4-mini": {"input": 0.75, "cached_input": 0.075, "output": 4.50},
-        "text-embedding-3-small": {"input": 0.02, "cached_input": 0.02, "output": 0.0},
-    }
+    # needs no deploy; overridable as JSON in OPENAI_PRICES (merged over
+    # DEFAULT_OPENAI_PRICES). A model missing here can't be called at all -
+    # spend must never go unrecorded.
+    openai_prices: dict[str, dict[str, float]] = DEFAULT_OPENAI_PRICES
+
+    @field_validator("openai_prices")
+    @classmethod
+    def _merge_and_check_prices(cls, prices: dict[str, dict[str, float]]) -> dict[str, dict[str, float]]:
+        for model, price in prices.items():
+            if set(price) != _PRICE_KEYS:
+                raise ValueError(f"price for {model!r} needs exactly {sorted(_PRICE_KEYS)}")
+            if any(v < 0 for v in price.values()):
+                raise ValueError(f"price for {model!r} can't be negative")
+        return {**DEFAULT_OPENAI_PRICES, **prices}
     # Where spend and other operational alerts are emailed. Empty: alerts are
     # only logged.
     alert_email: str = ""
@@ -78,6 +95,10 @@ class Settings(BaseSettings):
     # summaries. They're off whenever summaries are (SUMMARY_BACKEND=none) as
     # well as with RAG_ENABLED=false.
     rag_enabled: bool = True
+    # "ollama": EmbeddingGemma served by Ollama on the owner's Mac (until the
+    # Phase 2b cutover). "openai": an OpenAI embedding model, requested at
+    # embedding_dim dimensions, recorded and priced like every OpenAI call.
+    embedding_backend: Literal["openai", "ollama"] = "ollama"
     embedding_model: str = "embeddinggemma"
     # Must match the vector(N) column in paper_embeddings - changing models
     # to one with another width needs a migration.

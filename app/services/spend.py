@@ -39,6 +39,12 @@ class UnknownModelPrice(RuntimeError):
         self.model = model
 
 
+class SpendLimitReached(RuntimeError):
+    """OpenAI refused a call: hard spend limit reached or out of credits.
+    Raised where returning "no result" isn't an option (embeddings); retrying
+    can't help until the limit resets."""
+
+
 class BudgetExhausted(Exception):
     """The monthly budget is spent: chat calls are skipped until the 1st."""
 

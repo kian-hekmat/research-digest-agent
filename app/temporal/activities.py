@@ -29,6 +29,7 @@ from app.services.retrieval import (
     related_context,
 )
 from app.services.scholar import fetch_max_author_h_index
+from app.services.spend import SpendLimitReached
 from app.spend_ledger import DbLedger
 from app.services.embed import Embedder
 from app.services.email import (
@@ -193,8 +194,13 @@ def embed_papers(input: EmbedPapersInput) -> int:
     settings = get_settings()
     db = SessionLocal()
     try:
-        embedder = Embedder()
-        written = embed_missing(db, embedder, input.paper_ids, batch_size=settings.embedding_batch_size)
+        embedder = Embedder(ledger=DbLedger())
+        try:
+            written = embed_missing(db, embedder, input.paper_ids, batch_size=settings.embedding_batch_size)
+        except SpendLimitReached as exc:
+            # Retrying can't help until the limit resets or credits are added;
+            # the workflow carries on without retrieval this run.
+            raise ApplicationError(str(exc), non_retryable=True) from exc
         if embedder.enabled:
             compute_signals(
                 db,
@@ -219,7 +225,7 @@ def fetch_fulltext(input: FetchFulltextInput) -> int:
     settings = get_settings()
     if not (settings.rag_fulltext and settings.embeddings_enabled):
         return 0
-    embedder = Embedder()
+    embedder = Embedder(ledger=DbLedger())
     db = SessionLocal()
     indexed = 0
     try:
@@ -247,7 +253,7 @@ def _excerpts(paper_id: str) -> list[str]:
         return []
     db = SessionLocal()
     try:
-        return fulltext_excerpts(db, Embedder(), paper_id, max_excerpts=settings.rag_fulltext_excerpts)
+        return fulltext_excerpts(db, Embedder(ledger=DbLedger()), paper_id, max_excerpts=settings.rag_fulltext_excerpts)
     except Exception:
         logger.exception("Full-text excerpts failed for paper %s", paper_id)
         return []

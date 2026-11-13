@@ -64,7 +64,7 @@ def main(argv=None) -> None:
     settings = get_settings()
     if not settings.embeddings_enabled:
         raise SystemExit("Needs SUMMARY_BACKEND=openai and RAG_ENABLED=true.")
-    embedder, summarizer = Embedder(settings), Summarizer(settings, ledger=DbLedger())
+    embedder, summarizer = Embedder(settings, ledger=DbLedger()), Summarizer(settings, ledger=DbLedger())
     db = SessionLocal()
     try:
         rows = db.execute(text("""

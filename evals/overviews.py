@@ -85,7 +85,7 @@ def main(argv=None) -> None:
     settings = get_settings()
     if not settings.summaries_enabled:
         raise SystemExit("Summarization is off - set SUMMARY_BACKEND=openai first.")
-    summarizer, embedder = Summarizer(settings, ledger=DbLedger()), Embedder(settings)
+    summarizer, embedder = Summarizer(settings, ledger=DbLedger()), Embedder(settings, ledger=DbLedger())
     db = SessionLocal()
     rows = []
     try:

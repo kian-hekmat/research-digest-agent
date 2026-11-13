@@ -7,6 +7,7 @@ import pytest
 from app import models
 from app.models import EMBEDDING_DIM
 from app.services.retrieval import embed_missing, neighbours, papers_missing_embedding
+from tests.conftest import EmbedderTextMixin
 
 MODEL = "fake-embed"
 
@@ -19,7 +20,7 @@ def _vec(angle_deg: float) -> list[float]:
     return v
 
 
-class FakeEmbedder:
+class FakeEmbedder(EmbedderTextMixin):
     """Embeds a paper at the angle given in its abstract ("angle:30")."""
 
     enabled = True

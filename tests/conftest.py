@@ -51,6 +51,21 @@ _ALEMBIC_CFG = Config("alembic.ini")
 _ALEMBIC_CFG.set_main_option("sqlalchemy.url", TEST_DATABASE_URL)
 
 
+class EmbedderTextMixin:
+    """For hand-written fake embedders: the Embedder text methods, in the
+    EmbeddingGemma formats the fakes were written against, and a constructor
+    that accepts what activities pass (ledger=, topic_id=)."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def document_text(self, title, abstract):
+        return f"title: {title} | text: {abstract}"
+
+    def query_text(self, query):
+        return f"task: search result | query: {query}"
+
+
 def make_result(arxiv_id, title, published_at=None):
     from datetime import datetime, timezone
 

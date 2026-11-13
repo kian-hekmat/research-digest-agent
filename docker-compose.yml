@@ -89,6 +89,7 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:12b}
       RAG_ENABLED: ${RAG_ENABLED:-true}
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-ollama}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-embeddinggemma}
       RAG_RELATED_NOTES: ${RAG_RELATED_NOTES:-false}
       RAG_OVERVIEW_HISTORY: ${RAG_OVERVIEW_HISTORY:-true}
@@ -127,6 +128,7 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:12b}
       RAG_ENABLED: ${RAG_ENABLED:-true}
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-ollama}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-embeddinggemma}
       RAG_RELATED_NOTES: ${RAG_RELATED_NOTES:-false}
       RAG_OVERVIEW_HISTORY: ${RAG_OVERVIEW_HISTORY:-true}

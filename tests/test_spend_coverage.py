@@ -1,34 +1,39 @@
-"""Every place that builds a Summarizer passes a spend ledger, so no code path
-can call OpenAI without the call being recorded and budget-checked."""
+"""Every place that builds a Summarizer or an Embedder passes a spend ledger,
+so no code path can call OpenAI without the call being recorded (and, for
+chat calls, budget-checked)."""
 import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCES = sorted([*(ROOT / "app").rglob("*.py"), *(ROOT / "evals").rglob("*.py")])
-DEFINITION = ROOT / "app" / "services" / "summarize.py"
+DEFINITIONS = {
+    "Summarizer": ROOT / "app" / "services" / "summarize.py",
+    "Embedder": ROOT / "app" / "services" / "embed.py",
+}
 
 
-def _summarizer_calls_without_ledger(path: Path) -> list[int]:
+def _calls_without_ledger(path: Path, cls: str) -> list[int]:
     tree = ast.parse(path.read_text(), filename=str(path))
     missing = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
-        if name == "Summarizer" and not any(k.arg == "ledger" for k in node.keywords):
+        if name == cls and not any(k.arg == "ledger" for k in node.keywords):
             missing.append(node.lineno)
     return missing
 
 
 def test_sources_were_found():
-    assert DEFINITION in SOURCES
+    assert set(DEFINITIONS.values()) <= set(SOURCES)
     assert len(SOURCES) > 20
 
 
-def test_every_summarizer_outside_its_module_passes_a_ledger():
+def test_every_summarizer_and_embedder_outside_its_module_passes_a_ledger():
     offenders = {
-        str(path.relative_to(ROOT)): lines
+        f"{path.relative_to(ROOT)} ({cls})": lines
+        for cls, definition in DEFINITIONS.items()
         for path in SOURCES
-        if path != DEFINITION and (lines := _summarizer_calls_without_ledger(path))
+        if path != definition and (lines := _calls_without_ledger(path, cls))
     }
     assert offenders == {}

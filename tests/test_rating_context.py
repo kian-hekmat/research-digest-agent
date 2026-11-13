@@ -16,6 +16,7 @@ from app.services import summarize as summarize_module
 from app.services.retrieval import embed_missing, rating_anchors
 from app.services.summarize import RatingAnchor, RatingContext, Summarizer
 from app.temporal import activities as temporal_activities
+from tests.conftest import EmbedderTextMixin
 
 OLLAMA_CHAT = "http://ollama.test:11434/api/chat"
 MODEL = "fake-embed"
@@ -103,7 +104,7 @@ def _vec(angle):
     return v
 
 
-class AngleEmbedder:
+class AngleEmbedder(EmbedderTextMixin):
     enabled = True
     model = MODEL
 

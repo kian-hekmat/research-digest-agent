@@ -19,6 +19,7 @@ from app.config import get_settings
 from app.database import SessionLocal
 from app.services.embed import Embedder
 from app.services.retrieval import compute_signals, embed_missing
+from app.spend_ledger import DbLedger
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +29,11 @@ def main() -> None:
     settings = get_settings()
     if not settings.embeddings_enabled:
         raise SystemExit(
-            "Embeddings are off - they need SUMMARY_BACKEND=openai and RAG_ENABLED=true."
+            "Embeddings are off - they need SUMMARY_BACKEND set (not none) and RAG_ENABLED=true."
         )
     db = SessionLocal()
     try:
-        written = embed_missing(db, Embedder(settings), batch_size=settings.embedding_batch_size)
+        written = embed_missing(db, Embedder(settings, ledger=DbLedger()), batch_size=settings.embedding_batch_size)
         updated = compute_signals(
             db,
             None,

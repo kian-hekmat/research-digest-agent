@@ -35,7 +35,7 @@ from app.temporal.workflows import (
     RunAllTopicDigestsWorkflow,
     SendDigestEmailsWorkflow,
 )
-from tests.conftest import make_result, make_subscriber, subscribe
+from tests.conftest import EmbedderTextMixin, make_result, make_subscriber, subscribe
 
 TASK_QUEUE = "test-digest-task-queue"
 
@@ -281,7 +281,7 @@ async def test_at_100_percent_of_budget_digests_and_emails_go_out_without_ai_tex
     assert db_session.query(models.LlmUsage).count() == 1  # only the seeded row
 
 
-class FakeEmbedder:
+class FakeEmbedder(EmbedderTextMixin):
     """Stands in for app.services.embed.Embedder (the activity calls
     `Embedder()` with no args). `fail` makes every call raise."""
 

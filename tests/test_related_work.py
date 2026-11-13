@@ -16,6 +16,7 @@ from app.services.email import DigestForEmail, PaperForEmail, build_topic_sectio
 from app.services.retrieval import compute_signals, embed_missing, neighbours, related_context
 from app.services.summarize import RatedSummary, RelatedPaper, Summarizer, parse_rated_summary
 from app.temporal import activities as temporal_activities
+from tests.conftest import EmbedderTextMixin
 
 OLLAMA_CHAT = "http://ollama.test:11434/api/chat"
 MODEL = "fake-embed"
@@ -134,7 +135,7 @@ def _vec(angle_deg):
     return v
 
 
-class AngleEmbedder:
+class AngleEmbedder(EmbedderTextMixin):
     enabled = True
     model = MODEL
 

@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app import crud, models
-from app.services.embed import Embedder, document_text, query_text
+from app.services.embed import Embedder
 from app.services.fulltext import Chunk, chunk_sections, fetch_html, parse_sections
 
 ABSTRACT = "abstract"
@@ -67,7 +67,7 @@ def embed_missing(
     written = 0
     for start in range(0, len(todo), batch_size):
         batch = todo[start : start + batch_size]
-        texts = [document_text(p.title, p.abstract) for p in batch]
+        texts = [embedder.document_text(p.title, p.abstract) for p in batch]
         vectors = embedder.embed(texts)
         for paper, content, vector in zip(batch, texts, vectors):
             db.add(
@@ -359,7 +359,7 @@ def store_chunks(db: Session, embedder: Embedder, paper: models.Paper, chunks: l
     ).delete(synchronize_session=False)
     if not chunks:
         return 0
-    texts = [document_text(f"{paper.title} - {c.section}", c.text) for c in chunks]
+    texts = [embedder.document_text(f"{paper.title} - {c.section}", c.text) for c in chunks]
     vectors = embedder.embed(texts)
     for i, (chunk, vector) in enumerate(zip(chunks, vectors)):
         db.add(
@@ -381,7 +381,7 @@ _query_vectors: dict[str, list[list[float]]] = {}
 def _fulltext_query_vectors(embedder: Embedder) -> list[list[float]]:
     """The fixed queries' embeddings, computed once per process and model."""
     if embedder.model not in _query_vectors:
-        _query_vectors[embedder.model] = embedder.embed([query_text(q) for q in FULLTEXT_QUERIES])
+        _query_vectors[embedder.model] = embedder.embed([embedder.query_text(q) for q in FULLTEXT_QUERIES])
     return _query_vectors[embedder.model]
 
 
