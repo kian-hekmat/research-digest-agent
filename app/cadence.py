@@ -27,7 +27,7 @@ from zoneinfo import ZoneInfo
 
 from app.models import SubscriptionCadence
 
-SEND_TIME_ZONE_NAME = "America/Los_Angeles"
+SEND_TIME_ZONE_NAME = "America/New_York"
 SEND_TIME_ZONE = ZoneInfo(SEND_TIME_ZONE_NAME)
 SEND_HOUR = 8
 SEND_WEEKDAYS = (0, 3)  # datetime.weekday(): Monday, Thursday
@@ -45,6 +45,18 @@ def latest_slot(now: datetime, weekdays: tuple[int, ...] = SEND_WEEKDAYS) -> dat
             if slot <= local_now:
                 return slot
     raise ValueError(f"no send weekday in {weekdays}")
+
+
+def next_slot(now: datetime) -> datetime:
+    """The first send time strictly after `now`, in SEND_TIME_ZONE."""
+    local_now = now.astimezone(SEND_TIME_ZONE)
+    for days_ahead in range(8):
+        day = (local_now + timedelta(days=days_ahead)).date()
+        if day.weekday() in SEND_WEEKDAYS:
+            slot = datetime.combine(day, time(SEND_HOUR), tzinfo=SEND_TIME_ZONE)
+            if slot > local_now:
+                return slot
+    raise ValueError(f"no send weekday in {SEND_WEEKDAYS}")
 
 
 def due_cutoff(cadence: SubscriptionCadence, now: datetime) -> datetime:

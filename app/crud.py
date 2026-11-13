@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, contains_eager
@@ -413,3 +413,111 @@ def mark_subscription_sent(
     than silently skipped."""
     subscription.last_sent_at = sent_at
     db.commit()
+
+
+# ---------- editions (one stored send per topic and send slot) ----------
+def get_edition(db: Session, topic_id: str, slot: datetime) -> models.TopicEdition | None:
+    return (
+        db.query(models.TopicEdition)
+        .filter(models.TopicEdition.topic_id == topic_id, models.TopicEdition.slot == slot)
+        .one_or_none()
+    )
+
+
+def edition_window_start(db: Session, topic_id: str, window_end: datetime) -> datetime:
+    """Where a new edition's paper window starts: the topic's latest edition's
+    end (so windows chain with no gap or overlap), else the earliest last send
+    among its active subscriptions, else a week before `window_end`."""
+    previous_end = (
+        db.query(func.max(models.TopicEdition.window_end))
+        .filter(models.TopicEdition.topic_id == topic_id)
+        .scalar()
+    )
+    if previous_end is not None:
+        return previous_end
+    earliest_sent = (
+        active_subscriptions_query(db)
+        .with_entities(func.min(models.Subscription.last_sent_at))
+        .filter(models.Subscription.topic_id == topic_id)
+        .order_by(None)
+        .scalar()
+    )
+    if earliest_sent is not None:
+        return earliest_sent
+    return window_end - timedelta(days=7)
+
+
+def window_papers(
+    db: Session, topic_id: str, start: datetime, end: datetime
+) -> list[models.Paper]:
+    """Papers in the topic's digests completed in (start, end], once each,
+    ordered by arxiv_id."""
+    return (
+        db.query(models.Paper)
+        .filter(
+            models.Paper.id.in_(
+                select(models.digest_paper_association.c.paper_id)
+                .join(
+                    models.Digest,
+                    models.Digest.id == models.digest_paper_association.c.digest_id,
+                )
+                .where(
+                    models.Digest.topic_id == topic_id,
+                    models.Digest.completed_at > start,
+                    models.Digest.completed_at <= end,
+                )
+            )
+        )
+        .order_by(models.Paper.arxiv_id)
+        .all()
+    )
+
+
+def save_edition(
+    db: Session,
+    *,
+    topic_id: str,
+    slot: datetime,
+    window_start: datetime,
+    window_end: datetime,
+    status: str,
+    k: int,
+    overview: str | None,
+    ranked_paper_ids: list[str],
+) -> models.TopicEdition:
+    """Store the edition for (topic, slot), papers in rank order (best first).
+    Idempotent: an existing edition for that slot is returned unchanged, so a
+    second prep is a no-op."""
+    existing = get_edition(db, topic_id, slot)
+    if existing is not None:
+        return existing
+    edition = models.TopicEdition(
+        topic_id=topic_id,
+        slot=slot,
+        window_start=window_start,
+        window_end=window_end,
+        status=status,
+        k=k,
+        overview=overview,
+    )
+    db.add(edition)
+    try:
+        db.flush()
+        if ranked_paper_ids:
+            db.execute(
+                models.edition_papers.insert(),
+                [
+                    {"edition_id": edition.id, "paper_id": pid, "rank": rank}
+                    for rank, pid in enumerate(ranked_paper_ids, start=1)
+                ],
+            )
+        db.commit()
+    except IntegrityError:
+        # A concurrent prep won the race for this slot.
+        db.rollback()
+        winner = get_edition(db, topic_id, slot)
+        if winner is None:
+            raise
+        return winner
+    db.refresh(edition)
+    return edition

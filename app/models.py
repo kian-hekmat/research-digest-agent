@@ -362,6 +362,60 @@ class Digest(Base):
     )
 
 
+# The papers of an edition, in rank order (1 = best).
+edition_papers = Table(
+    "edition_papers",
+    Base.metadata,
+    Column(
+        "edition_id",
+        UUID(as_uuid=False),
+        ForeignKey("topic_editions.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "paper_id",
+        UUID(as_uuid=False),
+        ForeignKey("papers.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("rank", Integer, nullable=False),
+)
+
+
+class TopicEdition(Base):
+    """One stored send per topic per send slot. Its paper window is
+    (window_start, window_end], chained from the previous edition's end."""
+
+    __tablename__ = "topic_editions"
+    __table_args__ = (
+        UniqueConstraint("topic_id", "slot", name="uq_topic_editions_topic_slot"),
+        CheckConstraint("status IN ('ready', 'fallback')", name="ck_topic_editions_status"),
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    topic_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("topics.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    slot = Column(DateTime(timezone=True), nullable=False)
+    window_start = Column(DateTime(timezone=True), nullable=False)
+    window_end = Column(DateTime(timezone=True), nullable=False)
+    status = Column(String(16), nullable=False)
+    overview = Column(Text, nullable=True)
+    k = Column(Integer, nullable=False)
+    prepared_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    papers = relationship(
+        "Paper",
+        secondary=edition_papers,
+        order_by=edition_papers.c.rank,
+        viewonly=True,
+    )
+
+
 class Subscriber(Base):
     """One person, by email (case-insensitive). The lifecycle timestamps live
     here rather than on each subscription: confirming or unsubscribing is about

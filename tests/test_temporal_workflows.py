@@ -1039,9 +1039,9 @@ def test_finalize_stamps_completed_at_only_on_completion(db_session):
 
 
 # ---------- cadence due-ness (slot-anchored, see app.cadence) ----------
-# Slots are Mon/Thu 08:00 Pacific. October 2026 is PDT (UTC-7): Mon Oct 5 and
-# Thu Oct 8 08:00 PDT are 15:00 UTC.
-_PDT = timezone(timedelta(hours=-7))
+# Slots are Mon/Thu 08:00 Eastern. October 2026 is EDT (UTC-4): Mon Oct 5 and
+# Thu Oct 8 08:00 EDT are 12:00 UTC.
+_PDT = timezone(timedelta(hours=-4))
 
 
 def _pdt(day, hour=8, minute=0, second=0):
@@ -1107,7 +1107,7 @@ async def test_ensure_daily_schedule_is_idempotent(temporal_env_only):
     # echoing it back verbatim - check the parsed hour instead of the string.
     [calendar] = desc.schedule.spec.calendars
     assert calendar.hour[0].start == 10
-    assert desc.schedule.spec.time_zone_name == "America/Los_Angeles"
+    assert desc.schedule.spec.time_zone_name == "America/New_York"
     assert desc.schedule.action.workflow == "RunAllTopicDigestsWorkflow"
 
 
@@ -1130,7 +1130,7 @@ async def test_ensure_email_schedule_fires_monday_and_thursday(temporal_env_only
     [calendar] = desc.schedule.spec.calendars
     assert calendar.hour[0].start == 8
     assert _days_of_week(calendar) == {1, 4}  # Monday, Thursday
-    assert desc.schedule.spec.time_zone_name == "America/Los_Angeles"
+    assert desc.schedule.spec.time_zone_name == "America/New_York"
     assert desc.schedule.action.workflow == "SendDigestEmailsWorkflow"
 
 
