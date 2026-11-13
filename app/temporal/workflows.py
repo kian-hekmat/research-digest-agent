@@ -150,9 +150,12 @@ class DigestWorkflow:
         # their old history, which has no such activity.
         if papers and workflow.patched("embed-papers"):
             try:
+                # `patched` again: runs in flight at deploy time keep the
+                # input their history recorded.
+                topic_id = ctx.topic_id if workflow.patched("embed-topic") else ""
                 await workflow.execute_activity(
                     activities.embed_papers,
-                    types.EmbedPapersInput(paper_ids=[p.paper_id for p in papers]),
+                    types.EmbedPapersInput(paper_ids=[p.paper_id for p in papers], topic_id=topic_id),
                     start_to_close_timeout=_LLM_TIMEOUT,
                     retry_policy=_LLM_RETRY,
                 )

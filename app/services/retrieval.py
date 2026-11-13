@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app import crud, models
 from app.services.embed import Embedder
 from app.services.fulltext import Chunk, chunk_sections, fetch_html, parse_sections
+from app.topic_query import normalize_query
 
 ABSTRACT = "abstract"
 
@@ -83,6 +84,71 @@ def embed_missing(
         db.commit()
         written += len(batch)
     return written
+
+
+def embed_missing_topics(
+    db: Session, embedder: Embedder, topic_ids: list[str] | None = None
+) -> int:
+    """Embed each topic's normalized query, for topics with no embedding for
+    this model yet (only `topic_ids` when given). Commits. Returns how many
+    were written; 0 when embeddings are off."""
+    if not embedder.enabled:
+        return 0
+    has = db.query(models.TopicEmbedding.topic_id).filter(models.TopicEmbedding.model == embedder.model)
+    q = db.query(models.Topic).filter(models.Topic.id.notin_(has))
+    if topic_ids is not None:
+        if not topic_ids:
+            return 0
+        q = q.filter(models.Topic.id.in_(topic_ids))
+    topics = q.order_by(models.Topic.created_at, models.Topic.id).all()
+    if not topics:
+        return 0
+    texts = [embedder.query_text(t.normalized_query) for t in topics]
+    vectors = embedder.embed(texts)
+    for topic, content, vector in zip(topics, texts, vectors):
+        db.add(models.TopicEmbedding(topic_id=topic.id, model=embedder.model, content=content, embedding=vector))
+    db.commit()
+    return len(topics)
+
+
+@dataclass(frozen=True)
+class TopicMatch:
+    topic_id: str
+    name: str
+    normalized_query: str
+    similarity: float
+
+
+_SIMILAR_TOPICS_SQL = """
+SELECT t.id, t.name, t.normalized_query,
+       1 - (te.embedding <=> CAST(:query AS vector)) AS similarity
+FROM topic_embeddings te
+JOIN topics t ON t.id = te.topic_id
+WHERE te.model = :model
+  AND 1 - (te.embedding <=> CAST(:query AS vector)) >= :min_similarity
+ORDER BY te.embedding <=> CAST(:query AS vector)
+LIMIT :k
+"""
+
+
+def similar_topics(
+    db: Session, embedder: Embedder, query: str, *, min_similarity: float, k: int = 3
+) -> list[TopicMatch]:
+    """Existing topics whose query is at least `min_similarity` similar to
+    `query` (normalized first, then embedded - one call), most similar first.
+    Empty when embeddings are off. Phase 3's signup offers these as "join the
+    existing topic?"; the floor is Settings.calibration.topic_suggestion."""
+    if not embedder.enabled:
+        return []
+    vectors = embedder.embed([embedder.query_text(normalize_query(query))])
+    if not vectors:
+        return []
+    literal = "[" + ",".join(repr(float(x)) for x in vectors[0]) + "]"
+    rows = db.execute(
+        text(_SIMILAR_TOPICS_SQL),
+        {"query": literal, "model": embedder.model, "min_similarity": min_similarity, "k": k},
+    ).all()
+    return [TopicMatch(r.id, r.name, r.normalized_query, float(r.similarity)) for r in rows]
 
 
 _NEIGHBOURS_SQL = """

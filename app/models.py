@@ -278,6 +278,26 @@ class Paper(Base):
 EMBEDDING_DIM = 768  # vector(N) width; app.config.Settings.embedding_dim must match
 
 
+class TopicEmbedding(Base):
+    """A topic's normalized query, embedded, for "join the existing topic?"
+    suggestions (app.services.retrieval.similar_topics). Keyed by model like
+    paper_embeddings, so a new model can be backfilled side by side."""
+
+    __tablename__ = "topic_embeddings"
+
+    topic_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("topics.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    model = Column(String, primary_key=True)
+    content = Column(Text, nullable=False)  # exactly the text that was embedded
+    embedding = Column(Vector(EMBEDDING_DIM), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class PaperEmbedding(Base):
     """One embedded piece of a paper, for retrieval (see app.services.retrieval).
 

@@ -313,6 +313,33 @@ async def test_digest_workflow_embeds_new_papers(db_session, temporal_client, mo
     assert len(stored) == 2 and {e.model for e in stored} == {"fake-embed"}
 
 
+async def test_digest_workflow_embeds_its_topic_once(db_session, temporal_client, monkeypatch):
+    texts: list[str] = []
+
+    class RecordingEmbedder(FakeEmbedder):
+        def embed(self, batch):
+            texts.extend(batch)
+            return super().embed(batch)
+
+    monkeypatch.setattr(temporal_activities, "Embedder", RecordingEmbedder)
+    monkeypatch.setattr(FakeEmbedder, "fail", False)
+    topic = _make_topic(db_session, name="RLHF", query="RLHF")
+    monkeypatch.setattr(
+        temporal_activities, "search_arxiv", lambda query, since=None: [make_result("2408.0001", "Paper One")]
+    )
+    await _run_digest(temporal_client, crud.create_digest(db_session, topic.id).id)
+    monkeypatch.setattr(
+        temporal_activities, "search_arxiv", lambda query, since=None: [make_result("2408.0002", "Paper Two")]
+    )
+    await _run_digest(temporal_client, crud.create_digest(db_session, topic.id).id)
+
+    db_session.expire_all()
+    (row,) = db_session.query(models.TopicEmbedding).all()
+    assert (row.topic_id, row.model) == (topic.id, "fake-embed")
+    topic_texts = [t for t in texts if "rlhf" in t and "Paper" not in t]
+    assert topic_texts == ["task: search result | query: rlhf"]
+
+
 async def test_digest_workflow_completes_when_embedding_fails(db_session, temporal_client, monkeypatch):
     """Retrieval is an enhancement: an embedding outage must not cost the
     digest its summaries or fail the run."""

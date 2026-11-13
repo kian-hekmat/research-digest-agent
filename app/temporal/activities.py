@@ -23,6 +23,7 @@ from app.services.ranking import venue_score
 from app.services.retrieval import (
     compute_signals,
     embed_missing,
+    embed_missing_topics,
     fulltext_excerpts,
     index_fulltext,
     rating_anchors,
@@ -204,6 +205,8 @@ def embed_papers(input: EmbedPapersInput) -> int:
             # Retrying can't help until the limit resets or credits are added;
             # the workflow carries on without retrieval this run.
             raise ApplicationError(str(exc), non_retryable=True) from exc
+        if input.topic_id:
+            embed_missing_topics(db, embedder, [input.topic_id])
         if embedder.enabled:
             compute_signals(
                 db,

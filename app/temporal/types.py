@@ -70,6 +70,9 @@ class EmbedPapersInput:
     an embedding are skipped by the activity)."""
 
     paper_ids: list[str] = field(default_factory=list)
+    # The digest's topic, embedded too if it has no embedding yet (for
+    # similar-topic suggestions). Empty for older callers.
+    topic_id: str = ""
 
 
 @dataclass
