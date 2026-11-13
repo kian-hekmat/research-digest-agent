@@ -372,7 +372,7 @@ regression test:
 ## Testing
 
 ```bash
-venv/bin/python -m pytest -q        # 516 tests
+venv/bin/python -m pytest -q        # 517 tests
 ```
 
 | Layer | How |
