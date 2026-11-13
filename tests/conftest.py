@@ -15,6 +15,12 @@ os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 # Ollama server. Tests that exercise the Ollama path pass their own Settings
 # and fake the HTTP layer with respx.
 os.environ["SUMMARY_BACKEND"] = "none"
+# Tests with hand-built embedders switch Settings.embedding_model to
+# "fake-embed"; give it embeddinggemma's thresholds (app.config.Calibration).
+os.environ["RETRIEVAL_CALIBRATION"] = (
+    '{"fake-embed": {"similar_paper": 0.75, "near_duplicate": 0.9, "related_min": 0.72,'
+    ' "novelty_repeat": 0.85, "novelty_unrelated": 0.45}}'
+)
 # The JSON API is admin-only and fails closed, so the suite needs a token set
 # before Settings is first built; `client` sends it, `anon_client` does not.
 os.environ["ADMIN_TOKEN"] = "test-admin-token"

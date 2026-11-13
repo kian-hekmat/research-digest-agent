@@ -95,7 +95,7 @@ def _rag_related(db: Session, summarizer: Summarizer) -> Variant:
     def related(i: EvalItem) -> list[Neighbour]:
         return related_context(
             db, i.paper_id, model=settings.embedding_model,
-            k=settings.rag_top_k, min_similarity=settings.rag_min_similarity,
+            k=settings.rag_top_k, min_similarity=settings.calibration.related_min,
         )
 
     def summarize(i: EvalItem) -> RatedSummary:

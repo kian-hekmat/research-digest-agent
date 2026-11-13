@@ -192,6 +192,9 @@ def embed_papers(input: EmbedPapersInput) -> int:
     signals (novelty, near duplicates). Returns how many were newly embedded:
     0 when embeddings are off, or every paper already had one."""
     settings = get_settings()
+    # Before any write: a model without calibration must not leave half-
+    # computed signals behind (raises MissingCalibration).
+    calibration = settings.calibration
     db = SessionLocal()
     try:
         embedder = Embedder(ledger=DbLedger())
@@ -206,9 +209,9 @@ def embed_papers(input: EmbedPapersInput) -> int:
                 db,
                 input.paper_ids,
                 model=settings.embedding_model,
-                near_duplicate_similarity=settings.rag_near_duplicate_similarity,
+                near_duplicate_similarity=calibration.near_duplicate,
                 novelty_window_days=settings.rag_novelty_window_days,
-                similar_paper_similarity=settings.rag_similar_paper_similarity,
+                similar_paper_similarity=calibration.similar_paper,
             )
         return written
     finally:
@@ -275,7 +278,7 @@ def _related_papers(paper_id: str) -> tuple[list[RelatedPaper], dict[str, tuple[
             paper_id,
             model=settings.embedding_model,
             k=settings.rag_top_k,
-            min_similarity=settings.rag_min_similarity,
+            min_similarity=settings.calibration.related_min,
         )
     except Exception:
         logger.exception("Related-work retrieval failed for paper %s", paper_id)
@@ -532,7 +535,11 @@ def gather_digest_content(input: GatherContentInput) -> GatheredContent | None:
                 )
                 for d in digests
             ]
-            section = build_topic_section(window.topic_name, batches, window.max_papers)
+            cal = get_settings().calibration
+            section = build_topic_section(
+                window.topic_name, batches, window.max_papers,
+                novelty=(cal.novelty_repeat, cal.novelty_unrelated),
+            )
             if section is not None:
                 sections.append(section)
                 included.append(window.subscription_id)

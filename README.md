@@ -475,9 +475,11 @@ All settings are environment variables (see [`.env.example`](.env.example)).
 | `RAG_RATING_ANCHORS` | `false` | Reference-rated few-shot examples for the relevance rater (measured: worse) |
 
 Every field of `Settings` in [`app/config.py`](app/config.py) can be overridden
-the same way. The retrieval thresholds there (for example
-`RAG_SIMILAR_PAPER_SIMILARITY=0.75`) carry comments explaining where each value
-came from.
+the same way. Retrieval thresholds (the "similar earlier paper" floor, near
+duplicates, novelty anchors, similar-topic suggestions) are calibrated per
+embedding model in `RETRIEVAL_CALIBRATION`, because cosine scales differ between
+models; `app/config.py` explains where each value came from, and using a model
+with no calibration row fails rather than borrowing another model's numbers.
 
 ---
 

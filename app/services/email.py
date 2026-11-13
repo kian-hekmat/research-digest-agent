@@ -75,7 +75,11 @@ class TopicSection:
 
 
 def build_topic_section(
-    topic_name: str, digests: list[DigestForEmail], max_papers: int | None = None
+    topic_name: str,
+    digests: list[DigestForEmail],
+    max_papers: int | None = None,
+    *,
+    novelty: tuple[float, float] = (0.85, 0.45),
 ) -> TopicSection | None:
     """Merge a topic's digests into one section, or None if they hold no
     papers at all (empty runs contribute nothing - not even a heading).
@@ -85,6 +89,8 @@ def build_topic_section(
     kept papers are then laid out by submission day, newest day first, best
     first within a day. A paper with no submission date falls back to its
     digest's run time, so it still sorts and groups somewhere sensible.
+    `novelty` is the embedding model's (repeat, unrelated) anchors
+    (Settings.calibration).
     """
     picked: dict[str, tuple[PaperForEmail, DigestForEmail]] = {}
     for digest in digests:
@@ -99,7 +105,9 @@ def build_topic_section(
     _fold_near_duplicates(picked)
 
     candidates = list(picked.values())
-    scores = score_papers([p for p, _ in candidates])
+    scores = score_papers(
+        [p for p, _ in candidates], novelty_repeat=novelty[0], novelty_unrelated=novelty[1]
+    )
     score_of = {p.arxiv_id: s for (p, _), s in zip(candidates, scores)}
     ranked = sorted(
         candidates,

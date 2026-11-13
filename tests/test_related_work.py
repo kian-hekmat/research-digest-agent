@@ -277,7 +277,12 @@ def test_summarize_activity_offers_earlier_papers_and_stores_checked_citations(d
     settings = get_settings()
     monkeypatch.setattr(settings, "summary_backend", "ollama")
     monkeypatch.setattr(settings, "embedding_model", MODEL)
-    monkeypatch.setattr(settings, "rag_min_similarity", 0.5)
+    monkeypatch.setattr(
+        settings,
+        "retrieval_calibration",
+        {**settings.retrieval_calibration,
+         MODEL: settings.retrieval_calibration[MODEL].model_copy(update={"related_min": 0.5})},
+    )
     monkeypatch.setattr(settings, "rag_related_notes", True)
     monkeypatch.setattr(temporal_activities, "Summarizer", RecordingSummarizer)
     earlier = _paper(db_session, "2609.00001", 0, 1, topic, summary="Earlier summary.")

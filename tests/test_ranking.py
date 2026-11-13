@@ -119,3 +119,11 @@ def test_gated_on_topic_always_beats_off_topic_and_ignores_the_grade():
 def test_unknown_relevance_mode_is_rejected():
     with pytest.raises(ValueError):
         score_papers([_p()], "fuzzy")
+
+
+def test_novelty_anchors_come_from_the_caller():
+    papers = [_p(relevance=8, h=10, prior=0.7), _p(relevance=8, h=10, prior=0.55)]
+    default = score_papers(papers)
+    assert default == score_papers(papers, novelty_repeat=0.85, novelty_unrelated=0.45)
+    assert score_papers(papers, novelty_repeat=0.95, novelty_unrelated=0.6) != default
+    assert novelty_component(0.7, repeat=0.95, unrelated=0.6) == pytest.approx(0.25 / 0.35)

@@ -38,9 +38,9 @@ def main() -> None:
             db,
             None,
             model=settings.embedding_model,
-            near_duplicate_similarity=settings.rag_near_duplicate_similarity,
+            near_duplicate_similarity=settings.calibration.near_duplicate,
             novelty_window_days=settings.rag_novelty_window_days,
-            similar_paper_similarity=settings.rag_similar_paper_similarity,
+            similar_paper_similarity=settings.calibration.similar_paper,
         )
     finally:
         db.close()
