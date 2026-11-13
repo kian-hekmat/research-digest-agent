@@ -15,6 +15,7 @@ def _settings(**overrides) -> Settings:
     base = dict(
         summary_backend="ollama",
         ollama_base_url="http://ollama.test",
+        embedding_backend="ollama",
         embedding_model="embeddinggemma",
         embedding_dim=4,
         embedding_batch_size=2,

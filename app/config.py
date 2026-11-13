@@ -167,15 +167,16 @@ class Settings(BaseSettings):
         return self.openai_model if self.summary_backend == "openai" else self.ollama_model
 
     # --- retrieval (embeddings in pgvector, see docs/rag-plan.md) ---
-    # Paper embeddings always come from Ollama, whichever backend writes the
-    # summaries. They're off whenever summaries are (SUMMARY_BACKEND=none) as
-    # well as with RAG_ENABLED=false.
+    # Embeddings (EMBEDDING_BACKEND, below) are off whenever summaries are
+    # (SUMMARY_BACKEND=none) as well as with RAG_ENABLED=false.
     rag_enabled: bool = True
-    # "ollama": EmbeddingGemma served by Ollama on the owner's Mac (until the
-    # Phase 2b cutover). "openai": an OpenAI embedding model, requested at
-    # embedding_dim dimensions, recorded and priced like every OpenAI call.
-    embedding_backend: Literal["openai", "ollama"] = "ollama"
-    embedding_model: str = "embeddinggemma"
+    # "openai" (default since 2026-11-12): text-embedding-3-small, requested
+    # at embedding_dim dimensions, recorded and priced like every OpenAI call.
+    # "ollama": EmbeddingGemma served by a local Ollama, for development or a
+    # rollback (EMBEDDING_BACKEND=ollama EMBEDDING_MODEL=embeddinggemma, then
+    # `python -m app.backfill_embeddings`).
+    embedding_backend: Literal["openai", "ollama"] = "openai"
+    embedding_model: str = "text-embedding-3-small"
     # Must match the vector(N) column in paper_embeddings - changing models
     # to one with another width needs a migration.
     embedding_dim: int = 768

@@ -66,12 +66,13 @@ def test_weights_combine_as_specified():
 
 
 def test_novelty_component_maps_similarity_linearly_and_clamps():
-    assert novelty_component(0.85) == 0.0
-    assert novelty_component(0.95) == 0.0
-    assert novelty_component(0.45) == 1.0
-    assert novelty_component(0.10) == 1.0
-    assert math.isclose(novelty_component(0.65), 0.5)
-    assert novelty_component(None) is None
+    anchors = dict(repeat=0.85, unrelated=0.45)
+    assert novelty_component(0.85, **anchors) == 0.0
+    assert novelty_component(0.95, **anchors) == 0.0
+    assert novelty_component(0.45, **anchors) == 1.0
+    assert novelty_component(0.10, **anchors) == 1.0
+    assert math.isclose(novelty_component(0.65, **anchors), 0.5)
+    assert novelty_component(None, **anchors) is None
 
 
 def test_novelty_breaks_a_tie_but_never_beats_relevance():
@@ -123,8 +124,11 @@ def test_unknown_relevance_mode_is_rejected():
 
 def test_novelty_anchors_come_from_the_caller():
     papers = [_p(relevance=8, h=10, prior=0.7), _p(relevance=8, h=10, prior=0.55)]
+    from app.config import get_settings
+
+    cal = get_settings().calibration
     default = score_papers(papers)
-    assert default == score_papers(papers, novelty_repeat=0.85, novelty_unrelated=0.45)
+    assert default == score_papers(papers, novelty_repeat=cal.novelty_repeat, novelty_unrelated=cal.novelty_unrelated)
     assert score_papers(papers, novelty_repeat=0.95, novelty_unrelated=0.6) != default
     assert novelty_component(0.7, repeat=0.95, unrelated=0.6) == pytest.approx(0.25 / 0.35)
 

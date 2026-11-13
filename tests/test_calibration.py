@@ -103,3 +103,9 @@ def test_text_embedding_3_small_is_calibrated_from_the_live_corpus():
     # Plain embedding similarity can't tell "RLHF" from its expansion
     # (docs/rag-plan.md §5.9): suggestions stay off for this model.
     assert c.topic_suggestion is None
+
+
+def test_defaults_are_openai_embeddings_with_a_calibration():
+    s = Settings()
+    assert (s.embedding_backend, s.embedding_model) == ("openai", "text-embedding-3-small")
+    assert s.calibration.similar_paper == 0.749

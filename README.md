@@ -37,7 +37,7 @@ phase's implementation plan is in [`docs/superpowers/plans/`](docs/superpowers/p
 | **What it does** | arXiv → full text + embeddings → retrieval-augmented LLM summary and relevance rating → ranked, per-topic email digests |
 | **Backend** | Python 3.12, FastAPI, Pydantic, SQLAlchemy 2, PostgreSQL 16 + pgvector, Alembic |
 | **Orchestration** | Temporal (workflows, activities, retry policies, cron schedules) |
-| **AI / LLM** | OpenAI `gpt-5.4-mini` for summaries, ratings and overviews; EmbeddingGemma (`embeddinggemma`) served locally by Ollama for embeddings |
+| **AI / LLM** | OpenAI `gpt-5.4-mini` for summaries, ratings and overviews; OpenAI `text-embedding-3-small` (768-dim) for embeddings; Ollama optional for local development |
 | **Retrieval** | pgvector (HNSW, cosine) over abstract and full-text chunk embeddings |
 | **External data** | arXiv Atom API and HTML full text, OpenAlex / Semantic Scholar (author h-index) |
 | **Email** | SMTP (Gmail or any relay), Mailpit for local development |
@@ -118,8 +118,9 @@ paper's text never does.
 **Applied AI / LLM engineering**
 - Swappable summarization backends behind one interface: the OpenAI API by
   default, or a local model through Ollama, with no change to the pipeline
-- Local embedding inference with Ollama on Apple Silicon, reached from
-  containers via the host gateway
+- Swappable embedding backends too (OpenAI or a local Ollama model), with
+  similarity thresholds calibrated per model on the real corpus, and a
+  side-by-side backfill so switching models never mixes two models' scales
 - Prompt design for structured output: a summary plus a 1–10 relevance rating
   in one call, with a tolerant parser that never loses a summary over a
   malformed rating
@@ -177,9 +178,8 @@ paper's text never does.
               ┌──────────────────┐              ┌──────────────────┐   ┌────────────┐
               │ arXiv API + HTML │              │ OpenAI API       │   │ SMTP relay │
               │ OpenAlex /       │              │ gpt-5.4-mini     │   │ / Mailpit  │
-              │ Semantic Scholar │              ├──────────────────┤   └────────────┘
-              └──────────────────┘              │ Ollama (on host) │
-                                                │ embeddinggemma   │
+              │ Semantic Scholar │              │ text-embedding-  │   └────────────┘
+              └──────────────────┘              │ 3-small          │
                                                 └──────────────────┘
 ```
 
@@ -192,11 +192,13 @@ paper's text never does.
 - **PostgreSQL** holds everything, including the vector index: paper and
   full-text chunk embeddings live in `paper_embeddings` (pgvector, HNSW), so
   there is no separate vector database to run.
-- **OpenAI writes the text**: summaries, relevance ratings and overviews. The
-  API key lives only in the gitignored `.env`.
-- **Ollama runs natively on the Mac**, not in Docker, so embeddings can use the
-  Apple Silicon GPU. Containers reach it at `host.docker.internal`; it stays
-  bound to localhost and isn't exposed to the network.
+- **OpenAI writes the text and the embeddings**: summaries, relevance ratings
+  and overviews with `gpt-5.4-mini`, embeddings with `text-embedding-3-small`.
+  Every call is priced and recorded against the monthly budget. The API key
+  lives only in the gitignored `.env`.
+- **Ollama is optional**, for running everything locally: set
+  `SUMMARY_BACKEND=ollama` and/or `EMBEDDING_BACKEND=ollama`. It runs natively
+  on the Mac (for the GPU), reached from containers at `host.docker.internal`.
 - **Temporal persists its state** to a volume, so schedules and in-flight
   workflows survive restarts and resume where they stopped.
 
@@ -212,7 +214,7 @@ subscription from a confirmed subscriber, and on demand for any topic via
 1. **Fetch** new papers from arXiv. Free-text topics are sent as exact-phrase
    searches; queries like `cat:math.NA` track a whole arXiv category.
 2. **Ingest**: upsert papers by arXiv id and skip any the topic already has.
-3. **Embed** new papers with EmbeddingGemma into pgvector and compute retrieval
+3. **Embed** new papers (and the topic's query) into pgvector and compute retrieval
    signals: novelty, near duplicates, and the closest earlier paper (shown in
    the email as "Similar earlier paper" when it's close enough).
 4. **Full text**: fetch each new paper's arXiv HTML (from `export.arxiv.org`,
@@ -380,23 +382,19 @@ helpers are unit-tested in CI.
 
 ## Running locally
 
-**Prerequisites:** Docker (colima on macOS), [Ollama](https://ollama.com), and
-an [OpenAI API key](https://platform.openai.com/api-keys).
+**Prerequisites:** Docker (colima on macOS) and an
+[OpenAI API key](https://platform.openai.com/api-keys). [Ollama](https://ollama.com)
+only if you want local models (`EMBEDDING_BACKEND=ollama`, `SUMMARY_BACKEND=ollama`).
 
 ```bash
-# 1. Local embedding model (runs natively for GPU access)
-brew install ollama
-brew services start ollama
-ollama pull embeddinggemma        # ~0.6 GB, for retrieval
-
-# 2. Configure
+# 1. Configure
 cp .env.example .env              # then set OPENAI_API_KEY and ADMIN_TOKEN in .env; email goes to Mailpit
 
-# 3. Start the stack: Postgres (+ pgvector), Temporal, Mailpit, API, worker
+# 2. Start the stack: Postgres (+ pgvector), Temporal, Mailpit, API, worker
 docker-compose up -d --build
 docker-compose exec api alembic upgrade head
 
-# 4. Optional, for an existing database: embed papers ingested before retrieval
+# 3. Optional, for an existing database: embed papers ingested before retrieval
 docker-compose exec worker python -m app.backfill_embeddings
 ```
 
@@ -468,7 +466,7 @@ All settings are environment variables (see [`.env.example`](.env.example)).
 | `ARXIV_MAX_RESULTS` / `ARXIV_LOOKBACK_DAYS` | `25` / `7` | Fetch size and publication-lag window |
 | `ARXIV_PAGE_DELAY` | `3.0` | Minimum seconds between any two arXiv requests (search or full text) |
 | `RAG_ENABLED` | `true` | Embeddings and every retrieval feature (also off when `SUMMARY_BACKEND=none`) |
-| `EMBEDDING_MODEL` | `embeddinggemma` | Embedding model; one with a different vector width needs a migration |
+| `EMBEDDING_BACKEND` / `EMBEDDING_MODEL` | `openai` / `text-embedding-3-small` | Where embeddings come from. Requested at 768 dimensions; a model needs a `RETRIEVAL_CALIBRATION` row (the worker refuses to start without one). `ollama` / `embeddinggemma` runs locally |
 | `RAG_FULLTEXT` | `true` | Full-text excerpts in summaries |
 | `RAG_OVERVIEW_HISTORY` | `true` | Overviews see the topic's last 3 overviews so they don't repeat them |
 | `RAG_RELATED_NOTES` | `false` | LLM-written related-work notes (measured: 26% wrong) |
@@ -496,7 +494,7 @@ app/
 ├── services/
 │   ├── arxiv.py            arXiv Atom API client
 │   ├── summarize.py        OpenAI or Ollama: summaries, ratings, overviews
-│   ├── embed.py            EmbeddingGemma via Ollama: paper embeddings
+│   ├── embed.py            OpenAI or Ollama: paper, chunk and topic embeddings
 │   ├── retrieval.py        pgvector storage + nearest-neighbour queries
 │   ├── fulltext.py         arXiv HTML fetch (rate-gated), parse, chunk
 │   ├── ranking.py          multi-signal paper scoring (pure functions)
@@ -542,14 +540,19 @@ re-ingested for the same topic, so fill in any still waiting to be emailed with:
 docker-compose exec worker python -m app.backfill_summaries
 ```
 
-**Embeddings for retrieval.** Digest runs embed new papers with `embeddinggemma`
-(`ollama pull embeddinggemma`) into pgvector. To embed papers ingested before
-that, or to backfill a new `EMBEDDING_MODEL` side by side:
+**Embeddings for retrieval.** Digest runs embed new papers and their topic
+into pgvector. To embed everything missing and recompute every paper's signals:
 ```bash
 docker-compose exec worker python -m app.backfill_embeddings
 ```
+Switching models goes in two steps, because signals are stored per paper,
+not per model:
+1. Backfill the new model with `--embed-only` (with `-e EMBEDDING_BACKEND=...
+   -e EMBEDDING_MODEL=...`), which touches no signal.
+2. Calibrate it with `python -m evals.embeddings` (see `docs/rag-plan.md` §5.9).
+3. Flip the settings, and run the default mode before starting the worker.
 
-**Evaluations.** With the stack and Ollama up, from the repo root (these call
+**Evaluations.** With the stack up, from the repo root (these call
 the configured summary model, so with `SUMMARY_BACKEND=openai` they cost money):
 ```bash
 venv/bin/python -m evals.rag run --variant baseline     # or rag-related, desc, anchors, ...

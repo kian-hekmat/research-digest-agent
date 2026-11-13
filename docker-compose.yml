@@ -84,13 +84,13 @@ services:
       SUMMARY_BACKEND: ${SUMMARY_BACKEND:-openai}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
-      # Ollama (embeddings) runs natively on the Mac (GPU), bound to 127.0.0.1 only;
+      # Ollama is optional (local models only); it runs natively on the Mac (GPU), bound to 127.0.0.1 only;
       # colima routes host.docker.internal to the Mac's loopback.
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:12b}
       RAG_ENABLED: ${RAG_ENABLED:-true}
-      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-ollama}
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-embeddinggemma}
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-openai}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
       RAG_RELATED_NOTES: ${RAG_RELATED_NOTES:-false}
       RAG_OVERVIEW_HISTORY: ${RAG_OVERVIEW_HISTORY:-true}
       RAG_FULLTEXT: ${RAG_FULLTEXT:-true}
@@ -123,13 +123,13 @@ services:
       SUMMARY_BACKEND: ${SUMMARY_BACKEND:-openai}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
-      # Ollama (embeddings) runs natively on the Mac (GPU), bound to 127.0.0.1 only;
+      # Ollama is optional (local models only); it runs natively on the Mac (GPU), bound to 127.0.0.1 only;
       # colima routes host.docker.internal to the Mac's loopback.
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:12b}
       RAG_ENABLED: ${RAG_ENABLED:-true}
-      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-ollama}
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-embeddinggemma}
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-openai}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
       RAG_RELATED_NOTES: ${RAG_RELATED_NOTES:-false}
       RAG_OVERVIEW_HISTORY: ${RAG_OVERVIEW_HISTORY:-true}
       RAG_FULLTEXT: ${RAG_FULLTEXT:-true}
