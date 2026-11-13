@@ -6,7 +6,8 @@ papers they want per topic, confirms by email, and gets a twice-weekly digest.
 Built on the existing pipeline (FastAPI, Postgres, Temporal, the arXiv → LLM
 rating/summary → ranked email flow), not a rewrite.
 
-Status: v2.1, 2026-11-12. v2.1 folds in an audit of v2 against the code,
+Status: v2.2, 2026-11-12. v2.2 adds OpenAlex as a second paper source
+(Phase 2, "2c+"; decisions 21–24). v2.1 folds in an audit of v2 against the code,
 the live data and current vendor terms (changes listed in §0.1). v2 replaced
 the 2026-10-06 draft, which assumed summaries ran on local Gemma on the
 owner's Mac. Both are in git history.
@@ -389,6 +390,11 @@ These have lead times, so start them now:
   served. Full text stays off until they say yes. Claude can draft the message.
 - **Sentry and backup storage.** Free-tier accounts (no lead time, needed by
   Phase 5).
+- **OpenAlex API key.** Create a free key at openalex.org/settings/api and put
+  it in `.env` as `OPENALEX_API_KEY`. Without one, every OpenAlex request from
+  the server's IP shares $0.10 a day, at $0.001 per list request. The free key
+  gives its own $1 a day. The existing h-index lookup already calls OpenAlex
+  without a key, so the server needs this even before 2c+.
 - **Name.** Nothing in the name or branding may imply arXiv endorses the
   service (arXiv's terms).
 
@@ -476,6 +482,56 @@ deployment migrates with no data loss.
   queue time.
 - **Bounded fan-out.** `RunAllTopicDigestsWorkflow` and prep run their children
   in batches rather than all at once.
+- **A second source: OpenAlex** (v2.2, its own plan "2c+", built after 2c and
+  before 2d, so the new email and the rehearsal both include it):
+  - **Why.** arXiv alone leaves phrase topics short, and fields that aren't on
+    arXiv get nothing. For the week to 2026-11-12:
+
+    | Topic | arXiv, as ingested | OpenAlex, all sources |
+    |---|---|---|
+    | "reinforcement learning from human feedback" | 6 papers | 16 |
+    | "physics-informed neural networks" | 17 papers | 136 |
+
+    At two sends a week, the first topic gives 3 papers per email, under the
+    default of 5.
+  - **What's fetched.**
+    - The query is the topic phrase, via `title_and_abstract.search`, which
+      matches stemmed words.
+    - Kept: types `article`, `preprint` and `conference-paper` only (decision
+      21); works with an abstract only, the abstract rebuilt from OpenAlex's
+      word-position index.
+    - Window: a short `from_publication_date` lookback, about 3 days, with
+      already-seen works skipped. That catches backdated works without the paid
+      `from_created_date` filter; OpenAlex listed new works within a day or two
+      of publication.
+    - `search.semantic` (which would match "RLHF" to the spelled-out phrase)
+      isn't used: it returns at most 50 results, ranked rather than by date.
+  - **Merging.**
+    - An arXiv paper's OpenAlex copy carries the DOI `10.48550/arXiv.<id>`; the
+      arXiv copy wins.
+    - Other duplicates, such as a Zenodo copy of a journal article (23 of 100
+      results in a sample), are matched by DOI, then by normalized title. The
+      existing near-duplicate fold catches the rest.
+  - **Paper identity** (a migration):
+    - `papers.arxiv_id` becomes nullable;
+    - `doi`, `openalex_id` and `url` are added, each unique where not null;
+    - a paper needs at least one id.
+    - Everything that builds an arxiv.org link or cites `[arXiv id]` (email
+      links, related-work notes, overview citations) moves to the paper's `url`
+      and a source-neutral citation key.
+  - **Per-source behaviour.**
+    - The arXiv lock and queue stay arXiv-only; OpenAlex requests go through
+      the main queue at 1 request per second at most.
+    - h-index comes from the work's own authorships (no separate lookup);
+      venue comes from its source.
+    - Full text stays arXiv-only and off (decision 5). Non-arXiv papers are
+      summarized from abstracts.
+  - **Paywalled papers** are included and ranked like any other paper. The
+    email marks a paper whose OpenAlex record isn't open access (decision 22).
+  - **Signup's "about 25 a day" check** counts both sources (decision 23).
+  - **Cost.** About one OpenAlex list request ($0.001) per topic per day, so
+    the $1/day free key covers several hundred topics. Rating cost grows with
+    the extra papers; 2e measures it.
 
 **Tests**
 - Usage log: every OpenAI call path, faked with `respx`, writes exactly one
@@ -497,6 +553,16 @@ deployment migrates with no data loss.
   time, not a backlog; a slot that fires twice sends once.
 - Send makes no LLM, arXiv or h-index calls (the fakes assert it). A topic
   whose prep failed is still sent, without AI text.
+- OpenAlex (2c+), with `respx` fakes:
+  - a paper in both sources is stored once, as the arXiv copy;
+  - a Zenodo duplicate of a journal article is folded in;
+  - datasets, software and works without an abstract never reach rating;
+  - a backdated work found by the lookback lands in the next edition exactly
+    once;
+  - a non-arXiv paper's email link is its `url`, with the paywall mark when it
+    isn't open access;
+  - no OpenAlex request ever goes through the arXiv queue;
+  - an OpenAlex outage leaves the arXiv half of the ingest working.
 - Email rendering: section order (picks, overview, also new), citations render
   as working arXiv links, HTML in labels and model output is escaped.
 - Evals (manual; they cost money): the ranking eval stays at ρ ≥ 0.77 with the
@@ -807,3 +873,7 @@ in emails), Sentry (free).
 | 18 | Signup page | One page (decided 2026-11-12, v2.1) |
 | 19 | Broad topics | Refused at signup above about 25 matching papers a day, with a prompt to narrow the phrase (decided 2026-11-12, v2.1) |
 | 20 | Prompt eval gates | Judged by the owner by hand; launch waits until they pass; no fallback to the old email format (decided 2026-11-12, v2.1) |
+| 21 | Second source | OpenAlex alongside arXiv: journal articles, preprints from any server and conference papers, with abstracts; no datasets or software (decided 2026-11-12, v2.2) |
+| 22 | Paywalled papers | Included and ranked normally; the email marks them (decided 2026-11-12, v2.2) |
+| 23 | Broad topics, two sources | The ~25 papers/day signup limit counts arXiv and OpenAlex together (decided 2026-11-12, v2.2) |
+| 24 | OpenAlex timing | Its own plan, 2c+, after 2c and before 2d (decided 2026-11-12, v2.2) |

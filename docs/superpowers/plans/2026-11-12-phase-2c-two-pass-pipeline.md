@@ -33,6 +33,7 @@ Also:
 - Summary style from the audit (2d): shorter than today's 88 words, and not opening "The paper" two times in three. Also 2d: fence the abstract off as data in every prompt, since public topics bring abstracts nobody vetted.
 - The peripheral inflation the new rubric leaves (2e, where cost is measured): motivation-only and application papers still rate about 8. Candidates are a ranking feature for where the phrase appears (title or first sentence vs. late in the abstract), and `reasoning_effort` above minimal on the rating call, at roughly 2-3x its cost.
 - The preview task queue. Its only user is Phase 3's signup preview, so it arrives with it.
+- OpenAlex as a second paper source (launch plan v2.2, "2c+"), planned once 2c is built, before 2d. 2c stays arXiv-only and keeps `fetch_arxiv` named as it is; 2c+ adds its own fetch beside it.
 - The cost and load rehearsal (2e).
 
 ## Global Constraints
