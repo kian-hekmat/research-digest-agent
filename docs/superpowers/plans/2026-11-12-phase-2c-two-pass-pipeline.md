@@ -7,7 +7,10 @@
 2. a twice-weekly **send prep** that summarizes only each topic's top K papers and writes one overview per topic, stored as an *edition*;
 3. a **send** that assembles emails from stored editions, with no LLM, arXiv or h-index calls.
 
-Also: exactly one arXiv request in flight, bounded fan-out, full text off by default, and an alert when every LLM call in a run fails.
+Also:
+- exactly one arXiv request in flight, bounded fan-out, and full text off by default;
+- an alert when every LLM call in a run fails;
+- a rating rubric that holds up outside the three topics it was tuned on, and a second, cross-field eval set to keep it honest (amended 2026-11-12 after the prompt audit, `docs/rag-plan.md` §5.10).
 
 **Architecture:**
 - **Editions.** A new `topic_editions` table holds one row per topic per send slot. Each row records:
@@ -23,10 +26,12 @@ Also: exactly one arXiv request in flight, bounded fan-out, full text off by def
 
 **Tech Stack:** Python 3.12, SQLAlchemy 2.0, Alembic, Postgres 16, Temporal (time-skipping test server; dev server for schedules), pytest. No new dependencies.
 
-**Spec:** `docs/public-launch-plan.md` (v2.1), §3.5 (two-pass pipeline, send windows, arXiv load), §3.6 ("after the reset" re-rating), §3.4 (`_MAX_CONCURRENT_SUMMARIES` re-tuning), Phase 2's "Two passes", "One arXiv process", "Bounded fan-out" items and tests. Read the "Carried forward" sections of the 2a and 2b plans.
+**Spec:** `docs/public-launch-plan.md` (v2.1), §3.5 (two-pass pipeline, send windows, arXiv load), §3.6 ("after the reset" re-rating), §3.4 (`_MAX_CONCURRENT_SUMMARIES` re-tuning), Phase 2's "Two passes", "One arXiv process", "Bounded fan-out" items and tests. `docs/rag-plan.md` §5.10 (the prompt audit: what the rubric fixes and what it doesn't). Read the "Carried forward" sections of the 2a and 2b plans.
 
 **Not in this plan:**
-- The picks-first email, the rewritten prompts, and an overview that reads up to 25 abstracts and returns picks and citations (2d). 2c keeps today's prompts and email layout.
+- The picks-first email, the rewritten summary and overview prompts, and an overview that reads up to 25 abstracts and returns picks and citations (2d). 2c keeps today's summary and overview prompts and email layout; only the rate-only rubric changes (Task 1).
+- Summary style from the audit (2d): shorter than today's 88 words, and not opening "The paper" two times in three. Also 2d: fence the abstract off as data in every prompt, since public topics bring abstracts nobody vetted.
+- The peripheral inflation the new rubric leaves (2e, where cost is measured): motivation-only and application papers still rate about 8. Candidates are a ranking feature for where the phrase appears (title or first sentence vs. late in the abstract), and `reasoning_effort` above minimal on the rating call, at roughly 2-3x its cost.
 - The preview task queue. Its only user is Phase 3's signup preview, so it arrives with it.
 - The cost and load rehearsal (2e).
 
@@ -37,7 +42,9 @@ Also: exactly one arXiv request in flight, bounded fan-out, full text off by def
 - **Time zone `America/New_York`.** Ingest runs at 21:30 daily, prep at 01:00 Mon and Thu, send at 08:00 Mon and Thu. A *slot* is a send time, Mon or Thu 08:00 Eastern.
 - Schedule ids: ingest keeps `daily-topic-digests`; send keeps `weekly-digest-emails`; prep is new, `send-prep`. All three use overlap policy SKIP and are created or updated idempotently, as today.
 - **K** for a topic is the largest `max_papers` among its active subscriptions (an uncapped NULL counts as 10), and at least 5.
-- **Prep summaries use the evaluated combined prompt** (`Summarizer.summarize_and_rate`). Only the summary is stored; the ingest rating stands. See the ruling note in Task 3.
+- **Ingest ratings use the audited rubric** (Task 1): `_RELEVANCE_SYSTEM` is replaced, word for word, by the candidate measured in rag-plan §5.10. `_RELEVANCE_RUBRIC`, and with it the combined prompt, stays as it is.
+- **Prep summaries use the evaluated combined prompt** (`Summarizer.summarize_and_rate`). Only the summary is stored; the ingest rating stands. The combined prompt's own rating inflates more than the rate-only one (§5.10), which is one more reason to discard it. See the ruling note in Task 4.
+- **No re-rating backfill.** Ratings already stored keep the old rubric, so the first editions after the switch-over rank a mix. Re-rating them would be unplanned spend; ask the owner first.
 - `RAG_FULLTEXT` defaults to `false` (arXiv's terms; §0.1). When on, full text is fetched in prep for the top K only.
 - Settings, with exact defaults:
   - `llm_max_concurrency = 8`: LLM activities in flight per workflow. Replaces `_MAX_CONCURRENT_SUMMARIES = 4`.
@@ -50,15 +57,100 @@ Also: exactly one arXiv request in flight, bounded fan-out, full text off by def
 
 ## Review Focus
 
-1. **A topic whose prep never ran** (worker down at 01:00, or the topic was created after prep) still gets an email at the slot, built from its window without AI text. Pinned in Task 4.
-2. **Two consecutive editions** share a boundary exactly. A paper ingested at the boundary instant lands in exactly one of them. Pinned in Task 1.
-3. **A slot that fires twice**, or prep run twice for the same slot, sends once and keeps one edition per topic and slot (the second prep is a no-op). Pinned in Tasks 3 and 4.
-4. **Fifty topics' ingest** never has more than one arXiv request in flight, and requests stay at least `arxiv_page_delay` apart. Pinned in Task 2.
-5. **Daylight saving:** slots stay at 08:00 Eastern wall-clock across the November and March changes. Pinned in Task 5.
+1. **A topic whose prep never ran** (worker down at 01:00, or the topic was created after prep) still gets an email at the slot, built from its window without AI text. Pinned in Task 5.
+2. **Two consecutive editions** share a boundary exactly. A paper ingested at the boundary instant lands in exactly one of them. Pinned in Task 2.
+3. **A slot that fires twice**, or prep run twice for the same slot, sends once and keeps one edition per topic and slot (the second prep is a no-op). Pinned in Tasks 4 and 5.
+4. **Fifty topics' ingest** never has more than one arXiv request in flight, and requests stay at least `arxiv_page_delay` apart. Pinned in Task 3.
+5. **Daylight saving:** slots stay at 08:00 Eastern wall-clock across the November and March changes. Pinned in Task 6.
 
 ---
 
-### Task 1: Editions and their windows
+### Task 1: A rating rubric for every field, and a cross-field eval set
+
+Independent of the pipeline tasks; do it first so every ingest built later rates with it.
+
+**Files:**
+- Modify: `app/services/summarize.py` (`_RELEVANCE_BANDS`, `_RELEVANCE_SYSTEM`), `evals/rag.py` (`--labels`, file-only rows, report name, `label` shows the bands)
+- Create: `evals/labels_diverse.csv`
+- Test: `tests/test_rating_rubric.py` (new), `tests/test_eval_labels.py` (new)
+
+**Interfaces:**
+- Produces:
+  - `summarize._RELEVANCE_BANDS: str`, exactly:
+    ```
+    Rate how central the reader's topic is to the paper, from 1 to 10. Judge by what the paper contributes, not by whether the topic's words appear in it.
+    10: the topic is the paper's main subject - new methods, theory, analysis or results for the topic itself.
+    8-9: a major focus - the main contribution directly advances or applies the topic.
+    6-7: one of several substantial parts that a reader of this topic would likely want to see.
+    4-5: the topic is used as a tool, a dataset, an application domain or one component of a larger system, and the paper's contribution lies elsewhere.
+    2-3: the topic appears only as motivation, background, an example or a point of comparison.
+    1: mentioned only in passing, or the words mean something else here than in the reader's field.
+    ```
+    (lines joined with `\n`, no trailing newline).
+  - `summarize._RELEVANCE_SYSTEM = "You rate academic papers for a research alerting digest. " + _RELEVANCE_BANDS + "\nReply with only the integer."`. This is byte-for-byte the `CANDIDATE_SYSTEM` measured in §5.10. `_ANCHORS_NOTE` still appends to it, and the full-text path of `summarize_and_rate` (which rates with `_RELEVANCE_SYSTEM`) picks it up too.
+  - `evals/labels_diverse.csv`, with `LABEL_FIELDS` columns: the 47 papers of `evals/results/2026-11-13_052204_prompt_audit_probe.json`, in probe order.
+    - `arxiv_id` holds the OpenAlex work id (`W…`), since these papers aren't in the database;
+    - `label` comes from §5.10's reference labels (`PROBE_LABELS` in the audit's rubric probe), in probe order;
+    - `labeler` is `claude-opus-5-5`, and `notes` reads `audit probe via OpenAlex`.
+    - Generate it with a throwaway script in the scratchpad; don't commit the script. The label list is:
+    ```
+    10,9,5,6,10,5,8,4,7,6,6,5,10,8,3,6,9,9,2,4,2,10,10,10,5,9,8,3,3,9,9,9,8,10,8,8,2,10,9,9,8,5,4,5,5,5,4
+    ```
+  - `evals.rag`:
+    - `run --labels PATH` and `label --labels PATH`; the default is `LABELS_PATH`.
+    - `load_items(db, labels)` builds a row that isn't in the database from the CSV itself: `title` and `abstract` from the row, `topic_query = topic_name = row["topic"]`, `topic_id = paper_id = ""`, and `stored_relevance = None`. It no longer skips such rows.
+    - `cmd_run` raises `SystemExit` naming the variant when any item has `paper_id == ""` and the variant isn't `baseline`, since the other variants read the database.
+    - Reports are named `{stamp}_{variant}.json` for `labels.csv` and `{stamp}_{variant}_{labels-stem}.json` otherwise, with seconds in `stamp` (`%Y-%m-%d_%H%M%S`). The report records the labels path.
+    - `cmd_label` prints `_RELEVANCE_BANDS` instead of `_RELEVANCE_RUBRIC`.
+
+- [ ] **Step 1: Write the failing tests.**
+
+```python
+# tests/test_rating_rubric.py
+def test_rate_only_prompt_is_the_audited_rubric(): ...
+    # _RELEVANCE_SYSTEM == the exact §5.10 candidate text as a literal; starts "You rate academic papers";
+    # ends "\nReply with only the integer."; contains the lines "10:", "8-9:", "6-7:", "4-5:", "2-3:", "1:" in that order
+def test_combined_prompt_keeps_its_evaluated_rubric(): ...
+    # _RELEVANCE_RUBRIC in _RATED_SUMMARY_SYSTEM; _RELEVANCE_BANDS not in _RATED_SUMMARY_SYSTEM
+def test_rate_relevance_sends_the_new_rubric(): ...
+    # stub transport: the system message of a rate_relevance call == _RELEVANCE_SYSTEM; reply "7" -> 7
+
+# tests/test_eval_labels.py
+def test_labels_diverse_is_complete(): ...
+    # 47 rows; 8 distinct topics; every label parses to 1-10; labeler claude-opus-5-5; no empty abstract;
+    # the label column equals the list above in order
+def test_load_items_builds_rows_missing_from_the_db_from_the_csv(db_session): ...
+    # one row for a paper in the db, one not: both returned; the second has paper_id "", topic_query == topic,
+    # title and abstract from the csv, stored_relevance None
+def test_run_refuses_non_baseline_variants_on_file_only_rows(...): ...
+    # cmd_run with variant rag_related on a csv with a file-only row -> SystemExit; no summarizer call made
+```
+
+- [ ] **Step 2: Run to verify they fail** — `venv/bin/python -m pytest tests/test_rating_rubric.py tests/test_eval_labels.py -v`. Expected: the rubric test fails on the old text; the eval tests fail on the missing file and the skipped row.
+- [ ] **Step 3: Implement** the constants, the CSV and the `evals.rag` changes. Existing tests that compare against `summarize_module._RELEVANCE_SYSTEM` by name (`test_fulltext.py`, `test_rating_context.py`) should pass unchanged; if one pinned the old wording, update it and ledger it.
+- [ ] **Step 4: Run the full suite** — Expected: all pass.
+- [ ] **Step 5: Run the eval gates** against the live database with the live key, costing well under $0.10, all through the ledger:
+  ```bash
+  venv/bin/python -m evals.rag run --variant baseline --repeats 2 --summaries 0
+  venv/bin/python -m evals.rag run --variant baseline --labels evals/labels_diverse.csv --repeats 2 --summaries 0
+  ```
+  Expected, from `ratings` in each report:
+
+  | Set | `vs_reference_overall.spearman` | `vs_reference_on_topic.spearman` | Old prompt, for comparison |
+  |---|---|---|---|
+  | `labels.csv` | ≥ 0.77 | ≥ 0.45 | 0.76 / 0.38 |
+  | `labels_diverse.csv` | ≥ 0.80 | ≥ 0.45 | 0.84 / 0.37 |
+
+  Also record `stability` (run-to-run agreement). The gates sit below §5.10's single-run numbers (0.80 / 0.53 and 0.86 / 0.59) to allow for run-to-run noise.
+
+  **If a gate fails, stop and bring the numbers to the owner.** Don't tune the prompt inside this task: the text is the one the audit measured.
+- [ ] **Step 6: Record and commit.**
+  - Add the gate numbers and both report paths to rag-plan §5.10 under "Adopted in 2c".
+  - Commit: `git commit -m "adopted the audited rating rubric and added a cross-field eval set"`, then push.
+
+---
+
+### Task 2: Editions and their windows
 
 **Files:**
 - Create: `alembic/versions/d4e5f6a7b8ca_topic_editions.py` (`down_revision = "c3d4e5f6a7b9"`)
@@ -107,7 +199,7 @@ def test_deleting_a_topic_deletes_its_editions(db_session): ...
 
 ---
 
-### Task 2: A cheap daily ingest, and one arXiv request at a time
+### Task 3: A cheap daily ingest, and one arXiv request at a time
 
 **Files:**
 - Modify:
@@ -122,7 +214,7 @@ def test_deleting_a_topic_deletes_its_editions(db_session): ...
 
 **Interfaces:**
 - Produces:
-  - `workflows.ARXIV_TASK_QUEUE_SUFFIX = "-arxiv"`, and the helper `arxiv_queue(task_queue: str) -> str`. `fetch_arxiv` (and, in Task 3, `fetch_fulltext`) are executed with `task_queue=arxiv_queue(workflow.info().task_queue)`. Their start-to-close timeouts no longer include queue time, because the activity only starts when the one-slot worker picks it up.
+  - `workflows.ARXIV_TASK_QUEUE_SUFFIX = "-arxiv"`, and the helper `arxiv_queue(task_queue: str) -> str`. `fetch_arxiv` (and, in Task 4, `fetch_fulltext`) are executed with `task_queue=arxiv_queue(workflow.info().task_queue)`. Their start-to-close timeouts no longer include queue time, because the activity only starts when the one-slot worker picks it up.
   - `app/worker.py`:
     - the main `Worker` (workflows and every other activity) uses an executor of `worker_activity_threads`;
     - an arXiv `Worker` on `arxiv_queue(...)` runs `[fetch_arxiv, fetch_fulltext]` with `max_concurrent_activities=1`;
@@ -130,7 +222,7 @@ def test_deleting_a_topic_deletes_its_editions(db_session): ...
   - `DigestWorkflow` (ingest) runs, in order: context → fetch (arXiv queue) → ingest → embed → **rate every new paper** with the existing `rate_relevance` activity, up to `llm_max_concurrency` at once → finalize → advance watermark.
     - No summaries, no overview, no full text.
     - Papers that already have a summary are rated the same way.
-    - A history-changing restructure: deploy only with no ingest workflows running (Task 5 checks).
+    - A history-changing restructure: deploy only with no ingest workflows running (Task 6 checks).
   - New activity `send_pipeline_alert(input: PipelineAlertInput) -> bool`, where `PipelineAlertInput(key: str, subject: str, body: str)`. It calls `send_alert` and never raises (it logs instead).
   - The ingest workflow counts ratings that raised. If at least 3 were attempted and all raised, it sends `ratings-failing:{date}`, with the first error's message in the body.
   - `RunAllTopicDigestsWorkflow`: creates and runs children in batches of `fanout_batch_size`, waiting for each batch before starting the next.
@@ -149,13 +241,13 @@ def test_rag_fulltext_defaults_off(): ...
 ```
 
 - [ ] **Step 2: Run to verify they fail.**
-- [ ] **Step 3: Implement.** Update the test harness's `temporal_client` fixture so it runs the arXiv worker too. Fix existing workflow tests that asserted summaries or overviews from `DigestWorkflow`: they now belong to prep (Task 3), so move or rewrite them there and ledger each one. Don't delete coverage.
+- [ ] **Step 3: Implement.** Update the test harness's `temporal_client` fixture so it runs the arXiv worker too. Fix existing workflow tests that asserted summaries or overviews from `DigestWorkflow`: they now belong to prep (Task 4), so move or rewrite them there and ledger each one. Don't delete coverage.
 - [ ] **Step 4: Run the full suite** — Expected: all pass.
 - [ ] **Step 5: Commit** — `git commit -m "made the daily run a cheap ingest, with one arXiv request at a time"`
 
 ---
 
-### Task 3: Send prep, one edition per topic
+### Task 4: Send prep, one edition per topic
 
 **Files:**
 - Modify: `app/temporal/workflows.py` (`PrepEditionsWorkflow`, `PrepTopicEditionWorkflow`), `app/temporal/activities.py`, `app/temporal/types.py`, `app/crud.py` (`recent_overviews` reads editions too), `app/services/email.py` (`build_topic_section(..., order=...)`), `app/worker.py` (register)
@@ -202,7 +294,7 @@ def test_overview_history_spans_editions_and_old_digests(db_session): ...
 
 ---
 
-### Task 4: Send from editions
+### Task 5: Send from editions
 
 **Files:**
 - Modify:
@@ -239,7 +331,7 @@ async def test_each_subscriber_gets_their_own_cap_from_one_edition(...): ...    
 
 ---
 
-### Task 5: Eastern-time schedules, docs, and the switch-over
+### Task 6: Eastern-time schedules, docs, and the switch-over
 
 **Files:**
 - Modify: `app/cadence.py` (`SEND_TIME_ZONE_NAME = "America/New_York"`), `app/temporal/schedule.py` (three schedules), `app/worker.py` (ensure all three), `README.md` ("How it works", the schedule times, "Testing"), `docs/public-launch-plan.md` (mark Phase 2's two-pass items done)
@@ -271,7 +363,7 @@ async def test_existing_schedules_move_to_eastern_in_place(temporal_env_only): .
   - the worker logs three schedules: ingest "updated", prep "created", email "updated";
   - `temporal schedule describe` shows the Eastern crons.
 - [ ] **Step 4: Verify through the first cycle.**
-  - After the next 21:30 ET ingest: new papers carry ratings and no summaries, and `llm_usage` shows only `rating` and `embedding` rows.
+  - After the next 21:30 ET ingest: new papers carry ratings and no summaries, and `llm_usage` shows only `rating` and `embedding` rows. The night's ratings use the new rubric: well under half of them are 10, where the old prompt gave half (§5.10).
   - After Monday's 01:00 ET prep: each topic has a `ready` edition whose window starts at the topic's last send, and `llm_usage` shows `summary` and `overview` rows.
   - After 08:00 ET: one email arrives with each topic's edition.
   - Record all of this, with the first per-topic costs from `/admin/usage`, in this plan's outcome.
