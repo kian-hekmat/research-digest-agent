@@ -66,3 +66,30 @@ def test_embed_papers_with_uncalibrated_model_writes_nothing(db_session, monkeyp
 
     assert calls == []
     assert db_session.query(models.PaperEmbedding).count() == 0
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        dict(novelty_repeat=0.5, novelty_unrelated=0.5),   # zero span: division by zero in ranking
+        dict(novelty_repeat=0.4, novelty_unrelated=0.6),   # inverted: novelty silently flipped
+        dict(similar_paper=0.8, near_duplicate=0.7),       # a near duplicate must be at least "similar"
+        dict(similar_paper=1.5),                           # cosine is within [-1, 1]
+    ],
+)
+def test_inconsistent_calibration_is_rejected(fields):
+    from pydantic import ValidationError
+
+    base = dict(similar_paper=0.75, near_duplicate=0.9, related_min=0.72, novelty_repeat=0.85, novelty_unrelated=0.45)
+    with pytest.raises(ValidationError):
+        Calibration(**{**base, **fields})
+
+
+def test_worker_refuses_to_start_without_a_calibration_for_its_model():
+    # A mistyped EMBEDDING_MODEL must fail at `docker-compose up`, not block
+    # every email at the next send - even with embeddings off, ranking needs it.
+    from app.worker import check_config
+
+    with pytest.raises(SystemExit, match="calibration"):
+        check_config(Settings(embedding_model="typo-model", summary_backend="none"))
+    check_config(Settings(embedding_model="embeddinggemma"))  # fine

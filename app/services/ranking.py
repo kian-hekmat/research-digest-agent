@@ -62,12 +62,21 @@ RELEVANCE_MIN, RELEVANCE_MAX = 1, 10
 RELEVANCE_ON_TOPIC = 6
 GRADED, GATED = "graded", "gated"
 
-# prior_similarity -> novelty anchors depend on the embedding model's scale,
-# so callers pass them from Settings.calibration. The defaults are
-# embeddinggemma's (docs/rag-plan.md §5.2): random pairs ~0.41, nearest
-# neighbours ~0.66.
-_GEMMA_NOVELTY_REPEAT = 0.85  # novelty 0
-_GEMMA_NOVELTY_UNRELATED = 0.45  # novelty 1
+# prior_similarity -> novelty anchors depend on the embedding model's scale.
+# They come from Settings.calibration (the active model's row) unless a caller
+# passes them explicitly - never from a hard-coded model's numbers.
+
+
+def _anchors(repeat: float | None, unrelated: float | None) -> tuple[float, float]:
+    if repeat is not None and unrelated is not None:
+        return repeat, unrelated
+    from app.config import get_settings  # lazy: keeps this module import-light
+
+    cal = get_settings().calibration
+    return (
+        cal.novelty_repeat if repeat is None else repeat,
+        cal.novelty_unrelated if unrelated is None else unrelated,
+    )
 
 _ACCEPTED = re.compile(
     r"\b(accepted|to appear|to be published|published in|camera[- ]ready)\b",
@@ -114,11 +123,12 @@ def h_index_component(h_index: int | None) -> float | None:
 
 def novelty_component(
     prior_similarity: float | None,
-    repeat: float = _GEMMA_NOVELTY_REPEAT,
-    unrelated: float = _GEMMA_NOVELTY_UNRELATED,
+    repeat: float | None = None,
+    unrelated: float | None = None,
 ) -> float | None:
     if prior_similarity is None:
         return None
+    repeat, unrelated = _anchors(repeat, unrelated)
     span = repeat - unrelated
     return min(max((repeat - prior_similarity) / span, 0.0), 1.0)
 
@@ -133,8 +143,8 @@ def score_papers(
     papers: Sequence[Rankable],
     relevance_mode: str = GRADED,
     *,
-    novelty_repeat: float = _GEMMA_NOVELTY_REPEAT,
-    novelty_unrelated: float = _GEMMA_NOVELTY_UNRELATED,
+    novelty_repeat: float | None = None,
+    novelty_unrelated: float | None = None,
 ) -> list[float]:
     """One score per paper, same order. Scores are only comparable within one
     call - missing signals are imputed from the batch's own median.
@@ -144,6 +154,7 @@ def score_papers(
     component = relevance_gate_component if relevance_mode == GATED else relevance_component
     relevance = _impute([component(p.relevance) for p in papers])
     h_index = _impute([h_index_component(p.max_author_h_index) for p in papers])
+    novelty_repeat, novelty_unrelated = _anchors(novelty_repeat, novelty_unrelated)
     novelty = _impute(
         [novelty_component(p.prior_similarity, novelty_repeat, novelty_unrelated) for p in papers]
     )

@@ -291,12 +291,13 @@ The live pipeline keeps running on `embeddinggemma` throughout this task.
 - [ ] **Step 3: Cut over live, in one sitting, away from scheduled runs.**
   1. `pg_dump` live.
   2. `docker-compose stop worker`.
-  3. Push the commit, then `docker-compose up -d --build api worker`.
-  4. Immediately run `docker exec research-digest-agent-worker-1 python -m app.backfill_embeddings --signals-only`.
+  3. Push the commit, then `docker-compose up -d --build api`.
+  4. Run `docker-compose run --rm worker python -m app.backfill_embeddings`, in the **default** mode, before the worker starts. *(Amended after the final review.)* `--signals-only` would only recompute papers that already have a new-model embedding. Papers the live worker ingested with EmbeddingGemma between Task 4's backfill and now would keep old-scale signals, and they'd never enter the new model's neighbour pool. The default mode embeds what's missing first, then recomputes every signal.
+  5. `docker-compose up -d worker`.
 
-  Expected: signals recomputed for every embedded paper with the new calibration; the "similar earlier paper" coverage roughly matches the `scale` report.
+  Expected: every paper and topic has a new-model embedding; signals recomputed for all of them with the new calibration; the "similar earlier paper" coverage roughly matches the `scale` report.
 - [ ] **Step 4: Verify after the next daily run.**
   - `llm_usage` has `embedding` rows for the new papers.
   - `paper_embeddings` gains only `text-embedding-3-small` rows.
   - Nothing calls Ollama: the worker logs show no `host.docker.internal:11434` requests.
-- [ ] **Step 5: Record the outcome** at the end of this plan: commits, cutover time, the calibration chosen, and coverage before and after. Keep the `embeddinggemma` rows; rolling back is `EMBEDDING_BACKEND=ollama`, `EMBEDDING_MODEL=embeddinggemma` in `.env`, plus `--signals-only`.
+- [ ] **Step 5: Record the outcome** at the end of this plan: commits, cutover time, the calibration chosen, and coverage before and after. Keep the `embeddinggemma` rows; rolling back is `EMBEDDING_BACKEND=ollama`, `EMBEDDING_MODEL=embeddinggemma` in `.env`, then the same default-mode backfill (papers ingested after the cutover have no EmbeddingGemma rows yet) before starting the worker.

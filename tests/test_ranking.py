@@ -127,3 +127,23 @@ def test_novelty_anchors_come_from_the_caller():
     assert default == score_papers(papers, novelty_repeat=0.85, novelty_unrelated=0.45)
     assert score_papers(papers, novelty_repeat=0.95, novelty_unrelated=0.6) != default
     assert novelty_component(0.7, repeat=0.95, unrelated=0.6) == pytest.approx(0.25 / 0.35)
+
+
+def test_without_explicit_anchors_ranking_uses_the_active_models_calibration(monkeypatch):
+    # No caller may silently rank with another model's novelty scale
+    # (evals/ranking.py once did): the default is Settings.calibration.
+    from app.config import Calibration, get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "embedding_model", "wide-scale")
+    monkeypatch.setattr(
+        settings,
+        "retrieval_calibration",
+        {**settings.retrieval_calibration, "wide-scale": Calibration(
+            similar_paper=0.6, near_duplicate=0.95, related_min=0.55,
+            novelty_repeat=0.95, novelty_unrelated=0.6,
+        )},
+    )
+    papers = [_p(relevance=8, h=10, prior=0.7), _p(relevance=8, h=10, prior=0.55)]
+    assert score_papers(papers) == score_papers(papers, novelty_repeat=0.95, novelty_unrelated=0.6)
+    assert novelty_component(0.7) == pytest.approx(0.25 / 0.35)

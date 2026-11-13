@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # USD per 1M tokens, by model. An OPENAI_PRICES override is merged over these,
@@ -32,6 +32,20 @@ class Calibration(BaseModel):
     # Floor for "join this existing topic?" suggestions at signup; None
     # turns suggestions off for the model.
     topic_suggestion: float | None = None
+
+    @model_validator(mode="after")
+    def _consistent(self) -> "Calibration":
+        values = [self.similar_paper, self.near_duplicate, self.related_min,
+                  self.novelty_repeat, self.novelty_unrelated]
+        if self.topic_suggestion is not None:
+            values.append(self.topic_suggestion)
+        if any(not -1.0 <= v <= 1.0 for v in values):
+            raise ValueError("cosine thresholds must be within [-1, 1]")
+        if self.novelty_unrelated >= self.novelty_repeat:
+            raise ValueError("novelty_unrelated must be below novelty_repeat")
+        if self.near_duplicate < self.similar_paper:
+            raise ValueError("near_duplicate must be at least similar_paper")
+        return self
 
 
 # embeddinggemma's numbers (docs/rag-plan.md §5.2-5.3): its scale is

@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from app.config import get_settings
+from app.config import MissingCalibration, Settings, get_settings
 from app.temporal import activities
 from app.temporal.schedule import ensure_daily_schedule, ensure_email_schedule
 from app.temporal.workflows import (
@@ -48,8 +48,19 @@ ACTIVITIES = [
 ]
 
 
+def check_config(settings: Settings) -> None:
+    """Fail at startup, where it's seen, for config that would otherwise
+    only break at the next scheduled run: ranking needs the embedding model's
+    calibration on every email, embeddings on or off."""
+    try:
+        settings.calibration
+    except MissingCalibration as exc:
+        raise SystemExit(f"Refusing to start: {exc}") from exc
+
+
 async def main() -> None:
     settings = get_settings()
+    check_config(settings)
     client = await Client.connect(
         settings.temporal_address, namespace=settings.temporal_namespace
     )
