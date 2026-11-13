@@ -59,6 +59,16 @@ def next_slot(now: datetime) -> datetime:
     raise ValueError(f"no send weekday in {SEND_WEEKDAYS}")
 
 
+# Send prep fires at 01:00, seven hours before the 08:00 slot it serves.
+PREP_LEAD = timedelta(hours=7)
+
+
+def prep_slot(fired_at: datetime) -> datetime:
+    """The send slot a prep fired (or caught up) at `fired_at` serves: the
+    next slot after `fired_at - PREP_LEAD`. A prep that runs late - a laptop
+    waking at 11:00 - still serves that morning's 08:00 slot, not the next one."""
+    return next_slot(fired_at - PREP_LEAD)
+
 def due_cutoff(cadence: SubscriptionCadence, now: datetime) -> datetime:
     """A subscription is due iff its last send is before this instant."""
     if cadence == SubscriptionCadence.twice_weekly:

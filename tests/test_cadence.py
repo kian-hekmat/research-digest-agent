@@ -81,3 +81,12 @@ def test_crons_and_time_zone():
     assert schedule.PREP_CRON == "0 1 * * 1,4"
     assert schedule.EMAIL_CRON == "0 8 * * 1,4"
     assert schedule.SCHEDULE_TIME_ZONE == "America/New_York"
+
+
+def test_prep_slot_is_the_slot_a_prep_fire_serves_even_when_it_runs_late():
+    et = cadence.SEND_TIME_ZONE
+    mon_8 = datetime(2026, 11, 16, 8, tzinfo=et)
+    assert cadence.prep_slot(datetime(2026, 11, 16, 1, tzinfo=et)) == mon_8  # on time
+    assert cadence.prep_slot(datetime(2026, 11, 16, 11, tzinfo=et)) == mon_8  # caught up on wake
+    assert cadence.prep_slot(datetime(2026, 11, 15, 22, tzinfo=et)) == mon_8  # manual, the night before
+    assert cadence.prep_slot(datetime(2026, 11, 19, 1, tzinfo=et)) == datetime(2026, 11, 19, 8, tzinfo=et)

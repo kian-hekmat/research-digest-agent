@@ -2,6 +2,8 @@
 from stored editions, with no LLM, arXiv or h-index call. A topic whose prep
 never ran gets a fallback edition without AI text rather than being held
 back. Every subscriber of a topic gets the same edition, cut to their own cap.
+A topic with no edition is prepped by the send itself (or waited for, when
+the scheduled prep is already on it); only a failed prep falls back.
 
 Runs on the same time-skipping Temporal harness as test_temporal_workflows.py.
 The slot is passed explicitly: the time-skipping server's clock can jump far
@@ -15,10 +17,16 @@ from datetime import datetime, timedelta, timezone
 from app import crud, models
 from app.cadence import latest_slot
 from app.temporal import activities as temporal_activities
-from app.temporal.workflows import SendDigestEmailsWorkflow
+from app.temporal.types import PrepTopicInput
+from app.temporal.workflows import (
+    PrepTopicEditionWorkflow,
+    SendDigestEmailsWorkflow,
+    prep_workflow_id,
+)
 from tests.test_temporal_workflows import (  # noqa: F401 - fixtures used by name
     TASK_QUEUE,
     FakeEmailSender,
+    FakeSummarizer,
     _make_topic,
     _reset_fakes,
     temporal_client,
@@ -101,10 +109,49 @@ async def test_send_uses_the_stored_edition_and_makes_no_llm_arxiv_or_hindex_cal
     assert db_session.get(models.Subscription, sub.id).last_sent_at > NOW - timedelta(days=1)
 
 
-async def test_topic_without_an_edition_gets_a_fallback_without_ai_text(
+async def test_a_topic_whose_prep_never_ran_is_prepped_by_the_send(db_session, temporal_client):
+    """The laptop slept through 01:00: the send runs the topic's prep itself
+    (same workflow id, so never twice) and the email keeps its AI text."""
+    topic = _make_topic(db_session)
+    _sub(db_session, topic, "me@example.com")
+    _papers(db_session, topic, 2, completed_at=NOW - timedelta(days=2), summary=False)
+
+    assert await _send(temporal_client) == 1
+
+    [(_, content)] = FakeEmailSender.sent
+    assert "Overview of RLHF: 2 papers." in content.text_body
+    assert "Summary of 2611 P1." in content.text_body
+    db_session.expire_all()
+    assert crud.get_edition(db_session, topic.id, SLOT).status == "ready"
+
+
+async def test_the_send_waits_for_a_prep_already_running(db_session, temporal_client):
+    topic = _make_topic(db_session)
+    _sub(db_session, topic, "me@example.com")
+    _papers(db_session, topic, 2, completed_at=NOW - timedelta(days=2), summary=False)
+    FakeSummarizer.delay = 1.0
+    prep = await temporal_client.start_workflow(
+        PrepTopicEditionWorkflow.run, PrepTopicInput(topic_id=topic.id, slot=SLOT),
+        id=prep_workflow_id(topic.id, SLOT), task_queue=TASK_QUEUE,
+    )
+
+    assert await _send(temporal_client) == 1
+
+    assert await prep.result() == "written"
+    [(_, content)] = FakeEmailSender.sent
+    assert "Overview of RLHF: 2 papers." in content.text_body
+    assert len(FakeSummarizer.summarized) == 2  # prepped once, not twice
+
+
+async def test_a_topic_whose_prep_fails_gets_a_fallback_without_ai_text(
     db_session, temporal_client, monkeypatch
 ):
     _no_external_calls(monkeypatch)
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("prep is broken")
+
+    monkeypatch.setattr(temporal_activities, "SummarizePaperInput", broken)  # plan_edition fails
     topic = _make_topic(db_session)
     _sub(db_session, topic, "me@example.com")
     _papers(db_session, topic, 2, completed_at=NOW - timedelta(days=2), summary=False)
@@ -118,6 +165,18 @@ async def test_topic_without_an_edition_gets_a_fallback_without_ai_text(
     assert edition.status == "fallback"
     assert edition.overview is None
     assert len(edition.papers) == 2
+
+
+async def test_an_uncapped_subscriber_gets_the_top_k(db_session, temporal_client):
+    topic = _make_topic(db_session)
+    _sub(db_session, topic, "me@example.com", max_papers=None)
+    papers = _papers(db_session, topic, 8, completed_at=NOW - timedelta(days=2))
+    _edition(db_session, topic, papers, start=NOW - timedelta(days=5), end=NOW - timedelta(days=1))  # k=5
+
+    await _send(temporal_client)
+
+    [(_, content)] = FakeEmailSender.sent
+    assert content.text_body.count("https://arxiv.org/abs/") == 5
 
 
 async def test_new_subscriber_mid_window_gets_the_whole_edition(db_session, temporal_client):

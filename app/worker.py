@@ -63,6 +63,7 @@ ACTIVITIES = [
     activities.advance_watermark,
     activities.send_pipeline_alert,
     activities.list_due_subscriptions,
+    activities.get_edition_id,
     activities.ensure_edition,
     activities.gather_digest_content,
     activities.send_digest_email,

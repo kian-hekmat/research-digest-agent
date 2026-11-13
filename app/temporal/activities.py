@@ -529,8 +529,9 @@ def gather_digest_content(input: GatherContentInput) -> GatheredContent | None:
                 overview=edition.overview,
                 papers=[_paper_for_email(p, relevance.get(p.id)) for p in edition.papers],
             )
+            # An uncapped subscription gets the top K: the papers prep summarized.
             section = build_topic_section(
-                window.topic_name, [batch], window.max_papers,
+                window.topic_name, [batch], window.max_papers or edition.k,
                 novelty=_novelty(), order=[p.arxiv_id for p in edition.papers],
             )
             if section is not None:
@@ -688,6 +689,16 @@ def rank_edition(plan: EditionPlan) -> EditionRanking:
                 for p in ranked[: plan.k]
             ],
         )
+    finally:
+        db.close()
+
+
+@activity.defn
+def get_edition_id(key: EditionKey) -> str | None:
+    db = SessionLocal()
+    try:
+        edition = crud.get_edition(db, key.topic_id, key.slot)
+        return edition.id if edition is not None else None
     finally:
         db.close()
 

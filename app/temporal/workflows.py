@@ -26,11 +26,11 @@ declarative models register Tables on a single shared MetaData at import time
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from temporalio import workflow
-from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, ChildWorkflowError
+from temporalio.common import RetryPolicy, SearchAttributeKey
+from temporalio.exceptions import ActivityError, ChildWorkflowError, WorkflowAlreadyStartedError
 from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
 
 from app.temporal import types
@@ -119,6 +119,27 @@ def _cause_message(exc: BaseException) -> str:
     if isinstance(exc, (ActivityError, ChildWorkflowError)) and exc.cause:
         return str(exc.cause)
     return str(exc)
+
+
+# Set by the Temporal scheduler on every run it starts: the fire time the run
+# was scheduled for, which a catch-up after downtime keeps.
+_SCHEDULED_START = SearchAttributeKey.for_datetime("TemporalScheduledStartTime")
+# A send that finds the topic's prep already running waits up to this long
+# (polls x interval) for its edition before falling back.
+_PREP_WAIT_POLLS = 30
+_PREP_WAIT_INTERVAL = timedelta(minutes=1)
+
+
+def _fired_at() -> datetime:
+    """When this run was scheduled to fire, or now for a manual run."""
+    return workflow.info().typed_search_attributes.get(_SCHEDULED_START) or workflow.now()
+
+
+def prep_workflow_id(topic_id: str, slot: datetime) -> str:
+    """One prep per topic and slot, whoever starts it (the prep schedule, or a
+    send that found no edition): Temporal refuses a second run with this id
+    while one is running."""
+    return f"prep-{topic_id}-{slot.astimezone(timezone.utc):%Y%m%dT%H%MZ}"
 
 
 def _batches(items: list, size: int) -> list[list]:
@@ -480,15 +501,15 @@ class PrepTopicEditionWorkflow:
 class PrepEditionsWorkflow:
     """Scheduled send prep (see app.temporal.schedule): one
     `PrepTopicEditionWorkflow` per topic with active subscriptions, in
-    batches of `fanout_batch_size`. The slot defaults to the next send slot.
+    batches of `fanout_batch_size`. The slot defaults to the one this fire
+    serves (`cadence.prep_slot` of the scheduled fire time), so a prep caught
+    up late still prepares that morning's send.
     One topic's failure never holds back the others. Returns how many
     editions were written."""
 
     @workflow.run
     async def run(self, slot_iso: str | None = None) -> int:
-        slot = (
-            datetime.fromisoformat(slot_iso) if slot_iso else cadence.next_slot(workflow.now())
-        )
+        slot = datetime.fromisoformat(slot_iso) if slot_iso else cadence.prep_slot(_fired_at())
         topic_ids: list[str] = await workflow.execute_activity(
             activities.list_active_topic_ids,
             start_to_close_timeout=timedelta(seconds=30),
@@ -508,7 +529,7 @@ class PrepEditionsWorkflow:
                     workflow.execute_child_workflow(
                         PrepTopicEditionWorkflow.run,
                         types.PrepTopicInput(topic_id=topic_id, slot=slot),
-                        id=f"prep-{topic_id}-{slot:%Y%m%dT%H%M}",
+                        id=prep_workflow_id(topic_id, slot),
                         task_queue=workflow.info().task_queue,
                     )
                     for topic_id in batch
@@ -529,9 +550,10 @@ class SendDigestEmailsWorkflow:
 
     Fires at each send slot; each subscription is judged individually against
     its own cadence by `list_due_subscriptions`. Emails are assembled from
-    each topic's stored edition for the slot - no LLM, arXiv or h-index call
-    happens here. A topic with no edition (prep never ran for it) gets a
-    fallback one without AI text rather than being held back.
+    each topic's stored edition for the slot. A topic with no edition gets its
+    prep run (or waited for) first; only if that fails does it get a fallback
+    edition without AI text, never being held back. The send's own steps make
+    no LLM, arXiv or h-index call.
 
     A recipient's due subscriptions are combined into ONE email with a
     section per topic. Deliveries to different recipients fan out
@@ -541,9 +563,7 @@ class SendDigestEmailsWorkflow:
 
     @workflow.run
     async def run(self, slot_iso: str | None = None) -> int:
-        slot = (
-            datetime.fromisoformat(slot_iso) if slot_iso else cadence.latest_slot(workflow.now())
-        )
+        slot = datetime.fromisoformat(slot_iso) if slot_iso else cadence.latest_slot(_fired_at())
         due: list[types.DueSubscription] = await workflow.execute_activity(
             activities.list_due_subscriptions,
             start_to_close_timeout=timedelta(seconds=30),
@@ -555,15 +575,7 @@ class SendDigestEmailsWorkflow:
         # One edition per topic, shared by everyone subscribed to it.
         topic_ids = list(dict.fromkeys(s.topic_id for s in due))
         outcomes = await asyncio.gather(
-            *[
-                workflow.execute_activity(
-                    activities.ensure_edition,
-                    types.EditionKey(topic_id=topic_id, slot=slot),
-                    start_to_close_timeout=timedelta(seconds=60),
-                    retry_policy=_DB_RETRY,
-                )
-                for topic_id in topic_ids
-            ],
+            *[self._edition_for(topic_id, slot) for topic_id in topic_ids],
             return_exceptions=True,
         )
         editions: dict[str, str] = {}
@@ -587,6 +599,46 @@ class SendDigestEmailsWorkflow:
             return_exceptions=True,
         )
         return sum(1 for r in results if r is True)
+
+    async def _edition_for(self, topic_id: str, slot: datetime) -> str:
+        """The topic's edition for `slot`. Without one (the host slept
+        through 01:00 and prep and send fired together on wake), run the
+        topic's prep now - under its one prep id, so it's never done twice -
+        or, if the scheduled prep is already on it, wait for it. Only a prep
+        that fails or outlasts the wait leaves a fallback without AI text."""
+        key = types.EditionKey(topic_id=topic_id, slot=slot)
+        if await self._edition_id(key) is None:
+            try:
+                await workflow.execute_child_workflow(
+                    PrepTopicEditionWorkflow.run,
+                    types.PrepTopicInput(topic_id=topic_id, slot=slot),
+                    id=prep_workflow_id(topic_id, slot),
+                    task_queue=workflow.info().task_queue,
+                    execution_timeout=_PREP_WAIT_INTERVAL * _PREP_WAIT_POLLS,
+                )
+            except WorkflowAlreadyStartedError:
+                for _ in range(_PREP_WAIT_POLLS):
+                    if await self._edition_id(key) is not None:
+                        break
+                    await workflow.sleep(_PREP_WAIT_INTERVAL)
+            except ChildWorkflowError as exc:
+                workflow.logger.warning(
+                    "Prep for topic %s failed; sending a fallback: %s", topic_id, _cause_message(exc)
+                )
+        return await workflow.execute_activity(
+            activities.ensure_edition,
+            key,
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=_DB_RETRY,
+        )
+
+    async def _edition_id(self, key: types.EditionKey) -> str | None:
+        return await workflow.execute_activity(
+            activities.get_edition_id,
+            key,
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=_DB_RETRY,
+        )
 
     async def _deliver(
         self, email: str, subs: list[types.DueSubscription], editions: dict[str, str]

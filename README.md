@@ -247,14 +247,16 @@ previous edition, ranked, with an overview.
 7. **Store** the edition. If every summary failed, the owner gets an alert.
 
 ### 3. Email delivery (`SendDigestEmailsWorkflow`)
-Runs Mondays and Thursdays at 08:00 Eastern. It makes no LLM, arXiv or
-h-index call.
+Runs Mondays and Thursdays at 08:00 Eastern. Its own steps make no LLM,
+arXiv or h-index call.
 
 1. **Find due subscriptions**, each judged against its own cadence. Only active
    subscriptions of confirmed subscribers who haven't unsubscribed and aren't
    waitlisted count, the same rule that decides which topics are fetched.
-2. **Use each topic's edition** for the slot. A topic whose prep never ran
-   gets a fallback edition built from its window, ranked without AI text.
+2. **Use each topic's edition** for the slot. A topic with none (the host
+   slept through 01:00, so prep and send fire together on wake) has its prep
+   run first, or waited for if the scheduled prep is already on it. Only a
+   prep that fails gets a fallback edition, ranked without AI text.
 3. **Cap and render** one email per recipient, with a section per topic, each
    cut to that subscriber's own cap, in the edition's order. Near-duplicates
    fold under the paper they duplicate; papers with a close earlier paper get
@@ -372,7 +374,7 @@ regression test:
 ## Testing
 
 ```bash
-venv/bin/python -m pytest -q        # 517 tests
+venv/bin/python -m pytest -q        # 521 tests
 ```
 
 | Layer | How |
