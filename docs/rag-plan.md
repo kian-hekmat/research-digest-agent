@@ -777,8 +777,30 @@ Reports: `evals/results/2026-11-12_215738_baseline.json` and
 `evals/results/2026-11-12_215856_baseline_labels_diverse.json`. The
 original-set gates failed: that set's overall ρ is below the old prompt's
 0.76 and its on-topic ρ is no better than the old 0.38, against 0.80 / 0.53
-in §5.10's single run. The prompt was not tuned; the numbers are with the
-owner.
+in §5.10's single run. The prompt was not tuned.
+
+**Paired check, and the owner's decision.** To separate the prompts from
+run-to-run drift, old and new were rated side by side, item by item, in one
+run (one pass each):
+
+| Set | Prompt | ρ | ρ on-topic | MAE | Share of 10s |
+|---|---|---|---|---|---|
+| `labels.csv` | old | 0.778 | 0.386 | 1.47 | 36% |
+| `labels.csv` | new | 0.699 | 0.326 | 1.45 | 21% |
+| `labels_diverse.csv` | old | 0.836 | 0.342 | 1.89 | 53% |
+| `labels_diverse.csv` | new | 0.858 | 0.565 | 1.45 | 32% |
+
+On the original set the new prompt is worse on PINNs (0.85 → 0.79) and
+Numerical Analysis (0.80 → 0.72), level on RLHF; §5.10's gain there didn't
+replicate. The cross-field on-topic gain (0.34 → 0.57) and the drop in 10s
+did, on both sets. With 47 Claude-labelled papers per set, gaps of
+0.05–0.08 are close to noise.
+
+The owner kept the new rubric (2026-11-12): public topics come from
+unfamiliar fields, where the gain held twice. Revisit in 2e with
+owner-written labels. Reports:
+`evals/results/2026-11-13_060124_paired_rubric_labels.json` and
+`evals/results/2026-11-13_060248_paired_rubric_labels_diverse.json`.
 
 ## 6. Phases
 
