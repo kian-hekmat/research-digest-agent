@@ -762,6 +762,24 @@ the paper uses the topic before rating did worse on both sets (ρ 0.74 and
 - Claude's labels, not the owner's.
 - OpenAlex's exact-phrase filter only approximates arXiv's `all:` search.
 
+**Adopted in 2c.** The candidate rubric is now the rate-only prompt
+(`_RELEVANCE_BANDS` in `app/services/summarize.py`); the combined
+summarize-and-rate prompt keeps the rubric it was evaluated with. The probe
+papers are `evals/labels_diverse.csv` (47 rows, labels from the audit), run
+with `--labels`. Baseline variant, two rating passes, on `gpt-5.4-mini`:
+
+| Set | ρ (gate) | ρ on-topic (gate) | Stability: exact / ρ | Old prompt ρ / on-topic |
+|---|---|---|---|---|
+| `labels.csv` | 0.741 (≥ 0.77) fail | 0.383 (≥ 0.45) fail | 87% / 0.979 | 0.76 / 0.38 |
+| `labels_diverse.csv` | 0.868 (≥ 0.80) pass | 0.560 (≥ 0.45) pass | 83% / 0.961 | 0.84 / 0.37 |
+
+Reports: `evals/results/2026-11-12_215738_baseline.json` and
+`evals/results/2026-11-12_215856_baseline_labels_diverse.json`. The
+original-set gates failed: that set's overall ρ is below the old prompt's
+0.76 and its on-topic ρ is no better than the old 0.38, against 0.80 / 0.53
+in §5.10's single run. The prompt was not tuned; the numbers are with the
+owner.
+
 ## 6. Phases
 
 | # | Scope | Ships | Size |

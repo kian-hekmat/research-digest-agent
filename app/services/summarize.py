@@ -105,10 +105,23 @@ _ANCHORS_NOTE = (
 # Each anchor's abstract is clipped; up to 6 of them precede the paper.
 _ANCHOR_TEXT_CHARS = 350
 
+# The rate-only rubric audited in docs/rag-plan.md 5.10 (cross-field eval set).
+# The combined summarize-and-rate prompt keeps _RELEVANCE_RUBRIC, the wording
+# it was evaluated with.
+_RELEVANCE_BANDS = "\n".join([
+    "Rate how central the reader's topic is to the paper, from 1 to 10. Judge by what the paper contributes, not by whether the topic's words appear in it.",
+    "10: the topic is the paper's main subject - new methods, theory, analysis or results for the topic itself.",
+    "8-9: a major focus - the main contribution directly advances or applies the topic.",
+    "6-7: one of several substantial parts that a reader of this topic would likely want to see.",
+    "4-5: the topic is used as a tool, a dataset, an application domain or one component of a larger system, and the paper's contribution lies elsewhere.",
+    "2-3: the topic appears only as motivation, background, an example or a point of comparison.",
+    "1: mentioned only in passing, or the words mean something else here than in the reader's field.",
+])
+
 _RELEVANCE_SYSTEM = (
     "You rate academic papers for a research alerting digest. "
-    + _RELEVANCE_RUBRIC
-    + " Reply with only the integer."
+    + _RELEVANCE_BANDS
+    + "\nReply with only the integer."
 )
 
 _OVERVIEW_SYSTEM = (

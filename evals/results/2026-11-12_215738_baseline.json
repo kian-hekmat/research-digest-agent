@@ -1,0 +1,826 @@
+{
+  "variant": "baseline",
+  "model": "gpt-5.4-mini",
+  "labels": "/Users/kianhekmat/Desktop/projects/research-digest-agent/evals/labels.csv",
+  "started_at": "2026-11-13T05:56:10+00:00",
+  "items": 47,
+  "corpus": {
+    "stored_rating_spread": {
+      "Numerical Analysis": {
+        "n": 498,
+        "unrated": 196,
+        "mean": 7.89,
+        "std": 1.48,
+        "share_7_to_9": 0.92,
+        "distinct_values": 9,
+        "histogram": {
+          "1": 2,
+          "2": 4,
+          "3": 19,
+          "4": 6,
+          "6": 2,
+          "7": 78,
+          "8": 209,
+          "9": 171,
+          "10": 7
+        }
+      },
+      "PINNs": {
+        "n": 67,
+        "unrated": 99,
+        "mean": 8.73,
+        "std": 1.34,
+        "share_7_to_9": 0.731,
+        "distinct_values": 5,
+        "histogram": {
+          "3": 2,
+          "7": 8,
+          "8": 6,
+          "9": 35,
+          "10": 16
+        }
+      },
+      "RLHF": {
+        "n": 7,
+        "unrated": 9,
+        "mean": 7.71,
+        "std": 1.39,
+        "share_7_to_9": 0.571,
+        "distinct_values": 5,
+        "histogram": {
+          "6": 2,
+          "7": 1,
+          "8": 2,
+          "9": 1,
+          "10": 1
+        }
+      }
+    },
+    "stored_summaries": {
+      "n": 728,
+      "with_unsupported_numbers": 88,
+      "examples": {
+        "2611.03419": [
+          "10"
+        ],
+        "2610.32044": [
+          "7"
+        ],
+        "2610.32270": [
+          "2",
+          "3"
+        ],
+        "2610.32185": [
+          "1.92",
+          "2.65",
+          "2500"
+        ],
+        "2611.06174": [
+          "2"
+        ],
+        "2610.36746": [
+          "0.47",
+          "200"
+        ],
+        "2610.39952": [
+          "5",
+          "5000"
+        ],
+        "2610.30804": [
+          "10"
+        ],
+        "2611.04065": [
+          "10",
+          "4"
+        ],
+        "2610.31091": [
+          "0.0866",
+          "3"
+        ]
+      }
+    }
+  },
+  "ratings": {
+    "spread_overall": {
+      "n": 47,
+      "unrated": 0,
+      "mean": 7.0,
+      "std": 2.52,
+      "share_7_to_9": 0.489,
+      "distinct_values": 7,
+      "histogram": {
+        "2": 4,
+        "4": 9,
+        "6": 1,
+        "7": 9,
+        "8": 10,
+        "9": 4,
+        "10": 10
+      }
+    },
+    "spread_by_topic": {
+      "Numerical Analysis": {
+        "n": 20,
+        "unrated": 0,
+        "mean": 6.1,
+        "std": 2.59,
+        "share_7_to_9": 0.45,
+        "distinct_values": 5,
+        "histogram": {
+          "2": 3,
+          "4": 5,
+          "7": 6,
+          "8": 3,
+          "10": 3
+        }
+      },
+      "PINNs": {
+        "n": 20,
+        "unrated": 0,
+        "mean": 7.65,
+        "std": 2.33,
+        "share_7_to_9": 0.5,
+        "distinct_values": 6,
+        "histogram": {
+          "2": 1,
+          "4": 3,
+          "7": 2,
+          "8": 7,
+          "9": 1,
+          "10": 6
+        }
+      },
+      "RLHF": {
+        "n": 7,
+        "unrated": 0,
+        "mean": 7.71,
+        "std": 1.98,
+        "share_7_to_9": 0.571,
+        "distinct_values": 5,
+        "histogram": {
+          "4": 1,
+          "6": 1,
+          "7": 1,
+          "9": 3,
+          "10": 1
+        }
+      }
+    },
+    "stability": {
+      "n": 47,
+      "dropped": 0,
+      "exact": 0.872,
+      "within_1": 0.979,
+      "mae": 0.15,
+      "spearman": 0.979
+    },
+    "labelers": {
+      "claude-opus-5-5": 47
+    },
+    "vs_reference_overall": {
+      "n": 47,
+      "dropped": 0,
+      "exact": 0.298,
+      "within_1": 0.511,
+      "mae": 1.4,
+      "spearman": 0.741
+    },
+    "vs_reference_by_topic": {
+      "Numerical Analysis": {
+        "n": 20,
+        "dropped": 0,
+        "exact": 0.2,
+        "within_1": 0.4,
+        "mae": 1.65,
+        "spearman": 0.788
+      },
+      "PINNs": {
+        "n": 20,
+        "dropped": 0,
+        "exact": 0.35,
+        "within_1": 0.6,
+        "mae": 1.2,
+        "spearman": 0.848
+      },
+      "RLHF": {
+        "n": 7,
+        "dropped": 0,
+        "exact": 0.429,
+        "within_1": 0.571,
+        "mae": 1.29,
+        "spearman": 0.935
+      }
+    },
+    "stored_vs_reference": {
+      "n": 31,
+      "dropped": 16,
+      "exact": 0.194,
+      "within_1": 0.581,
+      "mae": 1.74,
+      "spearman": 0.668
+    },
+    "vs_reference_on_topic": {
+      "n": 32,
+      "dropped": 0,
+      "exact": 0.375,
+      "within_1": 0.594,
+      "mae": 1.16,
+      "spearman": 0.383
+    },
+    "latency": {
+      "n": 94,
+      "mean_s": 0.93,
+      "p50_s": 0.89,
+      "p90_s": 1.14
+    }
+  },
+  "summaries": {
+    "n": 0,
+    "failed": 0,
+    "with_unsupported_numbers": 0,
+    "mean_compression": null,
+    "relevance_parsed": 0,
+    "relevance_vs_reference": {
+      "n": 0,
+      "dropped": 0
+    },
+    "relevance_vs_reference_on_topic": {
+      "n": 0,
+      "dropped": 0
+    },
+    "with_offered": 0,
+    "with_related_note": 0,
+    "related_rejected": 0,
+    "latency": {
+      "n": 0
+    },
+    "outputs": []
+  },
+  "per_item": [
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2609.38101",
+      "title": "Solving Linear Systems in $\\widetilde{O}(mn \\log \\frac\u03ba\u03b5)$ Bit Operations",
+      "stored_relevance": null,
+      "label": 8,
+      "ratings": [
+        10,
+        10
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2609.38871",
+      "title": "A Kernel-Aware Two-Grid Preconditioner for Cell-Centered Nearly Incompressible Elasticity",
+      "stored_relevance": null,
+      "label": 10,
+      "ratings": [
+        7,
+        6
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.05627",
+      "title": "Ground state energy estimation and preparation by the truncated power method",
+      "stored_relevance": null,
+      "label": 4,
+      "ratings": [
+        2,
+        2
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.06154",
+      "title": "A Relaxed Maximum-Based Normal \\texorpdfstring{$S$}{S}-Iteration Method for Generalized Absolute Value Equations",
+      "stored_relevance": null,
+      "label": 9,
+      "ratings": [
+        10,
+        10
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.06414",
+      "title": "A Mixed-Precision Model for Matrix-Splitting Methods",
+      "stored_relevance": null,
+      "label": 10,
+      "ratings": [
+        8,
+        8
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.09373",
+      "title": "Particle-Number-Preserving Quantum Signal Processing for Thermal Properties: Canonical-Ensemble Estimation and Grand-Canonical Reconstruction",
+      "stored_relevance": 3,
+      "label": 4,
+      "ratings": [
+        2,
+        2
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.11595",
+      "title": "Quantitative finite-time approximation of scattering fields for Alfv\u00e9n waves in ideal MHD",
+      "stored_relevance": 3,
+      "label": 3,
+      "ratings": [
+        4,
+        4
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.12088",
+      "title": "A posteriori error estimation for coarse or distorted meshes",
+      "stored_relevance": 9,
+      "label": 10,
+      "ratings": [
+        10,
+        10
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.12132",
+      "title": "A structure-preserving neural density functional for the ions of a polymer electrolyte",
+      "stored_relevance": 3,
+      "label": 2,
+      "ratings": [
+        2,
+        2
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.12152",
+      "title": "Variational Derivation of the Weak Form for Viscous Flows Involving Free Surfaces with Implications for Geodynamic Simulations",
+      "stored_relevance": 7,
+      "label": 7,
+      "ratings": [
+        7,
+        7
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.12654",
+      "title": "Symbolic-Permutation-Based Direct Sparse Jacobian Assembly for Accelerated Power-Flow Analysis",
+      "stored_relevance": 9,
+      "label": 6,
+      "ratings": [
+        4,
+        6
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.13029",
+      "title": "Linear and entropy-stable scheme for the dynamic van der Waals model of non-isothermal liquid-vapor flows",
+      "stored_relevance": 7,
+      "label": 10,
+      "ratings": [
+        8,
+        8
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.13307",
+      "title": "Sustainable Cloud-Fog-Edge Systems for Smart Buildings: Algorithmic Adaptation under Memory Constraints and Dynamic Orchestration Strategies",
+      "stored_relevance": 2,
+      "label": 1,
+      "ratings": [
+        4,
+        4
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.13680",
+      "title": "Diffraction of waves by finite thin coatings: asymptotic expansion and effective models",
+      "stored_relevance": 7,
+      "label": 7,
+      "ratings": [
+        4,
+        4
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.17567",
+      "title": "Targeted Entropy-Stable Nonlinear Artificial Dissipation for High-Order Spectral-Element Summation-By-Parts Discretizations",
+      "stored_relevance": 8,
+      "label": 10,
+      "ratings": [
+        7,
+        7
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.17600",
+      "title": "Strong convergence rate of the implicit midpoint method for stochastic KdV equations",
+      "stored_relevance": 8,
+      "label": 10,
+      "ratings": [
+        8,
+        8
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.17892",
+      "title": "Provable Method of Moments for Cryo-EM",
+      "stored_relevance": 3,
+      "label": 4,
+      "ratings": [
+        4,
+        4
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.17942",
+      "title": "Space-Time Parallel Direct Numerical Simulation of Rayleigh-B\u00e9nard Convection",
+      "stored_relevance": 8,
+      "label": 8,
+      "ratings": [
+        7,
+        7
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.18172",
+      "title": "Numerical simulation of biological capsules based on interface-fitted polygonal meshes",
+      "stored_relevance": 7,
+      "label": 8,
+      "ratings": [
+        7,
+        8
+      ]
+    },
+    {
+      "topic_name": "Numerical Analysis",
+      "topic_query": "cat:math.NA",
+      "arxiv_id": "2610.19982",
+      "title": "Spherical Perfectly Matched Layer Method for Electromagnetic Scattering Problems with Large Wave Number",
+      "stored_relevance": 7,
+      "label": 10,
+      "ratings": [
+        7,
+        7
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2609.07814",
+      "title": "Latent-MoE: Domain-Aware Mixture-of-Experts for PDEs with Multi-Regime Physics",
+      "stored_relevance": null,
+      "label": 10,
+      "ratings": [
+        10,
+        10
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2609.23077",
+      "title": "Physics-Informed Neural Network Surrogates with Polynomial Chaos-Based Uncertainty Propagation for Stochastic Model Predictive Control",
+      "stored_relevance": null,
+      "label": 9,
+      "ratings": [
+        8,
+        8
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2609.32508",
+      "title": "Deep learning methods for stochastic Galerkin approximations of random domain problems",
+      "stored_relevance": null,
+      "label": 8,
+      "ratings": [
+        7,
+        7
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2609.35196",
+      "title": "GAC-PINN: Geometry-Adaptive and Constraint-Enhanced Physics-Informed Neural Networks",
+      "stored_relevance": null,
+      "label": 10,
+      "ratings": [
+        10,
+        10
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2609.39469",
+      "title": "Mesh-Free Numerical Approximation of the Biharmonic Equation via Optimized Kolmogorov--Arnold Neural Networks",
+      "stored_relevance": null,
+      "label": 10,
+      "ratings": [
+        10,
+        10
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2609.40008",
+      "title": "PINNing the pion: conformal deep learning for $F_\u03c0(s)$ and the $(g-2)_\u03bc$ hadronic contribution",
+      "stored_relevance": null,
+      "label": 8,
+      "ratings": [
+        10,
+        10
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.10862",
+      "title": "A mesh-based neural energy method for the simulation of heterogeneous composites",
+      "stored_relevance": 7,
+      "label": 8,
+      "ratings": [
+        8,
+        8
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.10897",
+      "title": "Gen-PINNs: Generative Adversarial Physics Informed Neural Networks for solving partial differential equations",
+      "stored_relevance": 9,
+      "label": 10,
+      "ratings": [
+        10,
+        10
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.11108",
+      "title": "Cova-PINN: Cross-Domain Conservation Physics-Informed Neural Network for Fluid-Solid Conjugate Heat Transfer in Complex Geometries",
+      "stored_relevance": 9,
+      "label": 10,
+      "ratings": [
+        10,
+        10
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.13334",
+      "title": "PDE-PFN: Prior-Data Fitted Neural PDE Solver",
+      "stored_relevance": 8,
+      "label": 5,
+      "ratings": [
+        8,
+        8
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.13663",
+      "title": "A Multi-Agent LLM System for Automated Tuning of Specialized Neural Network Models",
+      "stored_relevance": 7,
+      "label": 4,
+      "ratings": [
+        7,
+        8
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.14355",
+      "title": "AI Meets Turbulence Modeling: Complex Systems Perspective",
+      "stored_relevance": 7,
+      "label": 2,
+      "ratings": [
+        4,
+        4
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.14461",
+      "title": "PINNs for N=2* holography",
+      "stored_relevance": 9,
+      "label": 9,
+      "ratings": [
+        9,
+        9
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.14844",
+      "title": "Physics-informed random neural architectures on compact boundaryless multiply connected manifolds for random-operator models in machine learning and uncertainty quantification",
+      "stored_relevance": 9,
+      "label": 6,
+      "ratings": [
+        8,
+        7
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.15111",
+      "title": "Energy-Guided Learning for Heat Equation with Noisy Source: Optimal Estimation and Generalization Bounds",
+      "stored_relevance": 7,
+      "label": 6,
+      "ratings": [
+        8,
+        8
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.16891",
+      "title": "AI-Assisted Tumor-Growth Law Discovery from Sparse Data: Refitting and LLM-Based Ranking",
+      "stored_relevance": 3,
+      "label": 3,
+      "ratings": [
+        2,
+        2
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.17969",
+      "title": "Neural Dimensional Analysis: Foundations of Dimensionless and Scale-Consistent Computation",
+      "stored_relevance": 3,
+      "label": 1,
+      "ratings": [
+        4,
+        4
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.19058",
+      "title": "Conformalized Physics-Informed Weak Regression for Parameter Estimation in Epidemic Models",
+      "stored_relevance": 7,
+      "label": 3,
+      "ratings": [
+        4,
+        4
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.19254",
+      "title": "Beyond Time Induction: Structured Conditional Neural Solvers for Parametric Stochastic-Volatility Pricing",
+      "stored_relevance": 8,
+      "label": 9,
+      "ratings": [
+        8,
+        8
+      ]
+    },
+    {
+      "topic_name": "PINNs",
+      "topic_query": "physics-informed neural networks",
+      "arxiv_id": "2610.20041",
+      "title": "Sequential Learning-Based Physics-Informed Neural Network Modeling for Parameter Estimation on a Power Converter",
+      "stored_relevance": 9,
+      "label": 10,
+      "ratings": [
+        8,
+        8
+      ]
+    },
+    {
+      "topic_name": "RLHF",
+      "topic_query": "reinforcement learning from human feedback",
+      "arxiv_id": "2609.33221",
+      "title": "RMB: Reward Model Boosting Mitigates Reward Hacking",
+      "stored_relevance": null,
+      "label": 10,
+      "ratings": [
+        10,
+        10
+      ]
+    },
+    {
+      "topic_name": "RLHF",
+      "topic_query": "reinforcement learning from human feedback",
+      "arxiv_id": "2609.35109",
+      "title": "Using Context Is Not Enough: Test-Time Training for Personalized Reward Modeling",
+      "stored_relevance": null,
+      "label": 8,
+      "ratings": [
+        9,
+        10
+      ]
+    },
+    {
+      "topic_name": "RLHF",
+      "topic_query": "reinforcement learning from human feedback",
+      "arxiv_id": "2610.05450",
+      "title": "Groupwise Distortion Guarantees for Preference-Based Alignment",
+      "stored_relevance": null,
+      "label": 9,
+      "ratings": [
+        9,
+        9
+      ]
+    },
+    {
+      "topic_name": "RLHF",
+      "topic_query": "reinforcement learning from human feedback",
+      "arxiv_id": "2610.05461",
+      "title": "AI Safety via Debate is Compromised by Cognitive Biases",
+      "stored_relevance": null,
+      "label": 4,
+      "ratings": [
+        6,
+        6
+      ]
+    },
+    {
+      "topic_name": "RLHF",
+      "topic_query": "reinforcement learning from human feedback",
+      "arxiv_id": "2610.07023",
+      "title": "Beyond Refusal Patterns: Safe-Role Internalization for Robust and Generalizable LLM Safety Alignment",
+      "stored_relevance": 8,
+      "label": 2,
+      "ratings": [
+        4,
+        4
+      ]
+    },
+    {
+      "topic_name": "RLHF",
+      "topic_query": "reinforcement learning from human feedback",
+      "arxiv_id": "2610.09891",
+      "title": "A Scoping Review and Experimental Study on Reinforcement Learning from Human Feedback for Human-Robot Collaboration",
+      "stored_relevance": null,
+      "label": 9,
+      "ratings": [
+        9,
+        9
+      ]
+    },
+    {
+      "topic_name": "RLHF",
+      "topic_query": "reinforcement learning from human feedback",
+      "arxiv_id": "2610.14976",
+      "title": "Metric-Driven Reinforcement Learning for Object Hallucination Reduction in LVLM-Based Image Captioning",
+      "stored_relevance": 6,
+      "label": 3,
+      "ratings": [
+        7,
+        7
+      ]
+    }
+  ],
+  "errors": []
+}

@@ -24,7 +24,6 @@ import csv
 import json
 import os
 import random
-import sys
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -38,7 +37,7 @@ from app.config import get_settings
 from app.database import SessionLocal
 from app.services.retrieval import Neighbour, rating_anchors, related_context
 from app.services.summarize import (
-    _RELEVANCE_RUBRIC,
+    _RELEVANCE_BANDS,
     RatedSummary,
     RatingAnchor,
     RatingContext,
@@ -218,7 +217,21 @@ def load_items(db: Session, labels: list[dict]) -> list[EvalItem]:
     for row in labels:
         hit = by_key.get((row["topic"], row["arxiv_id"]))
         if hit is None:
-            print(f"skipping {row['topic']}/{row['arxiv_id']}: not in the database", file=sys.stderr)
+            # Not in the database (e.g. labels_diverse.csv): the row itself is
+            # the paper. Only the baseline variant can run on it.
+            items.append(
+                EvalItem(
+                    topic_id="",
+                    topic_name=row["topic"],
+                    topic_query=row["topic"],
+                    paper_id="",
+                    arxiv_id=row["arxiv_id"],
+                    title=row["title"],
+                    abstract=row["abstract"],
+                    stored_relevance=None,
+                    label=parse_label(row.get("label", "")),
+                )
+            )
             continue
         topic, paper, rel = hit
         items.append(
@@ -283,9 +296,9 @@ def cmd_label(args: argparse.Namespace) -> None:
     """Walk the unlabeled rows in the terminal. The stored LLM rating is not
     shown, so it can't anchor the human one. Saves after every answer, with
     labeler "human" - rows labeled any other way keep their own labeler."""
-    rows = read_labels()
+    rows = read_labels(args.labels)
     todo = [r for r in rows if parse_label(r["label"]) is None]
-    print(f"{len(rows) - len(todo)}/{len(rows)} labeled.\n\n{_RELEVANCE_RUBRIC}\n")
+    print(f"{len(rows) - len(todo)}/{len(rows)} labeled.\n\n{_RELEVANCE_BANDS}\n")
     print("Enter 1-10, optionally followed by a note (`7 method is only an example`), "
           "`s` to skip, `q` to quit.\n")
     for n, row in enumerate(todo, 1):
@@ -305,7 +318,7 @@ def cmd_label(args: argparse.Namespace) -> None:
                 print("  1-10, s or q")
                 continue
             row["label"], row["labeler"], row["notes"] = str(label), "human", note.strip()
-            write_labels(rows)
+            write_labels(rows, args.labels)
             break
     print("All rows labeled." if all(parse_label(r["label"]) for r in rows) else "")
 
@@ -348,12 +361,19 @@ def cmd_run(args: argparse.Namespace) -> None:
         raise SystemExit("Summarization is off - set SUMMARY_BACKEND=openai first.")
     db = SessionLocal()
     try:
-        labels = read_labels()
+        labels = read_labels(args.labels)
         items = load_items(db, labels)
+        file_only = [i for i in items if i.paper_id == ""]
+        if file_only and args.variant != "baseline":
+            raise SystemExit(
+                f"Variant {args.variant!r} reads the database, but {len(file_only)} items in "
+                f"{args.labels} are not in it - only the baseline variant runs on them."
+            )
         variant = VARIANTS[args.variant](db, Summarizer(settings, ledger=DbLedger()))
         report: dict = {
             "variant": args.variant,
             "model": settings.summary_model,
+            "labels": str(args.labels),
             "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "items": len(items),
             "corpus": corpus_stats(db),
@@ -462,8 +482,9 @@ def cmd_run(args: argparse.Namespace) -> None:
         db.close()
 
     RESULTS_DIR.mkdir(exist_ok=True)
-    stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
-    out = RESULTS_DIR / f"{stamp}_{args.variant}.json"
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    suffix = "" if Path(args.labels).name == LABELS_PATH.name else f"_{Path(args.labels).stem}"
+    out = RESULTS_DIR / f"{stamp}_{args.variant}{suffix}.json"
     out.write_text(json.dumps(report, indent=2) + "\n")
     print_report(report)
     print(f"\nFull report: {out.relative_to(Path.cwd())}")
@@ -527,8 +548,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--force", action="store_true", help="overwrite an existing labels.csv")
     p.set_defaults(fn=cmd_sample)
     p = sub.add_parser("label", help="hand-label evals/labels.csv in the terminal")
+    p.add_argument("--labels", type=Path, default=LABELS_PATH, help="labels csv (default: evals/labels.csv)")
     p.set_defaults(fn=cmd_label)
     p = sub.add_parser("run", help="rate and summarize the labeled set, write a report")
+    p.add_argument("--labels", type=Path, default=LABELS_PATH, help="labels csv (default: evals/labels.csv)")
     p.add_argument("--variant", choices=sorted(VARIANTS), default="baseline")
     p.add_argument("--repeats", type=int, default=2, help="rating passes (2+ measures stability)")
     p.add_argument("--summaries", type=int, default=15, help="papers to re-summarize (0 = none)")
