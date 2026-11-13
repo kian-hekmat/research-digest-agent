@@ -25,29 +25,31 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from app import cadence
 from app.config import get_settings
-from app.temporal.workflows import RunAllTopicDigestsWorkflow, SendDigestEmailsWorkflow
+from app.temporal.workflows import (
+    PrepEditionsWorkflow,
+    RunAllTopicDigestsWorkflow,
+    SendDigestEmailsWorkflow,
+)
 
-# Both crons are in SCHEDULE_TIME_ZONE (DST-aware), set to the owner's waking
-# hours. This runs on a laptop: at the old 06:00/08:00 UTC (11pm/1am Pacific)
-# it was usually asleep, so nearly every run was a catch-up fired on wake -
-# and one interrupted mid-summarization when it slept again.
+# Every cron is in SCHEDULE_TIME_ZONE (DST-aware): the send slots' zone,
+# Eastern, so the three passes keep their order and spacing all year.
 SCHEDULE_TIME_ZONE = cadence.SEND_TIME_ZONE_NAME
 
+# Ingest: daily, in the evening, after arXiv's announcement (20:00 Eastern).
 DAILY_SCHEDULE_ID = "daily-topic-digests"
-# 10:00 rather than earlier: at 07:00 the laptop was often still asleep, and
-# runs during macOS background wakes saw local-model calls stall and fail.
-DAILY_CRON = "0 10 * * *"  # 10:00 daily
+INGEST_CRON = "30 21 * * *"  # 21:30 daily
+
+# Send prep: the night before each send, so editions are ready by 08:00.
+PREP_SCHEDULE_ID = "send-prep"
+PREP_CRON = "0 1 * * 1,4"  # 01:00 Mondays and Thursdays
 
 # The id predates the move to twice-weekly sends; it's kept so existing
 # deployments update their schedule in place instead of gaining a second one.
 EMAIL_SCHEDULE_ID = "weekly-digest-emails"
-# SendDigestEmailsWorkflow judges each subscription against its own
-# twice_weekly/weekly/biweekly cadence internally (see that workflow's
-# docstring) - the schedule just needs to fire at least as often as the
-# most frequent cadence. It runs before the daily digest run, which is
-# fine: the email workflow runs its own digest pass before sending.
-# Built from app.cadence, which also decides who is due at each fire - one
-# definition of the send slots, so the two can't drift apart.
+# SendDigestEmailsWorkflow judges each subscription against its own cadence
+# and assembles emails from the editions prep stored. Built from app.cadence,
+# which also decides who is due at each fire - one definition of the send
+# slots, so the two can't drift apart.
 EMAIL_CRON = cadence.email_cron()  # "0 8 * * 1,4": Mondays and Thursdays 08:00
 
 EnsureResult = Literal["created", "updated", "unchanged"]
@@ -109,17 +111,24 @@ async def _ensure_schedule(
     return "created"
 
 
-async def ensure_daily_schedule(client: Client, cron: str = DAILY_CRON) -> EnsureResult:
-    """Each firing runs `RunAllTopicDigestsWorkflow`, which fans out a
-    `DigestWorkflow` child per active topic."""
+async def ensure_daily_schedule(client: Client, cron: str = INGEST_CRON) -> EnsureResult:
+    """Each firing runs `RunAllTopicDigestsWorkflow`, which fans out an
+    ingest (`DigestWorkflow`) per topic with active subscriptions."""
     return await _ensure_schedule(
         client, DAILY_SCHEDULE_ID, "scheduled-topic-digests", RunAllTopicDigestsWorkflow.run, cron
     )
 
 
 async def ensure_email_schedule(client: Client, cron: str = EMAIL_CRON) -> EnsureResult:
-    """Each firing runs `SendDigestEmailsWorkflow`, which delivers to every
-    subscription whose cadence is due."""
+    """Each firing runs `SendDigestEmailsWorkflow`, which delivers each due
+    subscription its topic's edition for the slot."""
     return await _ensure_schedule(
         client, EMAIL_SCHEDULE_ID, "scheduled-digest-emails", SendDigestEmailsWorkflow.run, cron
+    )
+
+
+async def ensure_prep_schedule(client: Client, cron: str = PREP_CRON) -> EnsureResult:
+    """Each firing runs `PrepEditionsWorkflow` for the next send slot."""
+    return await _ensure_schedule(
+        client, PREP_SCHEDULE_ID, "scheduled-send-prep", PrepEditionsWorkflow.run, cron
     )

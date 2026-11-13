@@ -62,3 +62,22 @@ def test_next_slot_is_strictly_after():
     assert result.tzinfo == cadence.SEND_TIME_ZONE
     # Across the DST end (Nov 1): Thu Oct 29 EDT -> Mon Nov 2 08:00 EST.
     assert cadence.next_slot(at(2026, 10, 29, 8, 0)) == at(2026, 11, 2, 8, 0)
+
+
+def test_slots_stay_at_8am_eastern_across_dst():
+    # Mon 2026-11-02 is the day after DST ends; Mon 2027-03-15 the day after it starts.
+    assert cadence.latest_slot(datetime(2026, 11, 2, 18, tzinfo=timezone.utc)) == datetime(
+        2026, 11, 2, 13, tzinfo=timezone.utc
+    )
+    assert cadence.latest_slot(datetime(2027, 3, 15, 18, tzinfo=timezone.utc)) == datetime(
+        2027, 3, 15, 12, tzinfo=timezone.utc
+    )
+
+
+def test_crons_and_time_zone():
+    from app.temporal import schedule
+
+    assert schedule.INGEST_CRON == "30 21 * * *"
+    assert schedule.PREP_CRON == "0 1 * * 1,4"
+    assert schedule.EMAIL_CRON == "0 8 * * 1,4"
+    assert schedule.SCHEDULE_TIME_ZONE == "America/New_York"

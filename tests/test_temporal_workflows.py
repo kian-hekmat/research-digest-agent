@@ -958,11 +958,11 @@ def test_finalize_stamps_completed_at_only_on_completion(db_session):
 # ---------- cadence due-ness (slot-anchored, see app.cadence) ----------
 # Slots are Mon/Thu 08:00 Eastern. October 2026 is EDT (UTC-4): Mon Oct 5 and
 # Thu Oct 8 08:00 EDT are 12:00 UTC.
-_PDT = timezone(timedelta(hours=-4))
+_EDT = timezone(timedelta(hours=-4))
 
 
-def _pdt(day, hour=8, minute=0, second=0):
-    return datetime(2026, 10, day, hour, minute, second, tzinfo=_PDT)
+def _edt(day, hour=8, minute=0, second=0):
+    return datetime(2026, 10, day, hour, minute, second, tzinfo=_EDT)
 
 
 @pytest.mark.parametrize(
@@ -972,22 +972,22 @@ def _pdt(day, hour=8, minute=0, second=0):
         # Monday's slot was missed to downtime) made Thursday's run skip,
         # because only ~2 days had elapsed. Thursday's slot is after Tuesday's
         # send, so it's due.
-        ("twice_weekly", _pdt(6, 8, 4, 27), _pdt(8, 8, 0, 3), True),
+        ("twice_weekly", _edt(6, 8, 4, 27), _edt(8, 8, 0, 3), True),
         # Normal rhythm: Mon send -> due at Thu slot, not before it.
-        ("twice_weekly", _pdt(5, 8, 0, 5), _pdt(8, 8, 0, 3), True),
-        ("twice_weekly", _pdt(5, 8, 0, 5), _pdt(8, 7, 59, 59), False),
+        ("twice_weekly", _edt(5, 8, 0, 5), _edt(8, 8, 0, 3), True),
+        ("twice_weekly", _edt(5, 8, 0, 5), _edt(8, 7, 59, 59), False),
         # The same slot firing twice (manual trigger + schedule) sends once.
-        ("twice_weekly", _pdt(8, 8, 0, 5), _pdt(8, 8, 30), False),
+        ("twice_weekly", _edt(8, 8, 0, 5), _edt(8, 8, 30), False),
         # A late catch-up fire (laptop woke at 13:00) still counts for its slot.
-        ("twice_weekly", _pdt(5, 8, 0, 5), _pdt(8, 13, 0), True),
+        ("twice_weekly", _edt(5, 8, 0, 5), _edt(8, 13, 0), True),
         # Weekly: Monday slots only - Thursday doesn't count.
-        ("weekly", _pdt(5, 8, 0, 5), _pdt(8, 8, 0, 3), False),
-        ("weekly", _pdt(5, 8, 0, 5), _pdt(12, 8, 0, 3), True),
+        ("weekly", _edt(5, 8, 0, 5), _edt(8, 8, 0, 3), False),
+        ("weekly", _edt(5, 8, 0, 5), _edt(12, 8, 0, 3), True),
         # A Tuesday catch-up send doesn't push weekly out a whole extra week.
-        ("weekly", _pdt(6, 8, 4, 27), _pdt(12, 8, 0, 3), True),
+        ("weekly", _edt(6, 8, 4, 27), _edt(12, 8, 0, 3), True),
         # Biweekly: skips the Monday in between, due the one after.
-        ("biweekly", _pdt(5, 8, 0, 5), _pdt(12, 8, 0, 3), False),
-        ("biweekly", _pdt(5, 8, 0, 5), _pdt(19, 8, 0, 3), True),
+        ("biweekly", _edt(5, 8, 0, 5), _edt(12, 8, 0, 3), False),
+        ("biweekly", _edt(5, 8, 0, 5), _edt(19, 8, 0, 3), True),
     ],
 )
 def test_list_due_subscriptions_cadence(db_session, cadence, last_sent, now, due):
@@ -1023,9 +1023,51 @@ async def test_ensure_daily_schedule_is_idempotent(temporal_env_only):
     # The server normalizes the cron string into a calendar spec rather than
     # echoing it back verbatim - check the parsed hour instead of the string.
     [calendar] = desc.schedule.spec.calendars
-    assert calendar.hour[0].start == 10
+    assert (calendar.hour[0].start, calendar.minute[0].start) == (21, 30)
     assert desc.schedule.spec.time_zone_name == "America/New_York"
     assert desc.schedule.action.workflow == "RunAllTopicDigestsWorkflow"
+
+
+async def test_ensure_prep_schedule_is_idempotent(temporal_env_only):
+    from app.temporal.schedule import PREP_SCHEDULE_ID, ensure_prep_schedule
+
+    client = temporal_env_only.client
+    assert PREP_SCHEDULE_ID == "send-prep"
+    assert await ensure_prep_schedule(client) == "created"
+    assert await ensure_prep_schedule(client) == "unchanged"
+
+    desc = await client.get_schedule_handle(PREP_SCHEDULE_ID).describe()
+    [calendar] = desc.schedule.spec.calendars
+    assert calendar.hour[0].start == 1
+    assert _days_of_week(calendar) == {1, 4}
+    assert desc.schedule.spec.time_zone_name == "America/New_York"
+    assert desc.schedule.action.workflow == "PrepEditionsWorkflow"
+
+
+async def test_existing_schedules_move_to_eastern_in_place(temporal_env_only):
+    """The live daily schedule was created at 10:00 Pacific, noted as such:
+    it's updated in place (same id) to 21:30 Eastern."""
+    from temporalio.client import Schedule, ScheduleActionStartWorkflow, ScheduleSpec, ScheduleState
+
+    client = temporal_env_only.client
+    await client.create_schedule(
+        DAILY_SCHEDULE_ID,
+        Schedule(
+            action=ScheduleActionStartWorkflow(
+                RunAllTopicDigestsWorkflow.run, id="scheduled-topic-digests", task_queue=TASK_QUEUE
+            ),
+            spec=ScheduleSpec(cron_expressions=["0 10 * * *"], time_zone_name="America/Los_Angeles"),
+            state=ScheduleState(note="cron: 0 10 * * * (America/Los_Angeles)"),
+        ),
+    )
+
+    assert await ensure_daily_schedule(client) == "updated"
+    assert await ensure_daily_schedule(client) == "unchanged"
+
+    desc = await client.get_schedule_handle(DAILY_SCHEDULE_ID).describe()
+    [calendar] = desc.schedule.spec.calendars
+    assert (calendar.hour[0].start, calendar.minute[0].start) == (21, 30)
+    assert desc.schedule.spec.time_zone_name == "America/New_York"
 
 
 def _days_of_week(calendar) -> set[int]:

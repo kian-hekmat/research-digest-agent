@@ -206,47 +206,63 @@ paper's text never does.
 
 ## How it works
 
-### 1. Daily digest pipeline (`DigestWorkflow`)
-Runs daily at 10:00 Pacific for every topic with at least one active
+Three passes, all on Eastern time: a cheap daily **ingest**, a twice-weekly
+**send prep** that does the expensive work only for the papers that will be
+emailed, and a **send** that only assembles stored content.
+
+### 1. Daily ingest (`DigestWorkflow`)
+Runs daily at 21:30 Eastern for every topic with at least one active
 subscription from a confirmed subscriber, and on demand for any topic via
-`POST /digests/{topic_id}`.
+`POST /digests/{topic_id}`. Topics run in batches of `FANOUT_BATCH_SIZE`.
 
 1. **Fetch** new papers from arXiv. Free-text topics are sent as exact-phrase
-   searches; queries like `cat:math.NA` track a whole arXiv category.
+   searches; queries like `cat:math.NA` track a whole arXiv category. Every
+   arXiv request goes through its own task queue, served one at a time.
 2. **Ingest**: upsert papers by arXiv id and skip any the topic already has.
 3. **Embed** new papers (and the topic's query) into pgvector and compute retrieval
    signals: novelty, near duplicates, and the closest earlier paper (shown in
    the email as "Similar earlier paper" when it's close enough).
-4. **Full text**: fetch each new paper's arXiv HTML (from `export.arxiv.org`,
-   one request per 3 s across the whole worker, stored locally and never
-   emailed), split it into section-aware chunks and embed them.
-5. **Summarize and rate** each new paper with OpenAI, at most 4 calls at a time.
-   The summary draws on the full-text chunks that best match "main results",
-   "method" and "limitations"; the 1–10 relevance rating comes from the
-   abstract alone.
-6. **Overview**: one LLM-written paragraph synthesizing the batch. The writer also
+4. **Rate** each new paper's relevance to the topic (1–10, rate-only prompt),
+   at most `LLM_MAX_CONCURRENCY` calls at a time. If every rating in a run
+   fails, the owner gets one alert that day.
+5. **Finalize**: mark the digest completed and advance the topic's watermark.
+
+### 2. Send prep (`PrepEditionsWorkflow`)
+Runs Mondays and Thursdays at 01:00 Eastern and stores one **edition** per
+topic for the coming send: the window of papers ingested since the topic's
+previous edition, ranked, with an overview.
+
+1. **Re-rate** papers the ingest left unrated (a failure, or the budget).
+2. **Enrich**: look up author h-indices (Semantic Scholar with a key, OpenAlex
+   without), done now because both lag arXiv by a day or more.
+3. **Rank** the window and take the top K, the largest paper count any
+   subscriber of the topic asked for (at least 5).
+4. **Full text** for the top K only, when `RAG_FULLTEXT` is on (off by
+   default, pending arXiv's permission): fetch the arXiv HTML, split it into
+   section-aware chunks and embed them.
+5. **Summarize** the top K papers that don't have a summary yet.
+6. **Overview**: one LLM-written paragraph over the top K. The writer also
    sees the topic's last three overviews, so it says what is specific to this
-   batch instead of re-describing the field each time.
-7. **Finalize**: mark the digest completed and advance the topic's watermark.
+   edition instead of re-describing the field each time.
+7. **Store** the edition. If every summary failed, the owner gets an alert.
 
-### 2. Email delivery (`SendDigestEmailsWorkflow`)
-Runs Mondays and Thursdays at 08:00 Pacific.
+### 3. Email delivery (`SendDigestEmailsWorkflow`)
+Runs Mondays and Thursdays at 08:00 Eastern. It makes no LLM, arXiv or
+h-index call.
 
-1. **Refresh first**: run a digest pass and wait for any in-flight digests, so
-   the email never goes out before fresh content is ready.
-2. **Find due subscriptions**, each judged against its own cadence. Only active
+1. **Find due subscriptions**, each judged against its own cadence. Only active
    subscriptions of confirmed subscribers who haven't unsubscribed and aren't
    waitlisted count, the same rule that decides which topics are fetched.
-3. **Enrich**: look up author h-indices (Semantic Scholar with a key, OpenAlex
-   without), done at send time because both lag arXiv by a day or more.
-4. **Rank, cap and render** one email per recipient, with a section per topic
-   and papers grouped by arXiv submission date. Near-duplicates fold under the
-   paper they duplicate; papers with a close earlier paper get a "Similar
-   earlier paper" link.
-5. **Send, then advance watermarks**, only for topics that were actually in a
+2. **Use each topic's edition** for the slot. A topic whose prep never ran
+   gets a fallback edition built from its window, ranked without AI text.
+3. **Cap and render** one email per recipient, with a section per topic, each
+   cut to that subscriber's own cap, in the edition's order. Near-duplicates
+   fold under the paper they duplicate; papers with a close earlier paper get
+   a "Similar earlier paper" link.
+4. **Send, then advance watermarks**, only for topics that were actually in a
    confirmed send.
 
-### 3. Ranking (`app/services/ranking.py`)
+### 4. Ranking (`app/services/ranking.py`)
 `score = 0.6 × relevance + 0.3 × log-scaled max author h-index + 0.1 × novelty (+ up to 0.08 venue bonus)`
 
 Novelty is how unlike the paper is to earlier topic papers from the last 90 days,
@@ -343,7 +359,7 @@ regression test:
 | Topics went weeks without new papers | arXiv publishes papers 1–3 days after their timestamp, and a strict "newer than last run" filter dropped them permanently | Look back 7 days past the watermark and de-duplicate by arXiv id |
 | Emails repeated one date many times and misdated papers | Papers were grouped by when the job ran, not when they were published | Group by each paper's own submission date; de-duplicate across runs |
 | Papers could be skipped forever | Delivery keyed on when a digest *started*, so one still running during a send fell behind the new watermark | Key delivery on completion time, snapshotted before reading |
-| Catch-up emails went out half-empty | After a laptop woke, the missed digest and email runs fired at the same moment and raced | The email workflow refreshes and waits for in-flight digests before sending |
+| Catch-up emails went out half-empty | After a laptop woke, the missed digest and email runs fired at the same moment and raced | Sends now assemble stored editions; a topic with no edition gets a fallback built from its window |
 | A reboot left everything down | No container restart policies | `restart: unless-stopped` on every service, colima started at login |
 | Tests called the developer's real LLM | A cached settings object loaded the local `.env` before the test harness disabled it | Fixed load order; a guard test asserts the session is isolated |
 | One topic was mostly off-topic papers | 25 papers ingested before the exact-phrase search fix had stayed linked to RLHF and skewed ratings and evals | Unlinked them (kept as digest history); retrieval now ignores papers no topic links to |
@@ -356,7 +372,7 @@ regression test:
 ## Testing
 
 ```bash
-venv/bin/python -m pytest -q        # 355 tests
+venv/bin/python -m pytest -q        # 516 tests
 ```
 
 | Layer | How |
@@ -467,7 +483,10 @@ All settings are environment variables (see [`.env.example`](.env.example)).
 | `ARXIV_PAGE_DELAY` | `3.0` | Minimum seconds between any two arXiv requests (search or full text) |
 | `RAG_ENABLED` | `true` | Embeddings and every retrieval feature (also off when `SUMMARY_BACKEND=none`) |
 | `EMBEDDING_BACKEND` / `EMBEDDING_MODEL` | `openai` / `text-embedding-3-small` | Where embeddings come from. Requested at 768 dimensions; a model needs a `RETRIEVAL_CALIBRATION` row (the worker refuses to start without one). `ollama` / `embeddinggemma` runs locally |
-| `RAG_FULLTEXT` | `true` | Full-text excerpts in summaries |
+| `RAG_FULLTEXT` | `false` | Full-text excerpts in the top K's summaries (off until arXiv allows it) |
+| `LLM_MAX_CONCURRENCY` | `8` | LLM calls in flight per workflow (ratings at ingest, summaries at prep) |
+| `FANOUT_BATCH_SIZE` | `10` | Topics whose ingest or prep run at once |
+| `WORKER_ACTIVITY_THREADS` | `20` | Activities the worker runs at once (arXiv requests are separate, one at a time) |
 | `RAG_OVERVIEW_HISTORY` | `true` | Overviews see the topic's last 3 overviews so they don't repeat them |
 | `RAG_RELATED_NOTES` | `false` | LLM-written related-work notes (measured: 26% wrong) |
 | `RAG_RATING_ANCHORS` | `false` | Reference-rated few-shot examples for the relevance rater (measured: worse) |
@@ -564,8 +583,8 @@ venv/bin/python -m evals.fulltext
 `labeler=human`); `python -m app.import_relevance_labels` loads labels into the
 database as reference ratings.
 
-**Full text** is fetched once per paper, at ingestion, and the outcome is
-recorded in `papers.fulltext_status`. There is deliberately no bulk backfill:
+**Full text** (off by default) is fetched once per paper, at send prep and for
+the top K only, and the outcome is recorded in `papers.fulltext_status`. There is deliberately no bulk backfill:
 arXiv asks that the corpus not be downloaded through its API.
 
 **Reboot resilience on macOS.** Every service has `restart: unless-stopped`; for

@@ -463,10 +463,12 @@ deployment migrates with no data loss.
     threshold, the ranking's novelty anchors included;
   - topic-query embeddings, with a rough threshold for similar-topic
     suggestions.
-- **Two passes** (§3.5):
+- **Two passes** (§3.5) ✅ built in 2c (2026-11-13), except the overview-and-picks
+  call (2d) and `last_sent_at` at confirmation (Phase 3):
   - Rating runs alone at ingest; re-run the ranking eval.
   - New schedules in `America/New_York`: ingest 21:30 daily, prep 01:00
-    Mon/Thu, send 08:00 Mon/Thu. Update `SEND_TIME_ZONE_NAME` and `DAILY_CRON`.
+    Mon/Thu, send 08:00 Mon/Thu. Update `SEND_TIME_ZONE_NAME` and the ingest cron
+    (now `INGEST_CRON`).
   - Slot-based send windows; `last_sent_at` set at confirmation.
   - Prep: h-index lookup, ranking, top-K summaries, then one overview-and-picks
     call per topic, all stored per topic and slot.
@@ -477,10 +479,10 @@ deployment migrates with no data loss.
 - **The new email** (§3.9): the picks-first template (picks, the period in
   brief, also new), citations rendered as arXiv links, and the rewritten
   summary and overview-and-picks prompts.
-- **One arXiv process** (§3.5): the `arxiv` task queue with one activity slot,
+- **One arXiv process** (§3.5) ✅ 2c, except the `preview` queue (Phase 3): the `arxiv` task queue with one activity slot,
   the `preview` queue (used from Phase 3), and fetch timeouts that don't count
   queue time.
-- **Bounded fan-out.** `RunAllTopicDigestsWorkflow` and prep run their children
+- **Bounded fan-out** ✅ 2c. `RunAllTopicDigestsWorkflow` and prep run their children
   in batches rather than all at once.
 - **A second source: OpenAlex** (v2.2, its own plan "2c+", built after 2c and
   before 2d, so the new email and the rehearsal both include it):

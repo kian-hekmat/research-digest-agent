@@ -20,7 +20,11 @@ from temporalio.worker import Worker
 
 from app.config import MissingCalibration, Settings, get_settings
 from app.temporal import activities
-from app.temporal.schedule import ensure_daily_schedule, ensure_email_schedule
+from app.temporal.schedule import (
+    ensure_daily_schedule,
+    ensure_email_schedule,
+    ensure_prep_schedule,
+)
 from app.temporal.workflows import (
     WORKFLOW_RUNNER,
     DigestWorkflow,
@@ -123,8 +127,9 @@ async def main() -> None:
         settings.temporal_namespace,
     )
 
-    logger.info("Daily digest schedule: %s", await ensure_daily_schedule(client))
-    logger.info("Digest email schedule: %s", await ensure_email_schedule(client))
+    logger.info("Ingest schedule: %s", await ensure_daily_schedule(client))
+    logger.info("Send prep schedule: %s", await ensure_prep_schedule(client))
+    logger.info("Email schedule: %s", await ensure_email_schedule(client))
 
     threads = settings.worker_activity_threads
     with (
