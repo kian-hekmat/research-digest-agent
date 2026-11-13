@@ -101,6 +101,52 @@ def percentile(values: Sequence[float], q: float) -> float | None:
     return ordered[idx]
 
 
+def quantile_map(value: float, from_sample: Sequence[float], to_sample: Sequence[float]) -> float:
+    """The value at the same quantile of `to_sample` as `value` sits at in
+    `from_sample` (both empirical, linearly interpolated). Values outside
+    `from_sample`'s range clamp to `to_sample`'s min or max. Used to carry a
+    similarity threshold from one embedding model's scale to another's."""
+    if not from_sample or not to_sample:
+        raise ValueError("quantile_map needs non-empty samples")
+    src, dst = sorted(from_sample), sorted(to_sample)
+    if value <= src[0]:
+        return dst[0]
+    if value >= src[-1]:
+        return dst[-1]
+    # Fractional position of `value` among the sorted source points.
+    hi = next(i for i, v in enumerate(src) if v >= value)
+    lo = hi - 1
+    frac = 0.0 if src[hi] == src[lo] else (value - src[lo]) / (src[hi] - src[lo])
+    q = (lo + frac) / (len(src) - 1)
+    # Same fractional position among the destination points.
+    pos = q * (len(dst) - 1)
+    i = min(int(pos), len(dst) - 2) if len(dst) > 1 else 0
+    if len(dst) == 1:
+        return dst[0]
+    return dst[i] + (pos - i) * (dst[i + 1] - dst[i])
+
+
+def separating_threshold(same: Sequence[float], different: Sequence[float]) -> tuple[float, bool]:
+    """A similarity floor that tells `same` pairs from `different` ones.
+    Separable: the midpoint between the lowest same and the highest
+    different (overlap False). Otherwise the observed value with the best F1
+    for "same" (ties to the lower one: a wrong suggestion only costs a
+    click), with overlap True."""
+    if not same or not different:
+        raise ValueError("separating_threshold needs both kinds of pairs")
+    if min(same) > max(different):
+        return (min(same) + max(different)) / 2, False
+    best, best_f1 = None, -1.0
+    for t in sorted(set(same) | set(different)):
+        tp = sum(s >= t for s in same)
+        fp = sum(d >= t for d in different)
+        fn = len(same) - tp
+        f1 = 0.0 if tp == 0 else 2 * tp / (2 * tp + fp + fn)
+        if f1 > best_f1:
+            best, best_f1 = t, f1
+    return best, True
+
+
 def latency(seconds: Sequence[float]) -> dict:
     if not seconds:
         return {"n": 0}

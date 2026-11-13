@@ -89,3 +89,35 @@ def test_ndcg_at_k():
 
 def test_numbers_in_reads_latex_thousands_separators():
     assert metrics.numbers_in("uses $15{,}000$ points") == {"15000"}
+
+
+def test_quantile_map_carries_a_percentile_across_samples():
+    old = [i / 100 for i in range(101)]          # 0.00 .. 1.00
+    new = [0.2 + 0.6 * i / 100 for i in range(101)]  # 0.20 .. 0.80
+    # 0.9 is the 90th percentile of `old`; the 90th percentile of `new` is 0.74
+    assert metrics.quantile_map(0.9, old, new) == pytest.approx(0.74)
+    assert metrics.quantile_map(0.5, old, new) == pytest.approx(0.5)
+
+
+def test_quantile_map_clamps_outside_the_old_range():
+    old, new = [0.3, 0.4, 0.5], [0.1, 0.2, 0.3]
+    assert metrics.quantile_map(0.9, old, new) == 0.3
+    assert metrics.quantile_map(0.0, old, new) == 0.1
+
+
+def test_quantile_map_needs_samples():
+    with pytest.raises(ValueError):
+        metrics.quantile_map(0.5, [], [0.1])
+
+
+def test_separating_threshold_midpoint_when_separable():
+    t, overlap = metrics.separating_threshold(same=[0.8, 0.9], different=[0.3, 0.5])
+    assert t == pytest.approx(0.65) and overlap is False
+
+
+def test_separating_threshold_best_f1_when_overlapping():
+    t, overlap = metrics.separating_threshold(same=[0.6, 0.8, 0.9], different=[0.3, 0.7])
+    assert overlap is True
+    # At 0.6: all 3 same pairs, 1 false positive (0.7) -> F1 0.857, beating
+    # 0.8 (F1 0.8). A wrong suggestion only costs a click, so recall wins.
+    assert t == pytest.approx(0.6)

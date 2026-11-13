@@ -1,0 +1,34 @@
+a,b,label
+# same: one topic said two ways (acronyms, synonyms, paraphrases) - a suggestion to join is right
+RLHF,reinforcement learning from human feedback,same
+PINNs,physics-informed neural networks,same
+LLMs,large language models,same
+GNNs,graph neural networks,same
+RAG,retrieval-augmented generation,same
+mixture of experts,MoE,same
+vision transformers,ViT,same
+DPO,direct preference optimization,same
+neural ODEs,neural ordinary differential equations,same
+diffusion models,denoising diffusion probabilistic models,same
+numerical methods for partial differential equations,numerical PDEs,same
+federated learning,federated machine learning,same
+LLM alignment,aligning large language models,same
+reward modeling,reward models for RLHF,same
+mechanistic interpretability,mechanistic interpretability of neural networks,same
+# different: siblings in the same field - a suggestion to join would be wrong
+physics-informed neural networks,neural operators,different
+reinforcement learning from human feedback,direct preference optimization,different
+graph neural networks,graph transformers,different
+diffusion models,generative adversarial networks,different
+retrieval-augmented generation,long-context language models,different
+mixture of experts,model pruning,different
+vision transformers,convolutional neural networks,different
+large language models,speech recognition,different
+federated learning,differential privacy,different
+mechanistic interpretability,adversarial robustness,different
+# different: unrelated
+reinforcement learning from human feedback,numerical linear algebra,different
+physics-informed neural networks,protein folding,different
+graph neural networks,quantum error correction,different
+diffusion models,compressed sensing,different
+large language models,finite element methods,different
