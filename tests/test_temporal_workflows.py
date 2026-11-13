@@ -23,43 +23,20 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import pytest_asyncio
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import Worker
 
 from app import crud, models
 from app.services.summarize import RatedSummary
 from app.temporal import activities as temporal_activities
 from app.temporal.schedule import DAILY_SCHEDULE_ID, ensure_daily_schedule
 from app.temporal.workflows import (
-    WORKFLOW_RUNNER,
     DigestWorkflow,
     RunAllTopicDigestsWorkflow,
     SendDigestEmailsWorkflow,
 )
+from app.worker import build_workers
 from tests.conftest import EmbedderTextMixin, make_result, make_subscriber, subscribe
 
 TASK_QUEUE = "test-digest-task-queue"
-
-ALL_ACTIVITIES = [
-    temporal_activities.list_active_topic_ids,
-    temporal_activities.create_pending_digest,
-    temporal_activities.get_digest_context,
-    temporal_activities.fetch_arxiv,
-    temporal_activities.ingest_papers,
-    temporal_activities.embed_papers,
-    temporal_activities.fetch_fulltext,
-    temporal_activities.summarize_paper,
-    temporal_activities.rate_relevance,
-    temporal_activities.write_overview,
-    temporal_activities.finalize_digest,
-    temporal_activities.advance_watermark,
-    temporal_activities.list_due_subscriptions,
-    temporal_activities.enrich_author_h_index,
-    temporal_activities.gather_digest_content,
-    temporal_activities.send_digest_email,
-    temporal_activities.mark_subscription_sent,
-    temporal_activities.count_pending_digests,
-]
-
 
 class FakeSummarizer:
     """Stands in for app.services.summarize.Summarizer. `fail_titles` is a
@@ -71,7 +48,9 @@ class FakeSummarizer:
     relevance: dict[str, int] = {}
     # (title, topic_name) of every call, summarize_and_rate and rate_relevance.
     rated: list[tuple[str, str]] = []
-    # Concurrency tracking: summarize_paper runs on the activity thread pool.
+    # Title of every summarize_and_rate call.
+    summarized: list[str] = []
+    # Concurrency tracking: LLM activities run on the activity thread pool.
     delay: float = 0.0
     in_flight = 0
     max_in_flight = 0
@@ -84,7 +63,9 @@ class FakeSummarizer:
     def __init__(self, *args, **kwargs):
         type(self).constructed.append(kwargs)
 
-    def summarize_paper(self, title, abstract):
+    def _llm_call(self, title, failure):
+        """One LLM call: counted for concurrency, slowed by `delay`, raising
+        `failure` for titles in `fail_titles`."""
         cls = type(self)
         with cls._lock:
             cls.in_flight += 1
@@ -92,18 +73,23 @@ class FakeSummarizer:
         try:
             time.sleep(cls.delay)
             if title in cls.fail_titles:
-                raise RuntimeError(f"summary failed for {title}")
-            return f"Summary of {title}."
+                raise RuntimeError(f"{failure} for {title}")
         finally:
             with cls._lock:
                 cls.in_flight -= 1
 
+    def summarize_paper(self, title, abstract):
+        self._llm_call(title, "summary failed")
+        return f"Summary of {title}."
+
     def summarize_and_rate(self, title, abstract, topic_name, topic_query, related=None, rating_context=None, excerpts=None):
         summary = self.summarize_paper(title, abstract)
+        type(self).summarized.append(title)
         type(self).rated.append((title, topic_name))
         return RatedSummary(summary=summary, relevance=type(self).relevance.get(title, 5))
 
     def rate_relevance(self, title, abstract, topic_name, topic_query, rating_context=None):
+        self._llm_call(title, "rating failed")
         type(self).rated.append((title, topic_name))
         return type(self).relevance.get(title, 5)
 
@@ -131,6 +117,7 @@ def _reset_fake_state():
     FakeSummarizer.fail_titles = set()
     FakeSummarizer.relevance = {}
     FakeSummarizer.rated = []
+    FakeSummarizer.summarized = []
     FakeSummarizer.delay = 0.0
     FakeSummarizer.in_flight = 0
     FakeSummarizer.max_in_flight = 0
@@ -157,16 +144,12 @@ async def temporal_client(monkeypatch):
     monkeypatch.setattr(temporal_activities, "search_arxiv", lambda query, since=None: [])
     # Same for Semantic Scholar: every send looks up author h-indices first.
     monkeypatch.setattr(temporal_activities, "fetch_max_author_h_index", lambda arxiv_ids: {})
+    # The worker process's own wiring (app.worker.build_workers): the main
+    # worker, and the arXiv worker that runs one request at a time.
     async with await WorkflowEnvironment.start_time_skipping() as env:
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            async with Worker(
-                env.client,
-                task_queue=TASK_QUEUE,
-                workflows=[DigestWorkflow, RunAllTopicDigestsWorkflow, SendDigestEmailsWorkflow],
-                activities=ALL_ACTIVITIES,
-                activity_executor=pool,
-                workflow_runner=WORKFLOW_RUNNER,
-            ):
+        with ThreadPoolExecutor(max_workers=20) as pool, ThreadPoolExecutor(max_workers=1) as arxiv_pool:
+            main_worker, arxiv_worker = build_workers(env.client, TASK_QUEUE, pool, arxiv_pool, 20)
+            async with main_worker, arxiv_worker:
                 yield env.client
 
 
@@ -204,8 +187,12 @@ async def test_digest_workflow_happy_path(db_session, temporal_client, monkeypat
     assert refreshed.status == models.DigestStatus.completed
     assert refreshed.error is None
     assert {p.title for p in refreshed.papers} == {"Paper One", "Paper Two"}
-    assert all(p.summary for p in refreshed.papers)
-    assert refreshed.overview == "Overview of RLHF: 2 papers."
+    # Ingest rates; summaries and the overview are send prep's.
+    assert crud.relevance_by_paper(db_session, topic.id, [p.id for p in refreshed.papers]) == {
+        p.id: 5 for p in refreshed.papers
+    }
+    assert not any(p.summary for p in refreshed.papers)
+    assert refreshed.overview is None
 
     refreshed_topic = db_session.get(models.Topic, topic.id)
     assert refreshed_topic.last_checked_at is not None
@@ -222,8 +209,8 @@ async def test_llm_activities_pass_a_spend_ledger_and_the_topic(db_session, temp
 
     await _run_digest(temporal_client, digest.id)
 
-    # summarize_paper, then write_overview
-    assert len(FakeSummarizer.constructed) == 2
+    # rate_relevance: ingest's one LLM call per paper
+    assert len(FakeSummarizer.constructed) == 1
     for kwargs in FakeSummarizer.constructed:
         assert isinstance(kwargs["ledger"], DbLedger)
         assert kwargs["topic_id"] == topic.id
@@ -342,7 +329,7 @@ async def test_digest_workflow_embeds_its_topic_once(db_session, temporal_client
 
 async def test_digest_workflow_completes_when_embedding_fails(db_session, temporal_client, monkeypatch):
     """Retrieval is an enhancement: an embedding outage must not cost the
-    digest its summaries or fail the run."""
+    digest its ratings or fail the run."""
     monkeypatch.setattr(temporal_activities, "Embedder", FakeEmbedder)
     monkeypatch.setattr(FakeEmbedder, "fail", True)
     topic = _make_topic(db_session)
@@ -357,23 +344,8 @@ async def test_digest_workflow_completes_when_embedding_fails(db_session, tempor
     refreshed = db_session.get(models.Digest, digest.id)
     assert refreshed.status == models.DigestStatus.completed
     assert refreshed.error is None
-    assert all(p.summary for p in refreshed.papers)
+    assert _relevance(db_session, topic, "Paper One") == 5
     assert db_session.query(models.PaperEmbedding).count() == 0
-
-
-async def test_second_digest_overview_sees_the_first_ones(db_session, temporal_client, monkeypatch):
-    topic = _make_topic(db_session)
-    first = crud.create_digest(db_session, topic.id)
-    monkeypatch.setattr(temporal_activities, "search_arxiv", lambda query, since=None: [make_result("2408.0001", "Paper One")])
-    await _run_digest(temporal_client, first.id)
-    second = crud.create_digest(db_session, topic.id)
-    monkeypatch.setattr(temporal_activities, "search_arxiv", lambda query, since=None: [make_result("2408.0002", "Paper Two")])
-
-    await _run_digest(temporal_client, second.id)
-
-    first_history, second_history = FakeSummarizer.overview_histories
-    assert not first_history  # nothing earlier
-    assert [text for _, text in second_history.previous] == ["Overview of RLHF: 1 papers."]
 
 
 async def test_digest_workflow_no_new_papers_completes_empty(
@@ -418,7 +390,7 @@ async def test_digest_workflow_arxiv_failure_exhausts_retries_then_fails(
     assert db_session.get(models.Topic, topic.id).last_checked_at is None
 
 
-async def test_digest_workflow_tolerates_partial_summary_failure(
+async def test_digest_workflow_tolerates_partial_rating_failure(
     db_session, temporal_client, monkeypatch
 ):
     topic = _make_topic(db_session)
@@ -438,20 +410,20 @@ async def test_digest_workflow_tolerates_partial_summary_failure(
     db_session.expire_all()
     refreshed = db_session.get(models.Digest, digest.id)
     assert refreshed.status == models.DigestStatus.completed
-    assert refreshed.error == "1 of 2 paper summaries failed"
-    by_title = {p.title: p for p in refreshed.papers}
-    assert by_title["Paper One"].summary == "Summary of Paper One."
-    assert by_title["Paper Two"].summary is None
-    # overview is still written from whatever did summarize
-    assert refreshed.overview == "Overview of RLHF: 1 papers."
+    assert refreshed.error == "1 of 2 ratings failed"
+    assert {p.title for p in refreshed.papers} == {"Paper One", "Paper Two"}
+    assert _relevance(db_session, topic, "Paper One") == 5
+    assert _relevance(db_session, topic, "Paper Two") is None  # left for prep to re-rate
+    assert db_session.get(models.Topic, topic.id).last_checked_at is not None
 
 
-async def test_digest_workflow_caps_concurrent_summaries(db_session, temporal_client, monkeypatch):
-    """A local Ollama server handles a few requests at a time and each
-    activity's timeout runs while it queues - so the workflow must never have
-    more than _MAX_CONCURRENT_SUMMARIES in flight, and still summarize all."""
-    from app.temporal.workflows import _MAX_CONCURRENT_SUMMARIES
+async def test_digest_workflow_caps_concurrent_ratings(db_session, temporal_client, monkeypatch):
+    """Each activity's timeout runs while it queues at the LLM backend, so
+    the workflow never has more than llm_max_concurrency ratings in flight,
+    and still rates every paper."""
+    from app.config import get_settings
 
+    monkeypatch.setattr(get_settings(), "llm_max_concurrency", 3)
     topic = _make_topic(db_session)
     digest = crud.create_digest(db_session, topic.id)
     monkeypatch.setattr(
@@ -463,11 +435,12 @@ async def test_digest_workflow_caps_concurrent_summaries(db_session, temporal_cl
 
     await _run_digest(temporal_client, digest.id)
 
-    assert FakeSummarizer.max_in_flight == _MAX_CONCURRENT_SUMMARIES
+    assert FakeSummarizer.max_in_flight == 3
+    assert len(FakeSummarizer.rated) == 12
     db_session.expire_all()
     refreshed = db_session.get(models.Digest, digest.id)
     assert len(refreshed.papers) == 12
-    assert all(p.summary for p in refreshed.papers)
+    assert len(crud.relevance_by_paper(db_session, topic.id, [p.id for p in refreshed.papers])) == 12
 
 
 async def test_digest_workflow_with_summaries_off_completes_with_no_summaries(
@@ -936,7 +909,6 @@ async def test_send_refreshes_digests_before_gathering(db_session, temporal_clie
     assert count == 1
     [(_, content)] = FakeEmailSender.sent
     assert "Fresh Paper" in content.text_body
-    assert "Summary of Fresh Paper." in content.text_body  # summarized during the refresh
 
 
 async def test_send_still_goes_out_when_the_refresh_fails(db_session, temporal_client, monkeypatch):
@@ -1189,15 +1161,15 @@ async def test_digest_workflow_stores_each_papers_relevance_to_the_topic(
     db_session.expire_all()
     assert _relevance(db_session, topic, "Central") == 9
     assert _relevance(db_session, topic, "Tangential") == 2
-    # One combined call per paper, made with the topic it's being rated for.
+    # One rating call per paper, made with the topic it's being rated for.
     assert sorted(FakeSummarizer.rated) == [("Central", "PINNs"), ("Tangential", "PINNs")]
 
 
-async def test_paper_summarized_for_one_topic_is_rated_again_for_another(
+async def test_a_paper_is_rated_separately_for_each_topic(
     db_session, temporal_client, monkeypatch
 ):
-    """Relevance is per topic: the second topic reuses the summary but gets
-    its own rating, and the first topic's rating is untouched."""
+    """Relevance is per topic: a paper the second topic also fetches gets its
+    own rating, and the first topic's rating is untouched."""
     rlhf = _make_topic(db_session, name="RLHF", query="rlhf")
     other = _make_topic(db_session, name="Alignment", query="alignment")
     monkeypatch.setattr(
@@ -1213,7 +1185,6 @@ async def test_paper_summarized_for_one_topic_is_rated_again_for_another(
     assert _relevance(db_session, rlhf, "Shared") == 8
     assert _relevance(db_session, other, "Shared") == 3
     assert FakeSummarizer.rated == [("Shared", "RLHF"), ("Shared", "Alignment")]
-    assert db_session.query(models.Paper).one().summary == "Summary of Shared."
 
 
 async def test_rerun_refreshes_an_ingested_papers_arxiv_comment(

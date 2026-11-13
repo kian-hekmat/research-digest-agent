@@ -1,8 +1,13 @@
-"""The Digest workflow: orchestration only, no I/O of its own.
+"""The pipeline's workflows: orchestration only, no I/O of their own.
 
-This is Phase 2's `run_digest` (now retired) split at its I/O boundaries: each
-former step is an Activity with its own timeout/retry policy, and per-paper
-summarization fans out concurrently instead of running in a loop.
+`DigestWorkflow` is the cheap daily ingest - fetch, embed and rate each
+topic's new papers. Summaries and overviews are written later, for each
+topic's top papers only, by send prep. Every step is an Activity with its own
+timeout/retry policy, and per-paper ratings fan out concurrently.
+
+arXiv requests (`fetch_arxiv`, `fetch_fulltext`) run on a separate task queue,
+`arxiv_queue(<the workflow's queue>)`, whose worker runs one activity at a
+time: however many topics ingest at once, one arXiv request is in flight.
 
 Workflow code must be deterministic (Temporal replays it from history), so:
   - no direct DB/HTTP/LLM calls - everything goes through `execute_activity`
@@ -25,17 +30,20 @@ from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, ChildWorkflowError
 from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
 
 from app.temporal import types
 
 with workflow.unsafe.imports_passed_through():
+    from app import cadence
     from app.temporal import activities
 
 WORKFLOW_RUNNER = SandboxedWorkflowRunner(
     restrictions=SandboxRestrictions.default.with_passthrough_modules(
         "app.temporal.activities",
+        "app.alerts",
+        "app.cadence",
         "app.crud",
         "app.models",
         "app.database",
@@ -75,7 +83,8 @@ _LLM_RETRY = RetryPolicy(
 # Generous enough for a local model on its first call of a session, when
 # Ollama also has to load it into memory.
 _LLM_TIMEOUT = timedelta(seconds=180)
-_MAX_CONCURRENT_SUMMARIES = 4
+# An ingest alerts when every rating raised, once at least this many ran.
+_MIN_RATINGS_FOR_ALERT = 3
 # Before an email send: wait up to 20 x 30s = 10 min for in-flight digests.
 _PENDING_WAIT_POLLS = 20
 _PENDING_WAIT_INTERVAL = timedelta(seconds=30)
@@ -96,12 +105,32 @@ _EMAIL_RETRY = RetryPolicy(
 )
 
 
-def _cause_message(exc: ActivityError) -> str:
-    return str(exc.cause) if exc.cause else str(exc)
+ARXIV_TASK_QUEUE_SUFFIX = "-arxiv"
+
+
+def arxiv_queue(task_queue: str) -> str:
+    """The task queue for arXiv requests that go with `task_queue`'s workflows."""
+    return task_queue + ARXIV_TASK_QUEUE_SUFFIX
+
+
+def _cause_message(exc: BaseException) -> str:
+    """The underlying error's message, not Temporal's wrapper around it."""
+    if isinstance(exc, (ActivityError, ChildWorkflowError)) and exc.cause:
+        return str(exc.cause)
+    return str(exc)
+
+
+def _batches(items: list, size: int) -> list[list]:
+    size = max(1, size)
+    return [items[i : i + size] for i in range(0, len(items), size)]
 
 
 @workflow.defn
 class DigestWorkflow:
+    """The daily ingest for one digest: fetch, ingest, embed, rate every new
+    paper, finalize, advance the watermark. No summaries, overview or full
+    text - send prep writes those, for each topic's top papers only."""
+
     @workflow.run
     async def run(self, digest_id: str) -> None:
         ctx: types.DigestContext = await workflow.execute_activity(
@@ -112,11 +141,14 @@ class DigestWorkflow:
         )
         run_started = workflow.now()  # watermark: when the run started, not finished
 
-        # --- 1. fetch ---------------------------------------------------------
+        # --- 1. fetch, on the one-at-a-time arXiv queue ----------------------
+        # The timeout covers the request only: the activity starts when the
+        # arXiv worker picks it up, not while it waits behind other topics.
         try:
             results = await workflow.execute_activity(
                 activities.fetch_arxiv,
                 ctx,
+                task_queue=arxiv_queue(workflow.info().task_queue),
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=_ARXIV_RETRY,
             )
@@ -143,123 +175,57 @@ class DigestWorkflow:
             retry_policy=_DB_RETRY,
         )
 
-        # --- 2b. embed new papers for retrieval -------------------------------
-        # Before any summary runs, so later steps can retrieve against this
-        # batch too. Degrade, don't block: a failure only costs retrieval.
-        # `patched` keeps digests already in flight at deploy time replaying
-        # their old history, which has no such activity.
-        if papers and workflow.patched("embed-papers"):
+        # --- 3. embed new papers for retrieval -------------------------------
+        # Degrade, don't block: a failure only costs retrieval signals.
+        if papers:
             try:
-                # `patched` again: runs in flight at deploy time keep the
-                # input their history recorded.
-                topic_id = ctx.topic_id if workflow.patched("embed-topic") else ""
                 await workflow.execute_activity(
                     activities.embed_papers,
-                    types.EmbedPapersInput(paper_ids=[p.paper_id for p in papers], topic_id=topic_id),
-                    start_to_close_timeout=_LLM_TIMEOUT,
-                    retry_policy=_LLM_RETRY,
-                )
-            except ActivityError:
-                pass
-
-        # --- 2c. full text for this run's papers (no-op unless RAG_FULLTEXT) --
-        # One activity, one paper at a time: every arXiv request goes through
-        # the worker's shared rate gate, so a batch can take a few minutes
-        # when several topics fetch at once; heartbeats show it's alive.
-        if papers and workflow.patched("fetch-fulltext"):
-            try:
-                await workflow.execute_activity(
-                    activities.fetch_fulltext,
-                    types.FetchFulltextInput(paper_ids=[p.paper_id for p in papers]),
-                    start_to_close_timeout=timedelta(minutes=30),
-                    heartbeat_timeout=timedelta(minutes=3),
-                    retry_policy=_LLM_RETRY,
-                )
-            except ActivityError:
-                pass
-
-        # --- 3. summarize + rate relevance to this topic, concurrently -------
-        # One LLM call per new paper does both. A paper another topic already
-        # summarized only needs this topic's relevance rating; a failed rating
-        # just leaves it unrated (the ranking imputes it), so those aren't
-        # counted as failures.
-        # At most _MAX_CONCURRENT_SUMMARIES in flight: a local Ollama server
-        # works through requests a few at a time, and each activity's timeout
-        # clock runs while it waits in that queue - firing all 25 at once
-        # would time out the back of the queue and retry work already done.
-        # The same cap keeps the OpenAI backend clear of its rate limits.
-        to_summarize = [p for p in papers if not p.existing_summary]
-        to_rate_only = [p for p in papers if p.existing_summary]
-        llm_slots = asyncio.Semaphore(_MAX_CONCURRENT_SUMMARIES)
-
-        def llm_input(p: types.IngestedPaper) -> types.SummarizePaperInput:
-            return types.SummarizePaperInput(
-                paper_id=p.paper_id,
-                title=p.title,
-                abstract=p.abstract or "",
-                topic_id=ctx.topic_id,
-                topic_name=ctx.topic_name,
-                topic_query=ctx.query,
-            )
-
-        async def summarize(p: types.IngestedPaper) -> str | None:
-            async with llm_slots:
-                return await workflow.execute_activity(
-                    activities.summarize_paper,
-                    llm_input(p),
-                    start_to_close_timeout=_LLM_TIMEOUT,
-                    retry_policy=_LLM_RETRY,
-                )
-
-        async def rate(p: types.IngestedPaper) -> int | None:
-            async with llm_slots:
-                return await workflow.execute_activity(
-                    activities.rate_relevance,
-                    llm_input(p),
-                    start_to_close_timeout=_LLM_TIMEOUT,
-                    retry_policy=_LLM_RETRY,
-                )
-
-        summary_results, _ = await asyncio.gather(
-            asyncio.gather(*[summarize(p) for p in to_summarize], return_exceptions=True),
-            asyncio.gather(*[rate(p) for p in to_rate_only], return_exceptions=True),
-        )
-        summary_failures = sum(1 for r in summary_results if isinstance(r, BaseException))
-        new_summaries = [r for r in summary_results if isinstance(r, str)]
-        all_summaries = [p.existing_summary for p in papers if p.existing_summary] + new_summaries
-
-        # --- 4. synthesized overview across the batch -------------------------
-        overview = None
-        if all_summaries:
-            try:
-                overview = await workflow.execute_activity(
-                    activities.write_overview,
-                    types.WriteOverviewInput(
-                        topic_name=ctx.topic_name,
-                        summaries=all_summaries,
-                        topic_id=ctx.topic_id,
-                        digest_id=digest_id,
-                        paper_ids=[p.paper_id for p in papers],
+                    types.EmbedPapersInput(
+                        paper_ids=[p.paper_id for p in papers], topic_id=ctx.topic_id
                     ),
                     start_to_close_timeout=_LLM_TIMEOUT,
                     retry_policy=_LLM_RETRY,
                 )
             except ActivityError:
-                overview = None
+                pass
 
-        # --- 5. finalize --------------------------------------------------
-        error = (
-            f"{summary_failures} of {len(to_summarize)} paper summaries failed"
-            if summary_failures
-            else None
-        )
+        # --- 4. rate every new paper's relevance to this topic ---------------
+        # Whether or not another topic already summarized it: relevance is
+        # per topic. A failed rating leaves the paper unrated (send prep
+        # re-rates it); one the budget skipped returns None and isn't a
+        # failure. At most llm_max_concurrency in flight, so each activity's
+        # timeout isn't spent queueing behind the others.
+        llm_slots = asyncio.Semaphore(max(1, ctx.llm_max_concurrency))
+
+        async def rate(p: types.IngestedPaper) -> int | None:
+            async with llm_slots:
+                return await workflow.execute_activity(
+                    activities.rate_relevance,
+                    types.SummarizePaperInput(
+                        paper_id=p.paper_id,
+                        title=p.title,
+                        abstract=p.abstract or "",
+                        topic_id=ctx.topic_id,
+                        topic_name=ctx.topic_name,
+                        topic_query=ctx.query,
+                    ),
+                    start_to_close_timeout=_LLM_TIMEOUT,
+                    retry_policy=_LLM_RETRY,
+                )
+
+        ratings = await asyncio.gather(*[rate(p) for p in papers], return_exceptions=True)
+        failures = [r for r in ratings if isinstance(r, BaseException)]
+        if len(papers) >= _MIN_RATINGS_FOR_ALERT and len(failures) == len(papers):
+            await self._alert_ratings_failing(ctx, len(papers), failures[0])
+
+        # --- 5. finalize, then advance the watermark -------------------------
         await workflow.execute_activity(
             activities.finalize_digest,
             types.FinalizeDigestInput(
                 digest_id=digest_id,
                 status=types.DIGEST_STATUS_COMPLETED,
-                overview=overview,
-                error=error,
+                error=f"{len(failures)} of {len(papers)} ratings failed" if failures else None,
             ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=_DB_RETRY,
@@ -271,15 +237,42 @@ class DigestWorkflow:
             retry_policy=_DB_RETRY,
         )
 
+    async def _alert_ratings_failing(
+        self, ctx: types.DigestContext, attempted: int, first_error: BaseException
+    ) -> None:
+        """One alert a day (Eastern), however many topics fail: the key
+        carries the date. The activity never raises."""
+        day = workflow.now().astimezone(cadence.SEND_TIME_ZONE).date()
+        await workflow.execute_activity(
+            activities.send_pipeline_alert,
+            types.PipelineAlertInput(
+                key=f"ratings-failing:{day:%Y-%m-%d}",
+                subject="Research digest: every relevance rating failed",
+                body=(
+                    f"All {attempted} relevance ratings in today's ingest for the topic "
+                    f"{ctx.topic_name!r} raised, after retries. Those papers stay unrated "
+                    "until send prep re-rates them.\n\n"
+                    f"First error: {_cause_message(first_error)}"
+                ),
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=_DB_RETRY,
+        )
+
 
 @workflow.defn
 class RunAllTopicDigestsWorkflow:
     """Scheduled entrypoint (see `app.temporal.schedule`): create a pending
-    digest for every topic and run a `DigestWorkflow` child per digest,
-    concurrently. Doing the fan-out here - rather than pointing the Schedule
+    digest for every topic and run a `DigestWorkflow` child per digest, in
+    batches of `fanout_batch_size`, waiting for each batch before starting
+    the next. Doing the fan-out here - rather than pointing the Schedule
     straight at `DigestWorkflow` - keeps `DigestWorkflow`'s contract (one
     digest id, however it was created) the same for both the manual trigger
     and the schedule.
+
+    One topic's failure (its topic deleted mid-run, a DB outage outlasting
+    the retries) is logged and never holds back the other topics. Returns
+    how many digests were created.
     """
 
     @workflow.run
@@ -291,9 +284,15 @@ class RunAllTopicDigestsWorkflow:
         )
         if not topic_ids:
             return 0
+        limits: types.PipelineLimits = await workflow.execute_activity(
+            activities.get_pipeline_limits,
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=_DB_RETRY,
+        )
 
-        digest_ids: list[str] = list(
-            await asyncio.gather(
+        created = 0
+        for batch in _batches(topic_ids, limits.fanout_batch_size):
+            created_ids = await asyncio.gather(
                 *[
                     workflow.execute_activity(
                         activities.create_pending_digest,
@@ -301,24 +300,28 @@ class RunAllTopicDigestsWorkflow:
                         start_to_close_timeout=timedelta(seconds=30),
                         retry_policy=_DB_RETRY,
                     )
-                    for topic_id in topic_ids
-                ]
+                    for topic_id in batch
+                ],
+                return_exceptions=True,
             )
-        )
-
-        task_queue = workflow.info().task_queue
-        await asyncio.gather(
-            *[
-                workflow.execute_child_workflow(
-                    DigestWorkflow.run,
-                    digest_id,
-                    id=f"digest-{digest_id}",
-                    task_queue=task_queue,
-                )
-                for digest_id in digest_ids
-            ]
-        )
-        return len(digest_ids)
+            digest_ids = [d for d in created_ids if isinstance(d, str)]
+            created += len(digest_ids)
+            outcomes = await asyncio.gather(
+                *[
+                    workflow.execute_child_workflow(
+                        DigestWorkflow.run,
+                        digest_id,
+                        id=f"digest-{digest_id}",
+                        task_queue=workflow.info().task_queue,
+                    )
+                    for digest_id in digest_ids
+                ],
+                return_exceptions=True,
+            )
+            for failure in [*created_ids, *outcomes]:
+                if isinstance(failure, BaseException):
+                    workflow.logger.warning("A topic's digest failed: %s", _cause_message(failure))
+        return created
 
 
 @workflow.defn

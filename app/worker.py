@@ -1,8 +1,13 @@
 """Temporal worker entrypoint: `python -m app.worker`.
 
-Connects to Temporal, ensures the daily digest schedule exists, registers
-DigestWorkflow + RunAllTopicDigestsWorkflow and their Activities, and polls
-the task queue until stopped (Ctrl-C / SIGTERM / container stop).
+Connects to Temporal, ensures the schedules exist, and runs two workers in
+this one process until stopped (Ctrl-C / SIGTERM / container stop):
+
+- the main worker, on TEMPORAL_TASK_QUEUE: every workflow and every activity
+  except arXiv's, on `worker_activity_threads` threads;
+- the arXiv worker, on `arxiv_queue(TEMPORAL_TASK_QUEUE)`: `fetch_arxiv` and
+  `fetch_fulltext`, one at a time, so there's never more than one arXiv
+  request in flight however many topics ingest at once.
 """
 from __future__ import annotations
 
@@ -21,24 +26,26 @@ from app.temporal.workflows import (
     DigestWorkflow,
     RunAllTopicDigestsWorkflow,
     SendDigestEmailsWorkflow,
+    arxiv_queue,
 )
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+WORKFLOWS = [DigestWorkflow, RunAllTopicDigestsWorkflow, SendDigestEmailsWorkflow]
 
 ACTIVITIES = [
     activities.list_active_topic_ids,
+    activities.get_pipeline_limits,
     activities.create_pending_digest,
     activities.get_digest_context,
-    activities.fetch_arxiv,
     activities.ingest_papers,
     activities.embed_papers,
-    activities.fetch_fulltext,
     activities.summarize_paper,
     activities.rate_relevance,
     activities.write_overview,
     activities.finalize_digest,
     activities.advance_watermark,
+    activities.send_pipeline_alert,
     activities.list_due_subscriptions,
     activities.enrich_author_h_index,
     activities.gather_digest_content,
@@ -46,6 +53,40 @@ ACTIVITIES = [
     activities.mark_subscription_sent,
     activities.count_pending_digests,
 ]
+
+# Every activity that sends a request to arXiv.
+ARXIV_ACTIVITIES = [activities.fetch_arxiv, activities.fetch_fulltext]
+
+
+def build_workers(
+    client: Client,
+    task_queue: str,
+    activity_executor: ThreadPoolExecutor,
+    arxiv_executor: ThreadPoolExecutor,
+    activity_threads: int,
+) -> tuple[Worker, Worker]:
+    """The main worker and the arXiv worker for `task_queue`. The main one
+    takes on no more activities than it has threads (`activity_threads`, the
+    size of `activity_executor`), so an activity's timeout never runs while it
+    waits for one."""
+    main = Worker(
+        client,
+        task_queue=task_queue,
+        workflows=WORKFLOWS,
+        activities=ACTIVITIES,
+        activity_executor=activity_executor,
+        max_concurrent_activities=activity_threads,
+        workflow_runner=WORKFLOW_RUNNER,
+    )
+    arxiv = Worker(
+        client,
+        task_queue=arxiv_queue(task_queue),
+        activities=ARXIV_ACTIVITIES,
+        activity_executor=arxiv_executor,
+        max_concurrent_activities=1,
+        workflow_runner=WORKFLOW_RUNNER,
+    )
+    return main, arxiv
 
 
 def check_config(settings: Settings) -> None:
@@ -59,6 +100,7 @@ def check_config(settings: Settings) -> None:
 
 
 async def main() -> None:
+    logging.basicConfig(level=logging.INFO)
     settings = get_settings()
     check_config(settings)
     client = await Client.connect(
@@ -73,17 +115,20 @@ async def main() -> None:
     logger.info("Daily digest schedule: %s", await ensure_daily_schedule(client))
     logger.info("Digest email schedule: %s", await ensure_email_schedule(client))
 
-    with ThreadPoolExecutor(max_workers=20) as activity_executor:
-        worker = Worker(
-            client,
-            task_queue=settings.temporal_task_queue,
-            workflows=[DigestWorkflow, RunAllTopicDigestsWorkflow, SendDigestEmailsWorkflow],
-            activities=ACTIVITIES,
-            activity_executor=activity_executor,
-            workflow_runner=WORKFLOW_RUNNER,
+    threads = settings.worker_activity_threads
+    with (
+        ThreadPoolExecutor(max_workers=threads) as activity_executor,
+        ThreadPoolExecutor(max_workers=1) as arxiv_executor,
+    ):
+        main_worker, arxiv_worker = build_workers(
+            client, settings.temporal_task_queue, activity_executor, arxiv_executor, threads
         )
-        logger.info("Worker polling task queue %r", settings.temporal_task_queue)
-        await worker.run()
+        logger.info(
+            "Workers polling task queues %r and %r (one arXiv request at a time)",
+            settings.temporal_task_queue,
+            arxiv_queue(settings.temporal_task_queue),
+        )
+        await asyncio.gather(main_worker.run(), arxiv_worker.run())
 
 
 if __name__ == "__main__":

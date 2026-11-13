@@ -35,6 +35,28 @@ class DigestContext:
     topic_name: str
     query: str
     since: datetime | None
+    # LLM_MAX_CONCURRENCY, read by the activity so the run's history records
+    # it: a replay after the setting changes keeps the cap the run started with.
+    llm_max_concurrency: int = 8
+
+
+@dataclass
+class PipelineLimits:
+    """Concurrency settings a workflow needs, read through an activity so
+    they're recorded in its history (see DigestContext.llm_max_concurrency)."""
+
+    llm_max_concurrency: int
+    fanout_batch_size: int
+
+
+@dataclass
+class PipelineAlertInput:
+    """An operational alert to the owner, sent at most once per `key`
+    (app.alerts.send_alert); the key carries its own period."""
+
+    key: str
+    subject: str
+    body: str
 
 
 @dataclass

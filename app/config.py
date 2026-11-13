@@ -231,7 +231,10 @@ class Settings(BaseSettings):
     # HTML, chunk and embed it, and show the summarizer the best-matching
     # chunks. Readers preferred the result 17 to 3; 2 of 20 misread a number's
     # context (docs/rag-plan.md §5.7). Costs ~3s of fetch + ~4s of LLM per paper.
-    rag_fulltext: bool = True
+    # Off by default: arXiv's terms allow e-print content for personal use or
+    # research, and a public service is a grey area (docs/public-launch-plan.md
+    # §0.1). When on, it runs in send prep, for each topic's top K only.
+    rag_fulltext: bool = False
     rag_fulltext_excerpts: int = 3
     # Novelty compares a paper with earlier ones published within this window.
     rag_novelty_window_days: int = 90
@@ -267,6 +270,14 @@ class Settings(BaseSettings):
     temporal_address: str = "localhost:7233"
     temporal_namespace: str = "default"
     temporal_task_queue: str = "digest-task-queue"
+    # LLM activities (ratings, summaries) one workflow keeps in flight at once.
+    llm_max_concurrency: int = 8
+    # Child workflows a fan-out (one per topic) starts at once; it waits for
+    # each batch before starting the next.
+    fanout_batch_size: int = 10
+    # Threads the worker runs its activities on, and so how many it takes on
+    # at once (arXiv requests have their own one-slot worker).
+    worker_activity_threads: int = 20
 
     # --- email delivery (SMTP) ---
     smtp_host: str = "localhost"

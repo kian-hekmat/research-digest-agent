@@ -6,6 +6,10 @@ different worker process entirely.
 These are Phase 2's `run_digest` steps (that function is retired), split at
 I/O boundaries so `DigestWorkflow` can apply a retry policy per boundary and
 stay itself free of I/O.
+
+`fetch_arxiv` and `fetch_fulltext` run on their own task queue
+(`workflows.arxiv_queue`), served by a worker that runs one activity at a
+time, so there is never more than one arXiv request in flight.
 """
 from __future__ import annotations
 
@@ -16,6 +20,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from app import crud, models
+from app.alerts import send_alert
 from app.config import get_settings
 from app.database import SessionLocal
 from app.services.arxiv import search_arxiv
@@ -61,6 +66,8 @@ from app.temporal.types import (
     IngestPapersInput,
     MarkSentInput,
     PaperResult,
+    PipelineAlertInput,
+    PipelineLimits,
     SendEmailInput,
     SummarizePaperInput,
     WriteOverviewInput,
@@ -77,6 +84,30 @@ def list_active_topic_ids() -> list[str]:
     db = SessionLocal()
     try:
         return crud.list_active_topic_ids(db)
+    finally:
+        db.close()
+
+
+@activity.defn
+def get_pipeline_limits() -> PipelineLimits:
+    settings = get_settings()
+    return PipelineLimits(
+        llm_max_concurrency=settings.llm_max_concurrency,
+        fanout_batch_size=settings.fanout_batch_size,
+    )
+
+
+@activity.defn
+def send_pipeline_alert(input: PipelineAlertInput) -> bool:
+    """Email the owner an operational alert, once per key. Never raises: a
+    failed alert is logged and must not fail or retry the run behind it.
+    Returns whether this call sent it."""
+    db = SessionLocal()
+    try:
+        return send_alert(db, input.key, input.subject, input.body)
+    except Exception:
+        logger.exception("Alert %r could not be sent", input.key)
+        return False
     finally:
         db.close()
 
@@ -109,6 +140,7 @@ def get_digest_context(digest_id: str) -> DigestContext:
             topic_name=topic.name,
             query=topic.query,
             since=topic.last_checked_at,
+            llm_max_concurrency=get_settings().llm_max_concurrency,
         )
     finally:
         db.close()
@@ -360,8 +392,10 @@ def summarize_paper(input: SummarizePaperInput) -> str | None:
 
 @activity.defn
 def rate_relevance(input: SummarizePaperInput) -> int | None:
-    """Rate a paper that already has a summary (another topic ingested it
-    first) for *this* topic - relevance is per topic, the summary isn't."""
+    """Rate a paper's relevance to *this* topic (relevance is per topic) and
+    store it. The daily ingest rates every new paper this way; summaries come
+    later, in send prep. None means no rating (the budget skipped the call,
+    or the reply didn't parse) - stored as unrated, and not a failure."""
     relevance = Summarizer(ledger=DbLedger(), topic_id=input.topic_id or None).rate_relevance(
         input.title,
         input.abstract or "",
