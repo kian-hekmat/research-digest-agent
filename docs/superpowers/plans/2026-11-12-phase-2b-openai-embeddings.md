@@ -301,3 +301,63 @@ The live pipeline keeps running on `embeddinggemma` throughout this task.
   - `paper_embeddings` gains only `text-embedding-3-small` rows.
   - Nothing calls Ollama: the worker logs show no `host.docker.internal:11434` requests.
 - [ ] **Step 5: Record the outcome** at the end of this plan: commits, cutover time, the calibration chosen, and coverage before and after. Keep the `embeddinggemma` rows; rolling back is `EMBEDDING_BACKEND=ollama`, `EMBEDDING_MODEL=embeddinggemma` in `.env`, then the same default-mode backfill (papers ingested after the cutover have no EmbeddingGemma rows yet) before starting the worker.
+
+---
+
+## Outcome (2026-11-12)
+
+Built inline (executing-plans); one whole-plan review after Task 3, before anything touched live ("with fixes"; all five Review Focus items passed; Temporal replay and the side-by-side backfill judged safe). Commits `39da6bb`..`99473f4`. 468 tests pass.
+
+**Live**
+- 20:24 PT: deployed (migration `c3d4e5f6a7b9`).
+- 20:32: side-by-side backfill. 884 papers and 3 topics for $0.0047; live signals checksum unchanged.
+- 20:44: cut over. Backup first, then the default-mode backfill before the worker started.
+  - Signals recomputed for 884 papers.
+  - Mean novelty similarity 0.644 → 0.646.
+  - The companion pair stays folded.
+  - "Similar earlier paper" links 62 → 70.
+  - The worker runs on `text-embedding-3-small`, and Ollama is no longer needed.
+
+**Calibration** (docs/rag-plan.md §5.9)
+
+| Threshold | Value |
+|---|---|
+| similar paper | 0.749 |
+| related-work floor | 0.721 |
+| novelty anchors | 0.838 / 0.459 |
+| near duplicate | 0.92 |
+| topic suggestions | off |
+
+| Bar | Result |
+|---|---|
+| Neighbours share a topic | 95.0% (pass) |
+| Spot check | 20/20 (pass) |
+| Topic pairs | 7/30 wrong (fail) |
+
+**Found along the way: the old OpenAI key.** It had been rejected (401) since 2026-11-09, so every summary from Nov 9–11 failed (93 papers), and the Nov 9 and Nov 12 emails went out without AI text. The owner replaced the key at 20:32. Nothing unsummarized is still waiting to be emailed.
+
+**Deviations, each a ruling:**
+- The final review ran after Task 3, not at the end.
+- Price overrides merge over the defaults rather than replacing them.
+- `EmbedderTextMixin` for the test fakes.
+- The clock-skew bound removed from `month_to_date_usd`, plus a test timezone that leaked.
+- A `fake-embed` calibration row in the tests.
+- `separating_threshold` added.
+- The cutover runs the default backfill mode, not `--signals-only` (a plan defect).
+- near duplicate 0.92 rather than the rule's 0.934 (the corpus now has a real companion pair).
+- Report filenames include seconds.
+- Ranking tests now state their novelty anchors.
+
+**Still to do:** after the next daily run (2026-11-13 10:00 PT), check that `llm_usage` gains `embedding` rows for the new papers and `paper_embeddings` gains only `text-embedding-3-small` rows.
+
+**Carried forward**
+- Phase 3: similar-topic suggestions need a signal other than embeddings, such as overlap of the arXiv papers two queries match.
+  - Embed topics when they're created.
+  - Have `similar_topics` return `[]` for an empty query.
+- 2c: alert on runs where every summary fails (the dead key went unnoticed for three days).
+- Small:
+  - Move the topic embed after `compute_signals` and wrap it.
+  - Pass `topic_id` to the embedding ledger.
+  - Bound `month_to_date_usd` above at the next month.
+  - Full-text chunks aren't backfilled for the new model (full text goes off in 2c).
+  - Strengthen the backfill-mode tests.
