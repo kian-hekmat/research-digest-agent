@@ -312,7 +312,7 @@ Built inline (executing-plans), one whole-plan review (verdict: ready to merge; 
   - Concurrency and non-UTC tests now pin Review Focus 2 and 3.
 
 **Still to do from Task 5:**
-- Set `ALERT_EMAIL` in `.env` once the owner gives the address; until then alerts are only logged.
+- ~~Set `ALERT_EMAIL`~~ Done 2026-11-12 19:52 PT: set in `.env`, worker recreated. Verified without sending: the worker sees the address, and the SMTP relay accepts a TLS login.
 - After the next daily run, check that `/admin/usage` shows rating, summary and overview rows with non-zero cost per topic, and record the first day's cost here.
 
 **Carried forward**
