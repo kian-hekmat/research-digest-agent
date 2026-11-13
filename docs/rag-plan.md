@@ -648,6 +648,53 @@ Same commands, labels and code as the Gemma rounds, with these reports compared:
   descriptions as defaults. All three stay off. Reviews were done by
   `claude-opus-5-5`, not the project owner, as in earlier rounds.
 
+### 5.9 Moving to `text-embedding-3-small` (2026-11-12)
+
+Embeddings moved off the owner's Mac to OpenAI's `text-embedding-3-small`,
+requested at 768 dimensions so the `vector(768)` column didn't change. All 884
+papers and 3 topics were embedded side by side for $0.0047, and every
+threshold was re-derived on the same corpus with `python -m evals.embeddings`
+(reports in `evals/results/2026-11-13_04*`).
+
+| | `embeddinggemma` | `text-embedding-3-small` |
+|---|---|---|
+| Random pairs, p50 / p90 / p99 | 0.42 / 0.55 / 0.65 | 0.43 / 0.54 / 0.65 |
+| Nearest neighbour, p10 / p50 / p90 / max | 0.59 / 0.68 / 0.76 / 0.905 | 0.59 / 0.67 / 0.76 / 0.924 |
+| Nearest neighbours sharing a topic | 807/851 (94.8%) | 811/854 (95.0%) |
+| "Similar earlier paper" coverage | 7.2% at 0.75 | (matched by quantile) |
+
+**Thresholds, carried over by quantile.** At 768 dimensions the two scales
+are nearly the same, so the numbers barely move:
+- similar paper: 0.75 → 0.749;
+- related-work floor: 0.72 → 0.721;
+- novelty anchors: 0.85 / 0.45 → 0.838 / 0.459.
+
+A by-eye review of the 20 nearest earlier neighbours just above 0.749 found
+all 20 genuinely related (bar: 18).
+
+**Near duplicates: 0.92.** The corpus now has a real companion pair: GDSW
+Schwarz preconditioners for high-order discretizations in 2D (2610.18502) and
+in 3D (2611.03447). It scores 0.924 here, and embeddinggemma already folds it
+at 0.905. 0.92 folds it. It leaves the next-closest pair (0.889, two
+edge-multiscale Helmholtz preconditioners) as a "similar earlier paper" link,
+which matches today's behaviour.
+
+**Similar-topic suggestions: off for this model.** On 30 labelled pairs
+(`evals/topic_pairs.csv`), no threshold separates "same topic" from
+"different topic": the best one still gets 7 wrong. An acronym and its
+expansion barely resemble each other:
+
+| Pair | Similarity |
+|---|---|
+| "RLHF" vs its expansion | 0.196 |
+| "PINNs" vs its expansion | 0.200 |
+| "MoE" vs its expansion | 0.226 |
+| "DPO" vs its expansion | 0.329 |
+| graph neural networks vs graph transformers (siblings) | 0.597 |
+
+Phase 3 should base suggestions on a signal that sees through acronyms. The
+leading candidate is overlap between the arXiv papers two queries match.
+
 ## 6. Phases
 
 | # | Scope | Ships | Size |

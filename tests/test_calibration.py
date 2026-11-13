@@ -93,3 +93,13 @@ def test_worker_refuses_to_start_without_a_calibration_for_its_model():
     with pytest.raises(SystemExit, match="calibration"):
         check_config(Settings(embedding_model="typo-model", summary_backend="none"))
     check_config(Settings(embedding_model="embeddinggemma"))  # fine
+
+
+def test_text_embedding_3_small_is_calibrated_from_the_live_corpus():
+    c = Settings(embedding_model="text-embedding-3-small").calibration
+    assert (c.similar_paper, c.near_duplicate, c.related_min, c.novelty_repeat, c.novelty_unrelated) == (
+        0.749, 0.92, 0.721, 0.838, 0.459,
+    )
+    # Plain embedding similarity can't tell "RLHF" from its expansion
+    # (docs/rag-plan.md §5.9): suggestions stay off for this model.
+    assert c.topic_suggestion is None

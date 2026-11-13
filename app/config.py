@@ -61,6 +61,20 @@ DEFAULT_RETRIEVAL_CALIBRATION: dict[str, Calibration] = {
         novelty_repeat=0.85,
         novelty_unrelated=0.45,
     ),
+    # Measured on the live corpus 2026-11-12 (evals.embeddings; docs/rag-plan.md
+    # §5.9). At 768 dimensions its scale nearly matches embeddinggemma's, so
+    # the thresholds are carried over by quantile and barely move; 20/20
+    # neighbours reviewed at >= 0.749 were related. near_duplicate folds the
+    # corpus's one companion pair (GDSW Schwarz preconditioners in 2D and 3D,
+    # 0.924), as embeddinggemma does today. No topic_suggestion: acronyms sit
+    # far from their expansions ("RLHF" vs its expansion: 0.196).
+    "text-embedding-3-small": Calibration(
+        similar_paper=0.749,
+        near_duplicate=0.92,
+        related_min=0.721,
+        novelty_repeat=0.838,
+        novelty_unrelated=0.459,
+    ),
 }
 
 
