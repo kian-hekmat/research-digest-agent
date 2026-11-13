@@ -276,18 +276,31 @@ def list_completed_digests_since(
 
 def recent_overviews(
     db: Session, topic_id: str, *, exclude_digest_id: str | None, limit: int
-) -> list[models.Digest]:
-    """The topic's `limit` most recently completed digests that have an
-    overview, oldest first, never `exclude_digest_id` (the one being written)."""
-    q = db.query(models.Digest).filter(
+) -> list[tuple[datetime, str]]:
+    """The topic's `limit` most recent overviews as (when, text), oldest
+    first: editions (dated by their send slot) and, from before editions
+    existed, completed digests (dated by completion), never
+    `exclude_digest_id` (the one being written)."""
+    q = db.query(models.Digest.completed_at, models.Digest.overview).filter(
         models.Digest.topic_id == topic_id,
         models.Digest.status == models.DigestStatus.completed,
         models.Digest.overview.isnot(None),
     )
     if exclude_digest_id:
         q = q.filter(models.Digest.id != exclude_digest_id)
-    latest = q.order_by(models.Digest.completed_at.desc()).limit(limit).all()
-    return list(reversed(latest))
+    digests = q.order_by(models.Digest.completed_at.desc()).limit(limit).all()
+    editions = (
+        db.query(models.TopicEdition.slot, models.TopicEdition.overview)
+        .filter(
+            models.TopicEdition.topic_id == topic_id,
+            models.TopicEdition.overview.isnot(None),
+        )
+        .order_by(models.TopicEdition.slot.desc())
+        .limit(limit)
+        .all()
+    )
+    latest = sorted([(when, text) for when, text in [*digests, *editions]], key=lambda wt: wt[0])
+    return latest[-limit:] if limit > 0 else []
 
 
 def similar_earlier_papers(db: Session, paper_ids: list[str]) -> list[tuple[str, str]]:

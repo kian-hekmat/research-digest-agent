@@ -44,6 +44,7 @@ from app.services.email import (
     PaperForEmail,
     TopicSection,
     build_topic_section,
+    rank_papers,
     render_digest_email,
 )
 from app.services.summarize import (
@@ -57,6 +58,8 @@ from app.temporal.types import (
     AdvanceWatermarkInput,
     DigestContext,
     DueSubscription,
+    EditionPlan,
+    EditionRanking,
     EmbedPapersInput,
     FetchFulltextInput,
     FinalizeDigestInput,
@@ -68,8 +71,11 @@ from app.temporal.types import (
     PaperResult,
     PipelineAlertInput,
     PipelineLimits,
+    PlanEditionInput,
     SendEmailInput,
+    StoreEditionInput,
     SummarizePaperInput,
+    TopPaper,
     WriteOverviewInput,
 )
 
@@ -351,12 +357,13 @@ def _rating_context(topic_id: str, paper_id: str) -> RatingContext | None:
 
 
 @activity.defn
-def summarize_paper(input: SummarizePaperInput) -> str | None:
-    """Summarize one paper and rate its relevance to the topic (one LLM call),
-    and persist both immediately, so a later retry of a *different* paper in
-    the same run never redoes this one. Returns the summary: None (persisted
-    as no summary) when Summarizer is in no-key mode - not a failure, so it's
-    never counted as one in digest.error.
+def summarize_for_edition(input: SummarizePaperInput) -> str | None:
+    """Summarize one of an edition's top papers and persist the summary
+    immediately, so a retry of a *different* paper never redoes this one.
+    Uses the evaluated combined prompt (summarize_and_rate) but stores only
+    the summary: the ingest rating stands (the combined prompt's own rating
+    runs higher - docs/rag-plan.md §5.10). Returns the summary: None when
+    the Summarizer is in no-key mode or the budget skipped it - not a failure.
 
     With RAG_RELATED_NOTES on, earlier, similar papers are offered as related
     work, and a related-work note is stored only when its citations checked
@@ -382,8 +389,6 @@ def summarize_paper(input: SummarizePaperInput) -> str | None:
             paper.related_note = rated.related_note
             if rated.related_ids:
                 crud.set_paper_related(db, paper.id, [by_arxiv_id[a] for a in rated.related_ids])
-            if input.topic_id:
-                crud.set_topic_paper_relevance(db, input.topic_id, paper.id, rated.relevance)
             db.commit()
         return rated.summary
     finally:
@@ -426,9 +431,7 @@ def _overview_history(input: WriteOverviewInput) -> OverviewHistory | None:
         )
         style = settings.rag_overview_history_style
         return OverviewHistory(
-            previous=tuple(
-                (f"{d.completed_at:%b} {d.completed_at.day}", d.overview) for d in previous
-            ),
+            previous=tuple((f"{when:%b} {when.day}", text) for when, text in previous),
             earlier_papers=(
                 tuple(crud.similar_earlier_papers(db, input.paper_ids)) if style == "compare" else ()
             ),
@@ -551,24 +554,7 @@ def gather_digest_content(input: GatherContentInput) -> GatheredContent | None:
                 DigestForEmail(
                     generated_at=d.generated_at,
                     overview=d.overview,
-                    papers=[
-                        PaperForEmail(
-                            title=p.title,
-                            summary=p.summary,
-                            arxiv_id=p.arxiv_id,
-                            published_at=p.published_at,
-                            relevance=relevance.get(p.id),
-                            max_author_h_index=p.max_author_h_index,
-                            venue_score=venue_score(p.comment, p.journal_ref),
-                            prior_similarity=p.prior_similarity,
-                            related_note=p.related_note,
-                            similar=[(r.arxiv_id, r.title) for r in p.related_papers],
-                            near_duplicate_of=(
-                                p.near_duplicate_of.arxiv_id if p.near_duplicate_of else None
-                            ),
-                        )
-                        for p in d.papers
-                    ],
+                    papers=[_paper_for_email(p, relevance.get(p.id)) for p in d.papers],
                 )
                 for d in digests
             ]
@@ -586,6 +572,161 @@ def gather_digest_content(input: GatherContentInput) -> GatheredContent | None:
             sections, summaries_enabled=get_settings().summaries_enabled
         )
         return GatheredContent(content=content, as_of=as_of, subscription_ids=included)
+    finally:
+        db.close()
+
+
+def _paper_for_email(p: models.Paper, relevance: int | None) -> PaperForEmail:
+    return PaperForEmail(
+        title=p.title,
+        summary=p.summary,
+        arxiv_id=p.arxiv_id,
+        published_at=p.published_at,
+        relevance=relevance,
+        max_author_h_index=p.max_author_h_index,
+        venue_score=venue_score(p.comment, p.journal_ref),
+        prior_similarity=p.prior_similarity,
+        related_note=p.related_note,
+        similar=[(r.arxiv_id, r.title) for r in p.related_papers],
+        near_duplicate_of=p.near_duplicate_of.arxiv_id if p.near_duplicate_of else None,
+    )
+
+
+def _novelty() -> tuple[float, float]:
+    cal = get_settings().calibration
+    return (cal.novelty_repeat, cal.novelty_unrelated)
+
+
+# ---------- send prep (editions) ----------
+_MIN_K = 5
+_UNCAPPED_K = 10  # an uncapped subscription (max_papers NULL) counts as 10
+
+
+@activity.defn
+def plan_edition(input: PlanEditionInput) -> EditionPlan:
+    """What `input.topic_id`'s edition for `input.slot` covers: its window
+    (chained from the previous edition), K (the largest max_papers among its
+    active subscriptions, at least 5), the window's papers and the ones still
+    unrated for this topic. `exists` when the slot already has an edition."""
+    settings = get_settings()
+    db = SessionLocal()
+    try:
+        topic = db.get(models.Topic, input.topic_id)
+        if topic is None:
+            raise ApplicationError(f"topic {input.topic_id} not found", non_retryable=True)
+        caps = [
+            cap if cap is not None else _UNCAPPED_K
+            for (cap,) in crud.active_subscriptions_query(db)
+            .with_entities(models.Subscription.max_papers)
+            .filter(models.Subscription.topic_id == topic.id)
+        ]
+        plan = EditionPlan(
+            topic_id=topic.id,
+            topic_name=topic.name,
+            topic_query=topic.query,
+            slot=input.slot,
+            window_start=input.window_end,
+            window_end=input.window_end,
+            k=max([_MIN_K, *caps]),
+            llm_max_concurrency=settings.llm_max_concurrency,
+            fulltext=bool(settings.rag_fulltext and settings.embeddings_enabled),
+        )
+        if crud.get_edition(db, topic.id, input.slot) is not None:
+            plan.exists = True
+            return plan
+        plan.window_start = crud.edition_window_start(db, topic.id, input.window_end)
+        papers = crud.window_papers(db, topic.id, plan.window_start, input.window_end)
+        rated = crud.relevance_by_paper(db, topic.id, [p.id for p in papers])
+        plan.paper_ids = [p.id for p in papers]
+        plan.unrated = [
+            SummarizePaperInput(
+                paper_id=p.id, title=p.title, abstract=p.abstract or "",
+                topic_id=topic.id, topic_name=topic.name, topic_query=topic.query,
+            )
+            for p in papers
+            if rated.get(p.id) is None
+        ]
+        return plan
+    finally:
+        db.close()
+
+
+@activity.defn
+def enrich_h_index_for_papers(paper_ids: list[str]) -> int:
+    """Fill in `max_author_h_index` for those of `paper_ids` without one
+    (Semantic Scholar or OpenAlex, app.services.scholar). Run at prep rather
+    than ingest: both lag arXiv by a day or more. Returns how many were filled."""
+    db = SessionLocal()
+    try:
+        missing = {
+            p.arxiv_id: p
+            for p in db.query(models.Paper).filter(
+                models.Paper.id.in_(paper_ids), models.Paper.max_author_h_index.is_(None)
+            )
+        }
+        if not missing:
+            return 0
+        found = fetch_max_author_h_index(list(missing))
+        for arxiv_id, h_index in found.items():
+            missing[arxiv_id].max_author_h_index = h_index
+        db.commit()
+        return len(found)
+    finally:
+        db.close()
+
+
+@activity.defn
+def rank_edition(plan: EditionPlan) -> EditionRanking:
+    """The window's papers best first, scored as the email scores them
+    (relevance, h-index, venue, novelty), and the top K. A near duplicate
+    ranks right after the paper it folds under, so it never takes a top-K
+    summary slot but stays in the edition."""
+    db = SessionLocal()
+    try:
+        papers = db.query(models.Paper).filter(models.Paper.id.in_(plan.paper_ids)).all()
+        if not papers:
+            return EditionRanking()
+        relevance = crud.relevance_by_paper(db, plan.topic_id, [p.id for p in papers])
+        by_arxiv_id = {p.arxiv_id: p for p in papers}
+        batch = DigestForEmail(
+            generated_at=plan.window_end,
+            overview=None,
+            papers=[_paper_for_email(p, relevance.get(p.id)) for p in papers],
+        )
+        ranked = rank_papers([batch], novelty=_novelty())
+        top = [by_arxiv_id[r.arxiv_id] for r in ranked[: plan.k]]
+        ordered: list[str] = []
+        for r in ranked:
+            ordered.append(by_arxiv_id[r.arxiv_id].id)
+            ordered.extend(by_arxiv_id[d.arxiv_id].id for d in r.see_also)
+        return EditionRanking(
+            paper_ids=ordered,
+            top=[
+                TopPaper(paper_id=p.id, title=p.title, abstract=p.abstract or "", summary=p.summary)
+                for p in top
+            ],
+        )
+    finally:
+        db.close()
+
+
+@activity.defn
+def store_edition(input: StoreEditionInput) -> str:
+    """Save the edition (idempotent per topic and slot); returns its id."""
+    db = SessionLocal()
+    try:
+        edition = crud.save_edition(
+            db,
+            topic_id=input.topic_id,
+            slot=input.slot,
+            window_start=input.window_start,
+            window_end=input.window_end,
+            status="ready",
+            k=input.k,
+            overview=input.overview,
+            ranked_paper_ids=input.ranked_paper_ids,
+        )
+        return edition.id
     finally:
         db.close()
 

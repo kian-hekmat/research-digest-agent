@@ -70,6 +70,16 @@ def test_window_start_falls_back_to_earliest_active_last_sent(db_session):
     assert crud.edition_window_start(db_session, topic.id, T0) == early
 
 
+def test_a_previous_edition_beats_subscription_send_times(db_session):
+    topic = _topic(db_session)
+    subscribe(
+        db_session, topic, make_subscriber(db_session, "a@example.com"),
+        last_sent_at=T0 - timedelta(days=10),
+    )
+    _save(db_session, topic, T0, T0 - timedelta(days=3), T0)
+    assert crud.edition_window_start(db_session, topic.id, T0 + timedelta(days=3)) == T0
+
+
 def test_window_start_defaults_to_a_week(db_session):
     topic = _topic(db_session)
     assert crud.edition_window_start(db_session, topic.id, T0) == T0 - timedelta(days=7)

@@ -80,6 +80,7 @@ def build_topic_section(
     max_papers: int | None = None,
     *,
     novelty: tuple[float, float] | None = None,
+    order: list[str] | None = None,
 ) -> TopicSection | None:
     """Merge a topic's digests into one section, or None if they hold no
     papers at all (empty runs contribute nothing - not even a heading).
@@ -90,31 +91,14 @@ def build_topic_section(
     first within a day. A paper with no submission date falls back to its
     digest's run time, so it still sorts and groups somewhere sensible.
     `novelty` is the embedding model's (repeat, unrelated) anchors; None
-    means the active model's (Settings.calibration).
+    means the active model's (Settings.calibration). `order` (arXiv ids,
+    best first - an edition's stored ranking) replaces the scoring; papers
+    it doesn't list go last.
     """
-    picked: dict[str, tuple[PaperForEmail, DigestForEmail]] = {}
-    for digest in digests:
-        for paper in digest.papers:
-            if paper.arxiv_id in picked:
-                continue
-            if paper.published_at is None:
-                paper = dataclasses.replace(paper, published_at=digest.generated_at)
-            picked[paper.arxiv_id] = (paper, digest)
+    picked = _pick(digests)
     if not picked:
         return None
-    _fold_near_duplicates(picked)
-
-    candidates = list(picked.values())
-    repeat, unrelated = novelty if novelty is not None else (None, None)
-    scores = score_papers(
-        [p for p, _ in candidates], novelty_repeat=repeat, novelty_unrelated=unrelated
-    )
-    score_of = {p.arxiv_id: s for (p, _), s in zip(candidates, scores)}
-    ranked = sorted(
-        candidates,
-        key=lambda pd: (score_of[pd[0].arxiv_id], pd[0].published_at),
-        reverse=True,
-    )
+    ranked, score_of = _rank(picked, novelty, order)
     kept = ranked[:max_papers] if max_papers else ranked
     # Stable sort: within a day, equal scores keep their newest-first order.
     kept.sort(key=lambda pd: (_day(pd[0]), score_of[pd[0].arxiv_id]), reverse=True)
@@ -133,6 +117,60 @@ def build_topic_section(
         overviews=overviews,
         omitted=len(ranked) - len(kept),
     )
+
+
+def rank_papers(
+    digests: list[DigestForEmail], *, novelty: tuple[float, float] | None = None
+) -> list[PaperForEmail]:
+    """The section's papers best first, as `build_topic_section` scores them,
+    uncapped. Near duplicates are folded under their original (`see_also`)
+    and aren't ranked themselves."""
+    picked = _pick(digests)
+    if not picked:
+        return []
+    ranked, _ = _rank(picked, novelty, None)
+    return [p for p, _ in ranked]
+
+
+_Picked = dict[str, tuple[PaperForEmail, DigestForEmail]]
+
+
+def _pick(digests: list[DigestForEmail]) -> _Picked:
+    """Each paper once (first digest wins), dated, near duplicates folded."""
+    picked: _Picked = {}
+    for digest in digests:
+        for paper in digest.papers:
+            if paper.arxiv_id in picked:
+                continue
+            if paper.published_at is None:
+                paper = dataclasses.replace(paper, published_at=digest.generated_at)
+            picked[paper.arxiv_id] = (paper, digest)
+    if picked:
+        _fold_near_duplicates(picked)
+    return picked
+
+
+def _rank(
+    picked: _Picked, novelty: tuple[float, float] | None, order: list[str] | None
+) -> tuple[list[tuple[PaperForEmail, DigestForEmail]], dict[str, float]]:
+    """Best first, with each paper's sort score: the ranking's score, or
+    (with `order`) minus its position there."""
+    candidates = list(picked.values())
+    if order is not None:
+        position = {aid: i for i, aid in enumerate(order)}
+        score_of = {p.arxiv_id: -float(position.get(p.arxiv_id, len(order))) for p, _ in candidates}
+    else:
+        repeat, unrelated = novelty if novelty is not None else (None, None)
+        scores = score_papers(
+            [p for p, _ in candidates], novelty_repeat=repeat, novelty_unrelated=unrelated
+        )
+        score_of = {p.arxiv_id: s for (p, _), s in zip(candidates, scores)}
+    ranked = sorted(
+        candidates,
+        key=lambda pd: (score_of[pd[0].arxiv_id], pd[0].published_at),
+        reverse=True,
+    )
+    return ranked, score_of
 
 
 def _fold_near_duplicates(picked: dict[str, tuple[PaperForEmail, DigestForEmail]]) -> None:

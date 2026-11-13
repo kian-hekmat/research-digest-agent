@@ -294,7 +294,7 @@ def test_summarize_activity_offers_earlier_papers_and_stores_checked_citations(d
         related_note="Extends [2609.00001].", related_ids=("2609.00001",),
     )
 
-    temporal_activities.summarize_paper(
+    temporal_activities.summarize_for_edition(
         temporal_activities.SummarizePaperInput(
             paper_id=new.id, title=new.title, abstract=new.abstract,
             topic_id=topic.id, topic_name="PINNs", topic_query="pinns",
@@ -321,7 +321,7 @@ def test_with_related_notes_off_nothing_is_offered_and_the_similar_link_stays(db
     _signals(db_session)
     RecordingSummarizer.reply = RatedSummary(summary="S.", relevance=5)
 
-    temporal_activities.summarize_paper(
+    temporal_activities.summarize_for_edition(
         temporal_activities.SummarizePaperInput(paper_id=new.id, title="t", abstract="a", topic_id=topic.id)
     )
 
@@ -337,7 +337,7 @@ def test_summarize_activity_without_embeddings_offers_nothing(db_session, topic,
     new = _paper(db_session, "2609.00009", 20, 9, topic)
     RecordingSummarizer.reply = RatedSummary(summary="S.", relevance=5)
 
-    temporal_activities.summarize_paper(
+    temporal_activities.summarize_for_edition(
         temporal_activities.SummarizePaperInput(paper_id=new.id, title="t", abstract="a", topic_id=topic.id)
     )
 

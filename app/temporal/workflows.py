@@ -26,7 +26,7 @@ declarative models register Tables on a single shared MetaData at import time
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -42,6 +42,10 @@ with workflow.unsafe.imports_passed_through():
 WORKFLOW_RUNNER = SandboxedWorkflowRunner(
     restrictions=SandboxRestrictions.default.with_passthrough_modules(
         "app.temporal.activities",
+        # Its dataclasses carry datetimes (an edition's slot): decoded inside
+        # the sandbox, a re-imported module's `datetime` hint isn't the
+        # converter's, and decoding fails.
+        "app.temporal.types",
         "app.alerts",
         "app.cadence",
         "app.crud",
@@ -322,6 +326,204 @@ class RunAllTopicDigestsWorkflow:
                 if isinstance(failure, BaseException):
                     workflow.logger.warning("A topic's digest failed: %s", _cause_message(failure))
         return created
+
+
+@workflow.defn
+class PrepTopicEditionWorkflow:
+    """Send prep for one topic and slot: re-rate what ingest left unrated,
+    look up h-indices, rank the window, summarize the top K only (full text
+    first when it's on), write the overview over them, and store it all as
+    the topic's edition. Returns "written", "exists" (the slot already has
+    an edition: a second prep is a no-op) or "empty" (no papers: nothing
+    stored)."""
+
+    @workflow.run
+    async def run(self, input: types.PrepTopicInput) -> str:
+        plan: types.EditionPlan = await workflow.execute_activity(
+            activities.plan_edition,
+            types.PlanEditionInput(
+                topic_id=input.topic_id, slot=input.slot, window_end=workflow.now()
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=_DB_RETRY,
+        )
+        if plan.exists:
+            return "exists"
+        if not plan.paper_ids:
+            return "empty"
+        llm_slots = asyncio.Semaphore(max(1, plan.llm_max_concurrency))
+
+        async def llm(activity, arg):
+            async with llm_slots:
+                return await workflow.execute_activity(
+                    activity, arg, start_to_close_timeout=_LLM_TIMEOUT, retry_policy=_LLM_RETRY
+                )
+
+        # 1. The §3.6 re-rating: papers a failed or budget-skipped rating
+        # left unrated come back here. A failure leaves them unrated again.
+        await asyncio.gather(
+            *[llm(activities.rate_relevance, p) for p in plan.unrated], return_exceptions=True
+        )
+
+        # 2. h-index, then the ranking. A lookup failure only costs the
+        # ranking its h-index term.
+        try:
+            await workflow.execute_activity(
+                activities.enrich_h_index_for_papers,
+                plan.paper_ids,
+                start_to_close_timeout=timedelta(seconds=90),
+                retry_policy=_SCHOLAR_RETRY,
+            )
+        except ActivityError:
+            workflow.logger.warning("Author h-index lookup failed; ranking without it")
+        ranking: types.EditionRanking = await workflow.execute_activity(
+            activities.rank_edition,
+            plan,
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=_DB_RETRY,
+        )
+
+        # 3. Full text for the top K only, on the one-at-a-time arXiv queue.
+        to_summarize = [p for p in ranking.top if p.summary is None]
+        if plan.fulltext and to_summarize:
+            try:
+                await workflow.execute_activity(
+                    activities.fetch_fulltext,
+                    types.FetchFulltextInput(paper_ids=[p.paper_id for p in to_summarize]),
+                    task_queue=arxiv_queue(workflow.info().task_queue),
+                    start_to_close_timeout=timedelta(minutes=30),
+                    heartbeat_timeout=timedelta(minutes=3),
+                    retry_policy=_LLM_RETRY,
+                )
+            except ActivityError:
+                pass
+
+        # 4. Summaries for the top K that don't have one yet.
+        outcomes = await asyncio.gather(
+            *[
+                llm(
+                    activities.summarize_for_edition,
+                    types.SummarizePaperInput(
+                        paper_id=p.paper_id,
+                        title=p.title,
+                        abstract=p.abstract,
+                        topic_id=plan.topic_id,
+                        topic_name=plan.topic_name,
+                        topic_query=plan.topic_query,
+                    ),
+                )
+                for p in to_summarize
+            ],
+            return_exceptions=True,
+        )
+        new = {p.paper_id: o for p, o in zip(to_summarize, outcomes)}
+        failures = [o for o in outcomes if isinstance(o, BaseException)]
+        summaries = [
+            s
+            for p in ranking.top
+            if isinstance(s := (p.summary or new.get(p.paper_id)), str) and s
+        ]
+
+        # 5. The overview over the top K's summaries, history-aware.
+        overview = None
+        if summaries:
+            try:
+                overview = await llm(
+                    activities.write_overview,
+                    types.WriteOverviewInput(
+                        topic_name=plan.topic_name,
+                        summaries=summaries,
+                        topic_id=plan.topic_id,
+                        paper_ids=[p.paper_id for p in ranking.top],
+                    ),
+                )
+            except ActivityError:
+                workflow.logger.warning("Overview failed for topic %s", plan.topic_id)
+
+        await workflow.execute_activity(
+            activities.store_edition,
+            types.StoreEditionInput(
+                topic_id=plan.topic_id,
+                slot=plan.slot,
+                window_start=plan.window_start,
+                window_end=plan.window_end,
+                k=plan.k,
+                overview=overview,
+                ranked_paper_ids=ranking.paper_ids,
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=_DB_RETRY,
+        )
+        if failures and len(failures) == len(to_summarize):
+            await self._alert_summaries_failing(plan, len(failures), failures[0])
+        return "written"
+
+    async def _alert_summaries_failing(
+        self, plan: types.EditionPlan, attempted: int, first_error: BaseException
+    ) -> None:
+        day = workflow.now().astimezone(cadence.SEND_TIME_ZONE).date()
+        await workflow.execute_activity(
+            activities.send_pipeline_alert,
+            types.PipelineAlertInput(
+                key=f"summaries-failing:{day:%Y-%m-%d}",
+                subject="Research digest: every paper summary failed",
+                body=(
+                    f"All {attempted} summaries in send prep for the topic "
+                    f"{plan.topic_name!r} raised, after retries. Its edition went out "
+                    "without them.\n\n"
+                    f"First error: {_cause_message(first_error)}"
+                ),
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=_DB_RETRY,
+        )
+
+
+@workflow.defn
+class PrepEditionsWorkflow:
+    """Scheduled send prep (see app.temporal.schedule): one
+    `PrepTopicEditionWorkflow` per topic with active subscriptions, in
+    batches of `fanout_batch_size`. The slot defaults to the next send slot.
+    One topic's failure never holds back the others. Returns how many
+    editions were written."""
+
+    @workflow.run
+    async def run(self, slot_iso: str | None = None) -> int:
+        slot = (
+            datetime.fromisoformat(slot_iso) if slot_iso else cadence.next_slot(workflow.now())
+        )
+        topic_ids: list[str] = await workflow.execute_activity(
+            activities.list_active_topic_ids,
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=_DB_RETRY,
+        )
+        if not topic_ids:
+            return 0
+        limits: types.PipelineLimits = await workflow.execute_activity(
+            activities.get_pipeline_limits,
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=_DB_RETRY,
+        )
+        written = 0
+        for batch in _batches(topic_ids, limits.fanout_batch_size):
+            outcomes = await asyncio.gather(
+                *[
+                    workflow.execute_child_workflow(
+                        PrepTopicEditionWorkflow.run,
+                        types.PrepTopicInput(topic_id=topic_id, slot=slot),
+                        id=f"prep-{topic_id}-{slot:%Y%m%dT%H%M}",
+                        task_queue=workflow.info().task_queue,
+                    )
+                    for topic_id in batch
+                ],
+                return_exceptions=True,
+            )
+            for outcome in outcomes:
+                if isinstance(outcome, BaseException):
+                    workflow.logger.warning("A topic's send prep failed: %s", _cause_message(outcome))
+                elif outcome == "written":
+                    written += 1
+        return written
 
 
 @workflow.defn

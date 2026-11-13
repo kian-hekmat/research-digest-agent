@@ -143,6 +143,69 @@ class AdvanceWatermarkInput:
     checked_at: datetime
 
 
+# ---------- send prep (editions) ----------
+@dataclass
+class PrepTopicInput:
+    """Prepare `topic_id`'s edition for the send at `slot`."""
+
+    topic_id: str
+    slot: datetime
+
+
+@dataclass
+class PlanEditionInput:
+    topic_id: str
+    slot: datetime
+    window_end: datetime  # workflow.now() at plan time
+
+
+@dataclass
+class EditionPlan:
+    """What an edition will cover. Settings are read here, by the activity,
+    so the prep run's history records them (see DigestContext)."""
+
+    topic_id: str
+    topic_name: str
+    topic_query: str
+    slot: datetime
+    window_start: datetime
+    window_end: datetime
+    k: int
+    exists: bool = False
+    paper_ids: list[str] = field(default_factory=list)
+    # Window papers with no rating for this topic yet, ready to re-rate.
+    unrated: list[SummarizePaperInput] = field(default_factory=list)
+    llm_max_concurrency: int = 8
+    fulltext: bool = False
+
+
+@dataclass
+class TopPaper:
+    """One of an edition's top K, with its summary if it has one already."""
+
+    paper_id: str
+    title: str
+    abstract: str
+    summary: str | None = None
+
+
+@dataclass
+class EditionRanking:
+    paper_ids: list[str] = field(default_factory=list)  # every window paper, best first
+    top: list[TopPaper] = field(default_factory=list)  # the first K of them
+
+
+@dataclass
+class StoreEditionInput:
+    topic_id: str
+    slot: datetime
+    window_start: datetime
+    window_end: datetime
+    k: int
+    overview: str | None
+    ranked_paper_ids: list[str] = field(default_factory=list)
+
+
 # ---------- email delivery ----------
 @dataclass
 class DueSubscription:

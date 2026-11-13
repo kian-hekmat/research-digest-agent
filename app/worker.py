@@ -24,6 +24,8 @@ from app.temporal.schedule import ensure_daily_schedule, ensure_email_schedule
 from app.temporal.workflows import (
     WORKFLOW_RUNNER,
     DigestWorkflow,
+    PrepEditionsWorkflow,
+    PrepTopicEditionWorkflow,
     RunAllTopicDigestsWorkflow,
     SendDigestEmailsWorkflow,
     arxiv_queue,
@@ -31,7 +33,13 @@ from app.temporal.workflows import (
 
 logger = logging.getLogger(__name__)
 
-WORKFLOWS = [DigestWorkflow, RunAllTopicDigestsWorkflow, SendDigestEmailsWorkflow]
+WORKFLOWS = [
+    DigestWorkflow,
+    RunAllTopicDigestsWorkflow,
+    PrepEditionsWorkflow,
+    PrepTopicEditionWorkflow,
+    SendDigestEmailsWorkflow,
+]
 
 ACTIVITIES = [
     activities.list_active_topic_ids,
@@ -40,7 +48,11 @@ ACTIVITIES = [
     activities.get_digest_context,
     activities.ingest_papers,
     activities.embed_papers,
-    activities.summarize_paper,
+    activities.plan_edition,
+    activities.enrich_h_index_for_papers,
+    activities.rank_edition,
+    activities.summarize_for_edition,
+    activities.store_edition,
     activities.rate_relevance,
     activities.write_overview,
     activities.finalize_digest,

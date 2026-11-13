@@ -101,7 +101,7 @@ def test_recent_overviews_latest_n_oldest_first_excluding_current(db_session):
 
     got = crud.recent_overviews(db_session, topic.id, exclude_digest_id=current.id, limit=3)
 
-    assert [d.overview for d in got] == ["o2", "o3", "o4"]
+    assert [text for _, text in got] == ["o2", "o3", "o4"]
 
 
 def test_similar_earlier_papers_from_paper_related(db_session):
