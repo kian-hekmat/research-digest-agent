@@ -220,14 +220,22 @@ class DueSubscription:
 
 
 @dataclass
+class EditionKey:
+    """A topic's edition for one send slot."""
+
+    topic_id: str
+    slot: datetime
+
+
+@dataclass
 class TopicWindow:
-    """One subscription's slice of a recipient's email: this topic's completed
-    digests since `since`, capped at `max_papers`."""
+    """One subscription's slice of a recipient's email: its topic's edition
+    for this slot, capped at `max_papers`."""
 
     subscription_id: str
     topic_id: str
     topic_name: str
-    since: datetime
+    edition_id: str
     max_papers: int | None = None
 
 

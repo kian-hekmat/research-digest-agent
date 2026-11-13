@@ -59,11 +59,10 @@ ACTIVITIES = [
     activities.advance_watermark,
     activities.send_pipeline_alert,
     activities.list_due_subscriptions,
-    activities.enrich_author_h_index,
+    activities.ensure_edition,
     activities.gather_digest_content,
     activities.send_digest_email,
     activities.mark_subscription_sent,
-    activities.count_pending_digests,
 ]
 
 # Every activity that sends a request to arXiv.

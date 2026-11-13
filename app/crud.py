@@ -319,15 +319,6 @@ def similar_earlier_papers(db: Session, paper_ids: list[str]) -> list[tuple[str,
     return [(a, b) for a, b in rows]
 
 
-def count_pending_digests(db: Session) -> int:
-    return (
-        db.query(models.Digest)
-        .filter(models.Digest.status == models.DigestStatus.pending)
-        .count()
-    )
-
-
-# ---------- Subscriptions ----------
 def get_or_create_subscriber(db: Session, email: str, *, confirmed: bool) -> models.Subscriber:
     """The subscriber for `email`, matched case-insensitively (the same rule
     as the unique index), created if new. With `confirmed`, `confirmed_at` is

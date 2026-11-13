@@ -28,8 +28,12 @@ from app import crud, models
 from app.services.summarize import RatedSummary
 from app.temporal import activities as temporal_activities
 from app.temporal.schedule import DAILY_SCHEDULE_ID, ensure_daily_schedule
+from app.cadence import latest_slot
+from app.temporal.types import PrepTopicInput
 from app.temporal.workflows import (
     DigestWorkflow,
+    PrepEditionsWorkflow,
+    PrepTopicEditionWorkflow,
     RunAllTopicDigestsWorkflow,
     SendDigestEmailsWorkflow,
 )
@@ -219,8 +223,8 @@ async def test_llm_activities_pass_a_spend_ledger_and_the_topic(db_session, temp
 async def test_at_100_percent_of_budget_digests_and_emails_go_out_without_ai_text(
     db_session, temporal_client, monkeypatch
 ):
-    """The spend guard end to end: with this month's spend at the cap, a
-    scheduled send still ingests and emails the new paper, with no OpenAI
+    """The spend guard end to end: with this month's spend at the cap, the
+    ingest, prep and send still run and email the new paper, with no OpenAI
     call and no AI-written text."""
     from decimal import Decimal
 
@@ -251,9 +255,16 @@ async def test_at_100_percent_of_budget_digests_and_emails_go_out_without_ai_tex
     )
     db_session.commit()
 
+    slot = latest_slot(datetime.now(timezone.utc))
     with respx.mock(assert_all_called=False) as router:
         openai = router.post("http://openai.test/v1/chat/completions")
-        count = await _run_send_emails(temporal_client, "send-over-budget")
+        await temporal_client.execute_workflow(
+            RunAllTopicDigestsWorkflow.run, id="ingest-over-budget", task_queue=TASK_QUEUE
+        )
+        await temporal_client.execute_workflow(
+            PrepEditionsWorkflow.run, slot.isoformat(), id="prep-over-budget", task_queue=TASK_QUEUE
+        )
+        count = await _run_send_emails(temporal_client, "send-over-budget", slot)
 
     assert not openai.called
     assert count == 1
@@ -681,9 +692,20 @@ def _make_completed_digest(db_session, topic, *, generated_at, papers=(), publis
     return digest
 
 
-async def _run_send_emails(client, run_id: str) -> int:
+async def _run_send_emails(client, run_id: str, slot=None) -> int:
+    """The send at `slot` (default: the latest slot by the real clock - the
+    time-skipping server's own clock can jump far ahead between workflows)."""
+    slot = slot or latest_slot(datetime.now(timezone.utc))
     return await client.execute_workflow(
-        SendDigestEmailsWorkflow.run, id=run_id, task_queue=TASK_QUEUE
+        SendDigestEmailsWorkflow.run, slot.isoformat(), id=run_id, task_queue=TASK_QUEUE
+    )
+
+
+async def _run_prep(client, topic, slot=None) -> str:
+    slot = slot or latest_slot(datetime.now(timezone.utc))
+    return await client.execute_workflow(
+        PrepTopicEditionWorkflow.run, PrepTopicInput(topic_id=topic.id, slot=slot),
+        id=f"prep-{topic.id}-{slot:%Y%m%dT%H%M}", task_queue=TASK_QUEUE,
     )
 
 
@@ -891,44 +913,6 @@ async def test_send_digest_emails_stamps_email_dates_from_paper_submission(
 
 
 # ---------- delivery robustness (missed 2026-10-05 send) ----------
-async def test_send_refreshes_digests_before_gathering(db_session, temporal_client, monkeypatch):
-    """The send must not depend on the daily run having happened: a paper
-    only on arXiv right now (no digest run yet) still makes this email."""
-    topic = _make_topic(db_session)
-    _make_subscription(
-        db_session, topic, "me@example.com", cadence="twice_weekly",
-        last_sent_at=datetime.now(timezone.utc) - timedelta(days=4),
-    )
-    monkeypatch.setattr(
-        temporal_activities, "search_arxiv",
-        lambda query, since=None: [make_result("2610.0001", "Fresh Paper")],
-    )
-
-    count = await _run_send_emails(temporal_client, "send-refresh")
-
-    assert count == 1
-    [(_, content)] = FakeEmailSender.sent
-    assert "Fresh Paper" in content.text_body
-
-
-async def test_send_still_goes_out_when_the_refresh_fails(db_session, temporal_client, monkeypatch):
-    last_sent = datetime.now(timezone.utc) - timedelta(days=4)
-    topic = _make_topic(db_session)
-    _make_subscription(db_session, topic, "me@example.com", cadence="twice_weekly", last_sent_at=last_sent)
-    _make_completed_digest(
-        db_session, topic, generated_at=last_sent + timedelta(days=1), papers=[("Already Here", "S.")]
-    )
-
-    def arxiv_down(query, since=None):
-        raise RuntimeError("arxiv is down")
-
-    monkeypatch.setattr(temporal_activities, "search_arxiv", arxiv_down)
-
-    assert await _run_send_emails(temporal_client, "send-refresh-fails") == 1
-    [(_, content)] = FakeEmailSender.sent
-    assert "Already Here" in content.text_body
-
-
 async def test_digest_still_running_during_a_send_goes_out_with_the_next_one(
     db_session, temporal_client
 ):
@@ -955,45 +939,6 @@ async def test_digest_still_running_during_a_send_goes_out_with_the_next_one(
     assert "Straggler" in content.text_body
     db_session.expire_all()
     assert db_session.get(models.Subscription, sub.id).last_sent_at > straggler.completed_at
-
-
-async def test_send_waits_for_in_flight_digests(db_session, temporal_client, monkeypatch):
-    pending_answers = iter([2, 1, 0])
-    calls = []
-
-    def fake_count(db):
-        calls.append(1)
-        return next(pending_answers)
-
-    monkeypatch.setattr(crud, "count_pending_digests", fake_count)
-
-    await _run_send_emails(temporal_client, "send-waits")
-
-    assert len(calls) == 3  # polled until nothing was pending, then stopped
-
-
-async def test_send_gives_up_waiting_and_sends_anyway(db_session, temporal_client, monkeypatch):
-    """A digest stuck pending forever must delay the send by at most the
-    bounded wait, never block it."""
-    from app.temporal.workflows import _PENDING_WAIT_POLLS
-
-    last_sent = datetime.now(timezone.utc) - timedelta(days=4)
-    topic = _make_topic(db_session)
-    _make_subscription(db_session, topic, "me@example.com", cadence="twice_weekly", last_sent_at=last_sent)
-    _make_completed_digest(
-        db_session, topic, generated_at=last_sent + timedelta(days=1), papers=[("Ready", "S.")]
-    )
-    db_session.add(models.Digest(topic_id=topic.id, status=models.DigestStatus.pending))
-    db_session.commit()
-    calls = []
-    real_count = crud.count_pending_digests
-    monkeypatch.setattr(
-        crud, "count_pending_digests", lambda db: (calls.append(1), real_count(db))[1]
-    )
-
-    assert await _run_send_emails(temporal_client, "send-gives-up") == 1
-    assert len(calls) == _PENDING_WAIT_POLLS
-    assert "Ready" in FakeEmailSender.sent[0][1].text_body
 
 
 def test_finalize_stamps_completed_at_only_on_completion(db_session):
@@ -1213,9 +1158,10 @@ def _link_with_relevance(db_session, topic, title, relevance):
     db_session.commit()
 
 
-async def test_send_ranks_the_cap_by_relevance_and_author_h_index(
+async def test_prep_ranks_the_cap_by_relevance_and_author_h_index(
     db_session, temporal_client, monkeypatch
 ):
+    """h-index is looked up at prep, and the send keeps the edition's order."""
     last_sent = datetime.now(timezone.utc) - timedelta(days=4)
     topic = _make_topic(db_session)
     _make_subscription(
@@ -1237,6 +1183,7 @@ async def test_send_ranks_the_cap_by_relevance_and_author_h_index(
 
     monkeypatch.setattr(temporal_activities, "fetch_max_author_h_index", fake_scholar)
 
+    assert await _run_prep(temporal_client, topic) == "written"
     assert await _run_send_emails(temporal_client, "send-ranked") == 1
 
     [(_, content)] = FakeEmailSender.sent
@@ -1249,7 +1196,7 @@ async def test_send_ranks_the_cap_by_relevance_and_author_h_index(
     assert db_session.query(models.Paper).filter_by(title="Oldest Central").one().max_author_h_index is None
 
 
-async def test_send_still_goes_out_when_semantic_scholar_is_down(
+async def test_prep_still_writes_the_edition_when_semantic_scholar_is_down(
     db_session, temporal_client, monkeypatch
 ):
     last_sent = datetime.now(timezone.utc) - timedelta(days=4)
@@ -1266,8 +1213,9 @@ async def test_send_still_goes_out_when_semantic_scholar_is_down(
 
     monkeypatch.setattr(temporal_activities, "fetch_max_author_h_index", scholar_down)
 
+    assert await _run_prep(temporal_client, topic) == "written"
+    assert len(attempts) == 4  # _SCHOLAR_RETRY exhausted, then ranked without it
     assert await _run_send_emails(temporal_client, "send-scholar-down") == 1
-    assert len(attempts) == 4  # _SCHOLAR_RETRY exhausted, then sent anyway
     [(_, content)] = FakeEmailSender.sent
     assert "Paper" in content.text_body
 

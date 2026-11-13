@@ -58,6 +58,7 @@ from app.temporal.types import (
     AdvanceWatermarkInput,
     DigestContext,
     DueSubscription,
+    EditionKey,
     EditionPlan,
     EditionRanking,
     EmbedPapersInput,
@@ -503,65 +504,34 @@ def list_due_subscriptions() -> list[DueSubscription]:
 
 
 @activity.defn
-def enrich_author_h_index(input: GatherContentInput) -> int:
-    """Fill in `max_author_h_index` for every paper the coming emails could
-    include that doesn't have one yet (Semantic Scholar or OpenAlex, see
-    app.services.scholar). Run at send time rather than ingest time on
-    purpose: both lag arXiv by a day or more, so by the send more of a
-    window's papers are indexed. Ones that still aren't stay NULL and are retried on
-    the next send they're due in. Returns how many papers were filled in."""
-    db = SessionLocal()
-    try:
-        missing: dict[str, models.Paper] = {}
-        for window in input.topics:
-            for digest in crud.list_completed_digests_since(db, window.topic_id, window.since):
-                for paper in digest.papers:
-                    if paper.max_author_h_index is None:
-                        missing[paper.arxiv_id] = paper
-        if not missing:
-            return 0
-        found = fetch_max_author_h_index(list(missing))
-        for arxiv_id, h_index in found.items():
-            missing[arxiv_id].max_author_h_index = h_index
-        db.commit()
-        return len(found)
-    finally:
-        db.close()
-
-
-@activity.defn
 def gather_digest_content(input: GatherContentInput) -> GatheredContent | None:
-    """Render one email covering every topic in `input.topics` that has at
-    least one new paper. None means none of them do - the workflow skips the
-    send and leaves every watermark untouched. A topic with nothing new is
-    left out of the email (and out of `subscription_ids`), so its watermark
-    stays put too.
+    """Render one email from each topic's stored edition, cut to the
+    subscription's cap and kept in the edition's order. No LLM, arXiv or
+    h-index call: send prep (or `ensure_edition`'s fallback) did that work.
+    A topic whose edition has no papers is left out of the email (and out of
+    `subscription_ids`, so its watermark stays put); None means every topic
+    was empty and the send is skipped.
 
-    `as_of` (returned for use as the new watermark) is taken *before* reading:
-    a digest completing mid-gather has completed_at > as_of, so it's picked
-    up by the next email instead of slipping between the read and the stamp."""
+    `as_of` (the contributing subscriptions' new `last_sent_at`) is when the
+    email was assembled."""
     as_of = datetime.now(timezone.utc)
     db = SessionLocal()
     try:
         sections: list[TopicSection] = []
         included: list[str] = []
         for window in input.topics:
-            digests = crud.list_completed_digests_since(db, window.topic_id, window.since)
-            relevance = crud.relevance_by_paper(
-                db, window.topic_id, [p.id for d in digests for p in d.papers]
+            edition = db.get(models.TopicEdition, window.edition_id)
+            if edition is None or not edition.papers:
+                continue
+            relevance = crud.relevance_by_paper(db, edition.topic_id, [p.id for p in edition.papers])
+            batch = DigestForEmail(
+                generated_at=edition.window_end,
+                overview=edition.overview,
+                papers=[_paper_for_email(p, relevance.get(p.id)) for p in edition.papers],
             )
-            batches = [
-                DigestForEmail(
-                    generated_at=d.generated_at,
-                    overview=d.overview,
-                    papers=[_paper_for_email(p, relevance.get(p.id)) for p in d.papers],
-                )
-                for d in digests
-            ]
-            cal = get_settings().calibration
             section = build_topic_section(
-                window.topic_name, batches, window.max_papers,
-                novelty=(cal.novelty_repeat, cal.novelty_unrelated),
+                window.topic_name, [batch], window.max_papers,
+                novelty=_novelty(), order=[p.arxiv_id for p in edition.papers],
             )
             if section is not None:
                 sections.append(section)
@@ -574,7 +544,6 @@ def gather_digest_content(input: GatherContentInput) -> GatheredContent | None:
         return GatheredContent(content=content, as_of=as_of, subscription_ids=included)
     finally:
         db.close()
-
 
 def _paper_for_email(p: models.Paper, relevance: int | None) -> PaperForEmail:
     return PaperForEmail(
@@ -614,12 +583,6 @@ def plan_edition(input: PlanEditionInput) -> EditionPlan:
         topic = db.get(models.Topic, input.topic_id)
         if topic is None:
             raise ApplicationError(f"topic {input.topic_id} not found", non_retryable=True)
-        caps = [
-            cap if cap is not None else _UNCAPPED_K
-            for (cap,) in crud.active_subscriptions_query(db)
-            .with_entities(models.Subscription.max_papers)
-            .filter(models.Subscription.topic_id == topic.id)
-        ]
         plan = EditionPlan(
             topic_id=topic.id,
             topic_name=topic.name,
@@ -627,7 +590,7 @@ def plan_edition(input: PlanEditionInput) -> EditionPlan:
             slot=input.slot,
             window_start=input.window_end,
             window_end=input.window_end,
-            k=max([_MIN_K, *caps]),
+            k=_edition_k(db, topic.id),
             llm_max_concurrency=settings.llm_max_concurrency,
             fulltext=bool(settings.rag_fulltext and settings.embeddings_enabled),
         )
@@ -675,37 +638,88 @@ def enrich_h_index_for_papers(paper_ids: list[str]) -> int:
         db.close()
 
 
+def _edition_k(db, topic_id: str) -> int:
+    """The largest max_papers among the topic's active subscriptions (an
+    uncapped one counts as 10), and at least 5."""
+    caps = [
+        cap if cap is not None else _UNCAPPED_K
+        for (cap,) in crud.active_subscriptions_query(db)
+        .with_entities(models.Subscription.max_papers)
+        .filter(models.Subscription.topic_id == topic_id)
+    ]
+    return max([_MIN_K, *caps])
+
+
+def _rank_window(
+    db, topic_id: str, papers: list[models.Paper], as_of: datetime
+) -> tuple[list[str], list[models.Paper]]:
+    """(every paper's id best first, the ranked papers without their near
+    duplicates), scored as the email scores them. A near duplicate ranks
+    right after the paper it folds under, so it never takes a top-K slot."""
+    if not papers:
+        return [], []
+    relevance = crud.relevance_by_paper(db, topic_id, [p.id for p in papers])
+    by_arxiv_id = {p.arxiv_id: p for p in papers}
+    batch = DigestForEmail(
+        generated_at=as_of,
+        overview=None,
+        papers=[_paper_for_email(p, relevance.get(p.id)) for p in papers],
+    )
+    ranked = rank_papers([batch], novelty=_novelty())
+    ordered: list[str] = []
+    for r in ranked:
+        ordered.append(by_arxiv_id[r.arxiv_id].id)
+        ordered.extend(by_arxiv_id[d.arxiv_id].id for d in r.see_also)
+    return ordered, [by_arxiv_id[r.arxiv_id] for r in ranked]
+
+
 @activity.defn
 def rank_edition(plan: EditionPlan) -> EditionRanking:
-    """The window's papers best first, scored as the email scores them
-    (relevance, h-index, venue, novelty), and the top K. A near duplicate
-    ranks right after the paper it folds under, so it never takes a top-K
-    summary slot but stays in the edition."""
+    """The window's papers best first (relevance, h-index, venue, novelty)
+    and the top K with any summary they already have."""
     db = SessionLocal()
     try:
         papers = db.query(models.Paper).filter(models.Paper.id.in_(plan.paper_ids)).all()
-        if not papers:
-            return EditionRanking()
-        relevance = crud.relevance_by_paper(db, plan.topic_id, [p.id for p in papers])
-        by_arxiv_id = {p.arxiv_id: p for p in papers}
-        batch = DigestForEmail(
-            generated_at=plan.window_end,
-            overview=None,
-            papers=[_paper_for_email(p, relevance.get(p.id)) for p in papers],
-        )
-        ranked = rank_papers([batch], novelty=_novelty())
-        top = [by_arxiv_id[r.arxiv_id] for r in ranked[: plan.k]]
-        ordered: list[str] = []
-        for r in ranked:
-            ordered.append(by_arxiv_id[r.arxiv_id].id)
-            ordered.extend(by_arxiv_id[d.arxiv_id].id for d in r.see_also)
+        ordered, ranked = _rank_window(db, plan.topic_id, papers, plan.window_end)
         return EditionRanking(
             paper_ids=ordered,
             top=[
                 TopPaper(paper_id=p.id, title=p.title, abstract=p.abstract or "", summary=p.summary)
-                for p in top
+                for p in ranked[: plan.k]
             ],
         )
+    finally:
+        db.close()
+
+
+@activity.defn
+def ensure_edition(key: EditionKey) -> str:
+    """The id of the topic's edition for `key.slot`. When prep never wrote
+    one (the worker was down, or the topic is newer than prep), builds a
+    "fallback" edition from the topic's window now - ranked from what's
+    stored, with no LLM, arXiv or h-index call and no overview - so the
+    topic is never held back."""
+    db = SessionLocal()
+    try:
+        existing = crud.get_edition(db, key.topic_id, key.slot)
+        if existing is not None:
+            return existing.id
+        window_end = datetime.now(timezone.utc)
+        window_start = crud.edition_window_start(db, key.topic_id, window_end)
+        papers = crud.window_papers(db, key.topic_id, window_start, window_end)
+        ordered, _ = _rank_window(db, key.topic_id, papers, window_end)
+        edition = crud.save_edition(
+            db,
+            topic_id=key.topic_id,
+            slot=key.slot,
+            window_start=window_start,
+            window_end=window_end,
+            status="fallback",
+            k=_edition_k(db, key.topic_id),
+            overview=None,
+            ranked_paper_ids=ordered,
+        )
+        return edition.id
     finally:
         db.close()
 
@@ -727,15 +741,6 @@ def store_edition(input: StoreEditionInput) -> str:
             ranked_paper_ids=input.ranked_paper_ids,
         )
         return edition.id
-    finally:
-        db.close()
-
-
-@activity.defn
-def count_pending_digests() -> int:
-    db = SessionLocal()
-    try:
-        return crud.count_pending_digests(db)
     finally:
         db.close()
 

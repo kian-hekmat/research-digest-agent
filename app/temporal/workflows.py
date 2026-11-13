@@ -89,9 +89,6 @@ _LLM_RETRY = RetryPolicy(
 _LLM_TIMEOUT = timedelta(seconds=180)
 # An ingest alerts when every rating raised, once at least this many ran.
 _MIN_RATINGS_FOR_ALERT = 3
-# Before an email send: wait up to 20 x 30s = 10 min for in-flight digests.
-_PENDING_WAIT_POLLS = 20
-_PENDING_WAIT_INTERVAL = timedelta(seconds=30)
 # For the h-index lookup (Semantic Scholar or OpenAlex): a few spaced-out
 # attempts ride out a burst of 429s. Exhausting them only costs the email its
 # h-index signal, never the send.
@@ -530,27 +527,23 @@ class PrepEditionsWorkflow:
 class SendDigestEmailsWorkflow:
     """Scheduled entrypoint for email delivery (see app.temporal.schedule).
 
-    Fires twice a week; each subscription is judged individually against its
-    own cadence by `list_due_subscriptions`. A recipient's due subscriptions
-    are combined into ONE email with a section per topic, rather than one
-    email per topic. Deliveries to different recipients fan out concurrently,
-    and one recipient's failure (or nothing-new skip) never blocks another's.
+    Fires at each send slot; each subscription is judged individually against
+    its own cadence by `list_due_subscriptions`. Emails are assembled from
+    each topic's stored edition for the slot - no LLM, arXiv or h-index call
+    happens here. A topic with no edition (prep never ran for it) gets a
+    fallback one without AI text rather than being held back.
 
-    Before gathering, it brings content up to date itself instead of trusting
-    that the daily digest run happened: it runs a digest pass as a child, then
-    waits (bounded) for any other digest runs still in flight - e.g. the daily
-    run firing at the same moment on a laptop-wake catch-up, or one resuming
-    after a restart. A refresh failure never blocks the send; it goes out
-    with whatever completed.
-
-    Returns the number of emails sent.
+    A recipient's due subscriptions are combined into ONE email with a
+    section per topic. Deliveries to different recipients fan out
+    concurrently, and one recipient's failure (or nothing-new skip) never
+    blocks another's. Returns the number of emails sent.
     """
 
     @workflow.run
-    async def run(self) -> int:
-        await self._refresh_digests()
-        await self._wait_for_in_flight_digests()
-
+    async def run(self, slot_iso: str | None = None) -> int:
+        slot = (
+            datetime.fromisoformat(slot_iso) if slot_iso else cadence.latest_slot(workflow.now())
+        )
         due: list[types.DueSubscription] = await workflow.execute_activity(
             activities.list_due_subscriptions,
             start_to_close_timeout=timedelta(seconds=30),
@@ -559,70 +552,64 @@ class SendDigestEmailsWorkflow:
         if not due:
             return 0
 
-        await self._enrich_author_h_index(due)
+        # One edition per topic, shared by everyone subscribed to it.
+        topic_ids = list(dict.fromkeys(s.topic_id for s in due))
+        outcomes = await asyncio.gather(
+            *[
+                workflow.execute_activity(
+                    activities.ensure_edition,
+                    types.EditionKey(topic_id=topic_id, slot=slot),
+                    start_to_close_timeout=timedelta(seconds=60),
+                    retry_policy=_DB_RETRY,
+                )
+                for topic_id in topic_ids
+            ],
+            return_exceptions=True,
+        )
+        editions: dict[str, str] = {}
+        for topic_id, outcome in zip(topic_ids, outcomes):
+            if isinstance(outcome, BaseException):
+                workflow.logger.warning(
+                    "No edition for topic %s: %s", topic_id, _cause_message(outcome)
+                )
+            else:
+                editions[topic_id] = outcome
 
         # dict preserves first-seen order, and `due` arrives oldest
         # subscription first - so topics appear in the order subscribed.
         by_recipient: dict[str, list[types.DueSubscription]] = {}
         for sub in due:
-            by_recipient.setdefault(sub.email, []).append(sub)
+            if sub.topic_id in editions:
+                by_recipient.setdefault(sub.email, []).append(sub)
 
         results = await asyncio.gather(
-            *[self._deliver(email, subs) for email, subs in by_recipient.items()],
+            *[self._deliver(email, subs, editions) for email, subs in by_recipient.items()],
             return_exceptions=True,
         )
         return sum(1 for r in results if r is True)
 
-    async def _refresh_digests(self) -> None:
-        try:
-            await workflow.execute_child_workflow(
-                RunAllTopicDigestsWorkflow.run,
-                id=f"{workflow.info().workflow_id}-refresh",
-                task_queue=workflow.info().task_queue,
-            )
-        except Exception:
-            # Same principle as a failed summary: degrade, don't block. Content
-            # that did complete still goes out; the rest lands next time.
-            workflow.logger.warning("Digest refresh before send failed", exc_info=True)
-
-    async def _wait_for_in_flight_digests(self) -> None:
-        """Poll until no digest is pending, for at most _PENDING_WAIT_POLLS x
-        _PENDING_WAIT_INTERVAL. Giving up is safe: delivery keys off
-        completed_at, so anything still pending goes out with the next email
-        rather than being lost - this wait only keeps it from being late."""
-        for _ in range(_PENDING_WAIT_POLLS):
-            pending = await workflow.execute_activity(
-                activities.count_pending_digests,
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=_DB_RETRY,
-            )
-            if not pending:
-                return
-            await workflow.sleep(_PENDING_WAIT_INTERVAL)
-        workflow.logger.warning("Sending with digests still pending; they'll go out next time")
-
-    async def _enrich_author_h_index(self, due: list[types.DueSubscription]) -> None:
-        """One Semantic Scholar pass for every recipient's papers, before any
-        gather. Failure degrades the ranking (no h-index term), never the send."""
-        try:
-            await workflow.execute_activity(
-                activities.enrich_author_h_index,
-                _windows(due),
-                start_to_close_timeout=timedelta(seconds=90),
-                retry_policy=_SCHOLAR_RETRY,
-            )
-        except ActivityError:
-            workflow.logger.warning("Author h-index lookup failed; ranking without it", exc_info=True)
-
-    async def _deliver(self, email: str, subs: list[types.DueSubscription]) -> bool:
+    async def _deliver(
+        self, email: str, subs: list[types.DueSubscription], editions: dict[str, str]
+    ) -> bool:
         gathered: types.GatheredContent | None = await workflow.execute_activity(
             activities.gather_digest_content,
-            _windows(subs),
+            types.GatherContentInput(
+                topics=[
+                    types.TopicWindow(
+                        subscription_id=s.subscription_id,
+                        topic_id=s.topic_id,
+                        topic_name=s.topic_name,
+                        edition_id=editions[s.topic_id],
+                        max_papers=s.max_papers,
+                    )
+                    for s in subs
+                ]
+            ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=_DB_RETRY,
         )
         if gathered is None:
-            return False  # nothing new on any topic - leave every watermark alone
+            return False  # nothing in any of these editions - leave every watermark alone
 
         await workflow.execute_activity(
             activities.send_digest_email,
@@ -632,8 +619,8 @@ class SendDigestEmailsWorkflow:
         )
         # Only advance watermarks on a confirmed send - a failed send (all
         # _EMAIL_RETRY attempts exhausted) leaves them alone, so this recipient
-        # is retried, with the same content, on the next scheduled run. Topics
-        # that had nothing new weren't in the email, so theirs stay put too.
+        # is due again at the next slot and gets that slot's edition. Topics
+        # with an empty edition weren't in the email, so theirs stay put too.
         await asyncio.gather(
             *[
                 workflow.execute_activity(
@@ -646,18 +633,3 @@ class SendDigestEmailsWorkflow:
             ]
         )
         return True
-
-
-def _windows(subs: list[types.DueSubscription]) -> types.GatherContentInput:
-    return types.GatherContentInput(
-        topics=[
-            types.TopicWindow(
-                subscription_id=s.subscription_id,
-                topic_id=s.topic_id,
-                topic_name=s.topic_name,
-                since=s.last_sent_at,
-                max_papers=s.max_papers,
-            )
-            for s in subs
-        ]
-    )
