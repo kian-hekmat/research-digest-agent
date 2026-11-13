@@ -368,3 +368,34 @@ async def test_existing_schedules_move_to_eastern_in_place(temporal_env_only): .
   - After Monday's 01:00 ET prep: each topic has a `ready` edition whose window starts at the topic's last send, and `llm_usage` shows `summary` and `overview` rows.
   - After 08:00 ET: one email arrives with each topic's edition.
   - Record all of this, with the first per-topic costs from `/admin/usage`, in this plan's outcome.
+
+---
+
+## Outcome (2026-11-13)
+
+Built: Tasks 1–2 subagent-driven with a review per task; Tasks 3–6 inline (the owner switched to save tokens), with one whole-branch review on the most capable model. 468 → 521 tests. Live since 2026-11-13 07:45 PT: migrated to `d4e5f6a7b8ca` (backup `~/research-digest-backups/digest_db_20261113_074445_pre-2c.sql`), worker rebuilt, schedules on Eastern time: ingest 21:30 daily, `send-prep` 01:00 Mon/Thu, send 08:00 Mon/Thu.
+
+- **Task 1.** The `labels.csv` gate failed (0.741 / 0.383 against 0.77 / 0.45). A side-by-side check (rag-plan §5.10) showed the new rubric worse on the owner's three topics and better across fields; the owner kept it.
+- **The final review changed the design in two places:**
+  - **Slots come from the scheduled fire time** (`TemporalScheduledStartTime`), not the clock. A prep caught up late on wake used to prepare the *next* slot, which would have repeated papers and lost AI text. `cadence.prep_slot` = the next slot after the fire time minus 7 hours.
+  - **A send that finds no edition runs the topic's prep itself** under the one prep id (`prep_workflow_id`), or waits up to 30 min if the scheduled prep is running. It falls back without AI text only if prep fails. This departs from "send makes no LLM calls": the spend is the same, and the email keeps its AI text when the host slept through 01:00.
+  - Also, an uncapped subscriber is capped at the edition's K.
+- **Schedules were paused, and the worker stopped,** from 2026-11-12 21:55 PT until the switch-over, because the worker runs the mounted working tree. The 2026-11-13 10:00 PT ingest was skipped; tonight's 21:30 ET run catches it up through the watermark.
+
+**Carried forward:**
+- **Verify the first cycle**, and record it here:
+  - **After tonight's 21:30 ET ingest:** new papers have ratings and no summaries; `llm_usage` has only `rating` and `embedding` rows; fewer than half the ratings are 10. This also closes the 2b check of embedding rows.
+  - **After Monday 01:00 ET prep:** each topic has a `ready` edition, `llm_usage` has `summary` and `overview` rows, and the first per-topic costs from `/admin/usage` go into the 2a plan.
+  - **At Monday 08:00 ET:** one email with each topic's edition.
+- **Deferred minors from the final review:**
+  - **First-edition window:** a topic's first edition starts at the earliest active `last_sent_at`, so one long-failed subscriber replays weeks of papers. Clamp it to the previous slot.
+  - **Overview scope:** the overview covers the top K, so a smaller-cap reader can see it mention papers they don't get (2d's overview redesign).
+  - **arXiv slot:** `fetch_fulltext` embeds inside the one arXiv slot; move that out before turning full text on.
+  - **Superseded preps:** prep returns "written" even when an existing fallback was kept; it should return "superseded".
+- **Deferred minors from the per-task reviews (Tasks 1–2):**
+  - **Eval guard test:** it checks only the guard.
+  - **Report names:** a report's filename suffix is chosen by file name, not resolved path.
+  - **Labels path:** the `labels` field is recorded as given, relative or absolute.
+  - **Duplicate slot logic:** `next_slot` repeats `latest_slot`'s logic.
+  - **Empty assertion:** `assert edition.id` in `test_edition_papers_keep_rank_order` asserts nothing.
+  - **Unhelpful docstring:** `save_edition`'s docstring says nothing about `IntegrityError`.
