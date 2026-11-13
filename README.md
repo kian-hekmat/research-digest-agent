@@ -5,9 +5,10 @@
 **A self-hosted research alerting service.** It watches arXiv for new papers on
 topics you choose, summarizes and scores each paper with an LLM (OpenAI's
 GPT-5.4 mini), ranks them, and emails you one combined digest on your
-cadence. Summaries and overviews are retrieval-augmented: each paper's full text
-(from arXiv's HTML rendering), its nearest earlier papers (by embedding, in
-pgvector), and the topic's recent digests inform what the model writes. Every
+cadence. Summaries and overviews are retrieval-augmented: each paper's nearest
+earlier papers (by embedding, in pgvector) and the topic's recent overviews
+inform what the model writes, and so can its full text from arXiv's HTML
+rendering (built and evaluated, but off until arXiv allows it). Every
 retrieval feature was measured against a baseline before it was switched on.
 Everything is orchestrated as durable Temporal workflows, so a crash, reboot, or
 sleeping laptop delays a digest instead of losing it.
@@ -15,18 +16,28 @@ sleeping laptop delays a digest instead of losing it.
 > Built as a realistic backend/AI engineering project: an HTTP API, a relational
 > schema with migrations, durable workflow orchestration, external API
 > integration, LLM summarization with retrieval (RAG) over a vector store, an
-> offline evaluation harness, scheduled email delivery, and a 355-test suite
+> offline evaluation harness, scheduled email delivery, and a 530-test suite
 > running in CI.
 
-**Status (2026-11-12): being turned into a small public service.** The plan is
-[`docs/public-launch-plan.md`](docs/public-launch-plan.md) (v2.1): free
+**Status (2026-11-13): being turned into a small public service.** The plan is
+[`docs/public-launch-plan.md`](docs/public-launch-plan.md) (v2.2): free
 twice-weekly digests for US readers, capped at 200 subscribers and $20/month of
-OpenAI spend. Phase 1 of 6 is done and deployed: real subscriber records,
-topics shared by a normalized query, fetching and emailing only for confirmed
-subscribers, and the JSON API locked behind an admin token. There is no public
-signup yet; the service still runs for its owner. Next is Phase 2 (spend
-tracking, OpenAI embeddings, a two-pass pipeline and a redesigned email). Each
-phase's implementation plan is in [`docs/superpowers/plans/`](docs/superpowers/plans/).
+OpenAI spend. There is no public signup yet; the service still runs for its
+owner.
+
+| Step | What | State |
+|---|---|---|
+| Phase 1 | Subscriber records, shared topics, admin-token lockdown | Live |
+| 2a | OpenAI spend log, monthly budget guard, owner alerts | Live |
+| 2b | OpenAI embeddings (`text-embedding-3-small`), recalibrated thresholds | Live |
+| 2c | Three passes on Eastern time (ingest, send prep, send), stored per-topic editions, a rating rubric audited across fields | Live since 2026-11-13; first full cycle Mon 2026-11-16 |
+| 2c+ | OpenAlex as a second paper source (journal articles, other preprint servers) | In progress: the client is built (task 1 of 6); nothing live uses it yet |
+| 2d | Picks-first email and rewritten summary/overview prompts | Planned |
+| 2e | Cost and load rehearsal | Planned |
+| 3–6 | Public signup, website, production host (Hetzner), legal and launch | Planned |
+
+Each phase's implementation plan, with its outcome, is in
+[`docs/superpowers/plans/`](docs/superpowers/plans/).
 
 ---
 
@@ -150,7 +161,7 @@ paper's text never does.
   the export host arXiv asks scripts to use
 
 **Testing & CI**
-- 355 tests against a real Postgres built by running the migrations, so model
+- 530 tests against a real Postgres built by running the migrations, so model
   and migration drift fails the suite
 - Workflows run end to end against Temporal's time-skipping server, so minutes
   of retry backoff finish in about a second
@@ -209,6 +220,16 @@ paper's text never does.
 Three passes, all on Eastern time: a cheap daily **ingest**, a twice-weekly
 **send prep** that does the expensive work only for the papers that will be
 emailed, and a **send** that only assembles stored content.
+
+| Schedule | When (America/New_York) | Workflow | What it does |
+|---|---|---|---|
+| `daily-topic-digests` | Daily 21:30 | `RunAllTopicDigestsWorkflow` | Ingest: fetch, embed and rate each subscribed topic's new papers |
+| `send-prep` | Mon and Thu 01:00 | `PrepEditionsWorkflow` | One edition per topic for the 08:00 send: rank, summarize the top K, write the overview |
+| `weekly-digest-emails` | Mon and Thu 08:00 | `SendDigestEmailsWorkflow` | Email each due subscriber their topics' editions |
+
+The worker creates or updates all three on startup. A run missed while the
+host was down or asleep fires when it's back, and keeps the slot it was
+scheduled for.
 
 ### 1. Daily ingest (`DigestWorkflow`)
 Runs daily at 21:30 Eastern for every topic with at least one active
@@ -514,6 +535,7 @@ app/
 ├── topic_query.py          query normalization and public-input validation
 ├── services/
 │   ├── arxiv.py            arXiv Atom API client
+│   ├── openalex.py         OpenAlex search, the second paper source (2c+; not wired in yet)
 │   ├── summarize.py        OpenAI or Ollama: summaries, ratings, overviews
 │   ├── embed.py            OpenAI or Ollama: paper, chunk and topic embeddings
 │   ├── retrieval.py        pgvector storage + nearest-neighbour queries
@@ -522,7 +544,7 @@ app/
 │   ├── scholar.py          author h-index from Semantic Scholar / OpenAlex
 │   └── email.py            digest rendering + SMTP sender
 ├── temporal/
-│   ├── workflows.py        DigestWorkflow, RunAllTopicDigestsWorkflow, SendDigestEmailsWorkflow
+│   ├── workflows.py        ingest, send prep and send workflows
 │   ├── activities.py       all I/O: DB, arXiv, LLM, embeddings, full text, SMTP
 │   ├── schedule.py         idempotent, self-reconciling cron schedules
 │   └── types.py            dependency-free dataclasses passed across the workflow boundary
@@ -538,11 +560,12 @@ evals/                      offline evaluation harness (not run in CI)
 ├── fulltext.py             full-text summaries: concreteness, faithfulness, blind A/B
 ├── metrics.py              pure metric helpers (unit-tested)
 ├── labels.csv              reference labels (47 topic-paper pairs, labeler marked)
+├── labels_diverse.csv      cross-field reference labels (47 papers from 8 unrelated fields)
 └── results/                every report the decisions in docs/rag-plan.md rest on
-tests/                      355 tests (see Testing)
+tests/                      530 tests (see Testing)
 docs/
 ├── rag-plan.md             the retrieval plan, measurements and decisions
-├── public-launch-plan.md   public launch plan (v2.1); Phase 1 of 6 done
+├── public-launch-plan.md   public launch plan (v2.2); Phase 1 and 2a–2c done
 └── superpowers/plans/      one implementation plan per launch phase, with its outcome
 ```
 
