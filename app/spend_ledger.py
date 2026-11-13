@@ -45,7 +45,10 @@ def _month_key(now: datetime) -> str:
 def month_to_date_usd(db: Session, now: datetime) -> Decimal:
     total = (
         db.query(func.coalesce(func.sum(models.LlmUsage.cost_usd), 0))
-        .filter(models.LlmUsage.created_at >= month_start(now), models.LlmUsage.created_at <= now)
+        # No upper bound: a row stamped by a clock slightly ahead of `now`
+        # (Postgres's own, say) must still count - under-counting is the
+        # wrong way for a budget guard to fail.
+        .filter(models.LlmUsage.created_at >= month_start(now))
         .scalar()
     )
     return Decimal(total)

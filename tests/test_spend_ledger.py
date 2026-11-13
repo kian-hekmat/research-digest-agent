@@ -1,5 +1,5 @@
 """Month-to-date spend, the spend state, and DbLedger against real Postgres."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -263,3 +263,11 @@ def test_month_boundary_holds_in_a_non_utc_database_session(db_session):
         db_session.rollback()
         db_session.execute(text("RESET TIME ZONE"))
         db_session.commit()
+
+
+def test_month_to_date_counts_rows_stamped_slightly_ahead(db_session):
+    # The database's clock can run ahead of the app's (colima's VM is ~0.1s
+    # ahead here). A row stamped by Postgres must still count, or the guard
+    # under-counts spend.
+    _usage_row(db_session, NOV + timedelta(seconds=2), "7")
+    assert month_to_date_usd(db_session, NOV) == Decimal("7")
