@@ -1,0 +1,231 @@
+{
+  "model": "text-embedding-3-small",
+  "topic_suggestion": 0.363,
+  "overlap": true,
+  "misclassified": [
+    {
+      "a": "RLHF",
+      "b": "reinforcement learning from human feedback",
+      "label": "same",
+      "similarity": 0.1959
+    },
+    {
+      "a": "PINNs",
+      "b": "physics-informed neural networks",
+      "label": "same",
+      "similarity": 0.1998
+    },
+    {
+      "a": "mixture of experts",
+      "b": "MoE",
+      "label": "same",
+      "similarity": 0.2258
+    },
+    {
+      "a": "DPO",
+      "b": "direct preference optimization",
+      "label": "same",
+      "similarity": 0.3292
+    },
+    {
+      "a": "physics-informed neural networks",
+      "b": "neural operators",
+      "label": "different",
+      "similarity": 0.4415
+    },
+    {
+      "a": "graph neural networks",
+      "b": "graph transformers",
+      "label": "different",
+      "similarity": 0.5965
+    },
+    {
+      "a": "large language models",
+      "b": "speech recognition",
+      "label": "different",
+      "similarity": 0.3876
+    }
+  ],
+  "pairs": [
+    {
+      "a": "federated learning",
+      "b": "federated machine learning",
+      "label": "same",
+      "similarity": 0.8509
+    },
+    {
+      "a": "mechanistic interpretability",
+      "b": "mechanistic interpretability of neural networks",
+      "label": "same",
+      "similarity": 0.7851
+    },
+    {
+      "a": "numerical methods for partial differential equations",
+      "b": "numerical PDEs",
+      "label": "same",
+      "similarity": 0.6983
+    },
+    {
+      "a": "reward modeling",
+      "b": "reward models for RLHF",
+      "label": "same",
+      "similarity": 0.6715
+    },
+    {
+      "a": "graph neural networks",
+      "b": "graph transformers",
+      "label": "different",
+      "similarity": 0.5965
+    },
+    {
+      "a": "diffusion models",
+      "b": "denoising diffusion probabilistic models",
+      "label": "same",
+      "similarity": 0.5703
+    },
+    {
+      "a": "neural ODEs",
+      "b": "neural ordinary differential equations",
+      "label": "same",
+      "similarity": 0.565
+    },
+    {
+      "a": "physics-informed neural networks",
+      "b": "neural operators",
+      "label": "different",
+      "similarity": 0.4415
+    },
+    {
+      "a": "vision transformers",
+      "b": "ViT",
+      "label": "same",
+      "similarity": 0.4303
+    },
+    {
+      "a": "GNNs",
+      "b": "graph neural networks",
+      "label": "same",
+      "similarity": 0.4228
+    },
+    {
+      "a": "LLM alignment",
+      "b": "aligning large language models",
+      "label": "same",
+      "similarity": 0.4018
+    },
+    {
+      "a": "LLMs",
+      "b": "large language models",
+      "label": "same",
+      "similarity": 0.3936
+    },
+    {
+      "a": "large language models",
+      "b": "speech recognition",
+      "label": "different",
+      "similarity": 0.3876
+    },
+    {
+      "a": "RAG",
+      "b": "retrieval-augmented generation",
+      "label": "same",
+      "similarity": 0.3634
+    },
+    {
+      "a": "vision transformers",
+      "b": "convolutional neural networks",
+      "label": "different",
+      "similarity": 0.362
+    },
+    {
+      "a": "mechanistic interpretability",
+      "b": "adversarial robustness",
+      "label": "different",
+      "similarity": 0.3499
+    },
+    {
+      "a": "retrieval-augmented generation",
+      "b": "long-context language models",
+      "label": "different",
+      "similarity": 0.3313
+    },
+    {
+      "a": "large language models",
+      "b": "finite element methods",
+      "label": "different",
+      "similarity": 0.3293
+    },
+    {
+      "a": "DPO",
+      "b": "direct preference optimization",
+      "label": "same",
+      "similarity": 0.3292
+    },
+    {
+      "a": "reinforcement learning from human feedback",
+      "b": "direct preference optimization",
+      "label": "different",
+      "similarity": 0.2951
+    },
+    {
+      "a": "mixture of experts",
+      "b": "model pruning",
+      "label": "different",
+      "similarity": 0.2907
+    },
+    {
+      "a": "federated learning",
+      "b": "differential privacy",
+      "label": "different",
+      "similarity": 0.2817
+    },
+    {
+      "a": "physics-informed neural networks",
+      "b": "protein folding",
+      "label": "different",
+      "similarity": 0.2417
+    },
+    {
+      "a": "mixture of experts",
+      "b": "MoE",
+      "label": "same",
+      "similarity": 0.2258
+    },
+    {
+      "a": "diffusion models",
+      "b": "compressed sensing",
+      "label": "different",
+      "similarity": 0.2081
+    },
+    {
+      "a": "diffusion models",
+      "b": "generative adversarial networks",
+      "label": "different",
+      "similarity": 0.202
+    },
+    {
+      "a": "PINNs",
+      "b": "physics-informed neural networks",
+      "label": "same",
+      "similarity": 0.1998
+    },
+    {
+      "a": "RLHF",
+      "b": "reinforcement learning from human feedback",
+      "label": "same",
+      "similarity": 0.1959
+    },
+    {
+      "a": "reinforcement learning from human feedback",
+      "b": "numerical linear algebra",
+      "label": "different",
+      "similarity": 0.1861
+    },
+    {
+      "a": "graph neural networks",
+      "b": "quantum error correction",
+      "label": "different",
+      "similarity": 0.1707
+    }
+  ]
+}

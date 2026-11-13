@@ -212,7 +212,7 @@ def topic_pairs(embedder: Embedder, rows: list[dict]) -> dict:
 
 def _write(name: str, report: dict) -> Path:
     RESULTS.mkdir(exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M")
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
     path = RESULTS / f"{stamp}_{name}.json"
     path.write_text(json.dumps(report, indent=2, default=str) + "\n")
     return path

@@ -1,0 +1,19 @@
+{
+  "from": "embeddinggemma",
+  "to": "text-embedding-3-small",
+  "proposed": {
+    "similar_paper": 0.749,
+    "related_min": 0.721,
+    "novelty_repeat": 0.838,
+    "novelty_unrelated": 0.459,
+    "near_duplicate": 0.934
+  },
+  "old": {
+    "similar_paper": 0.75,
+    "near_duplicate": 0.9,
+    "related_min": 0.72,
+    "novelty_repeat": 0.85,
+    "novelty_unrelated": 0.45,
+    "topic_suggestion": null
+  }
+}

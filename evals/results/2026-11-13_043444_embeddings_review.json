@@ -1,0 +1,32 @@
+{
+  "model": "text-embedding-3-small",
+  "at": 0.88,
+  "pairs": [
+    {
+      "similarity": 0.8888,
+      "paper": {
+        "arxiv_id": "2610.41095",
+        "title": "Robust edge multiscale space based hybrid Schwarz preconditioner for high-frequency Helmholtz problems",
+        "abstract": "We develop a novel hybrid Schwarz method, termed the robust edge multiscale space based hybrid Schwarz method (REMs-HS), for the efficient solution of high-frequency Helmholtz problems. The method combines a one-level restricted additive Schwarz preconditioner with impedance transmission conditions "
+      },
+      "earlier": {
+        "arxiv_id": "2610.19354",
+        "title": "Discrete Edge Multiscale Space based Hybrid Schwarz Preconditioner for High-Frequency Helmholtz Problems",
+        "abstract": "In this work, we develop a novel hybrid Schwarz method, termed as edge multiscale space based hybrid Schwarz (EMs-HS), for solving the Helmholtz problem with large wavenumbers. The problem is discretized using $H^1$-conforming nodal finite element methods on meshes of size $h$ decreasing faster than"
+      }
+    },
+    {
+      "similarity": 0.9236,
+      "paper": {
+        "arxiv_id": "2611.03447",
+        "title": "Two-level additive Schwarz preconditioners with GDSW coarse spaces for high-order discretizations in 3D",
+        "abstract": "Overlapping Schwarz methods are among the most successful domain decomposition preconditioners for large-scale finite element simulations. In this work, the Generalized Dryja-Smith-Widlund (GDSW), GDSW$^*$, and Reduced GDSW (RGDSW) coarse spaces are studied for three-dimensional high-order finite el"
+      },
+      "earlier": {
+        "arxiv_id": "2610.18502",
+        "title": "Two-level additive Schwarz preconditioners with GDSW coarse spaces for high-order discretizations in 2D",
+        "abstract": "Two-level overlapping Schwarz preconditioners with Generalized Dryja-Smith-Widlund (GDSW) and Reduced GDSW (RGDSW) coarse spaces for high-order finite element methods (FEM) and virtual element methods (VEM) are investigated and applied to the Poisson problem in 2D. The GDSW coarse space is a well-es"
+      }
+    }
+  ]
+}
