@@ -252,17 +252,24 @@ def test_concurrent_records_crossing_80_send_one_alert(db_session, monkeypatch):
 def test_month_boundary_holds_in_a_non_utc_database_session(db_session):
     from sqlalchemy import text
 
-    # Session-level, so it would outlive this test on the pooled connection:
-    # always reset it.
-    db_session.execute(text("SET TIME ZONE 'America/Los_Angeles'"))
+    # One transaction, rolled back: SET LOCAL ends with it, so the setting
+    # can't leak to other tests through the connection pool (a session-level
+    # SET did, once the rows were committed on a pooled connection).
+    db_session.execute(text("SET LOCAL TIME ZONE 'America/Los_Angeles'"))
     try:
-        _usage_row(db_session, datetime(2026, 10, 31, 23, 59, tzinfo=timezone.utc), "5")
-        _usage_row(db_session, datetime(2026, 11, 1, 0, 0, 30, tzinfo=timezone.utc), "2")
+        for when, cost in [
+            (datetime(2026, 10, 31, 23, 59, tzinfo=timezone.utc), "5"),
+            (datetime(2026, 11, 1, 0, 0, 30, tzinfo=timezone.utc), "2"),
+        ]:
+            db_session.add(models.LlmUsage(
+                created_at=when, model="gpt-5.4-mini", purpose="summary", input_tokens=1,
+                cached_input_tokens=0, output_tokens=1, cost_usd=Decimal(cost),
+            ))
+        db_session.flush()
+        assert db_session.execute(text("SHOW TIME ZONE")).scalar() == "America/Los_Angeles"
         assert month_to_date_usd(db_session, NOV) == Decimal("2")
     finally:
         db_session.rollback()
-        db_session.execute(text("RESET TIME ZONE"))
-        db_session.commit()
 
 
 def test_month_to_date_counts_rows_stamped_slightly_ahead(db_session):
