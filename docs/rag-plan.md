@@ -695,6 +695,73 @@ expansion barely resemble each other:
 Phase 3 should base suggestions on a signal that sees through acronyms. The
 leading candidate is overlap between the arXiv papers two queries match.
 
+### 5.10 Prompt audit before the public launch (2026-11-12)
+
+The rating and summary prompts were only ever evaluated on three closely
+related topics: Numerical Analysis, PINNs and RLHF, 47 pairs in all, every
+label written by Claude. Before public signup opens them to every field, they
+were probed on 47 new arXiv preprints from eight unrelated topics: protein
+structure prediction, dark matter halos, option pricing, quantum error
+correction, persistent homology, spiking neural networks, causal inference
+and large language models.
+
+The papers came from OpenAlex: the newest arXiv preprints with the exact
+phrase in their title or abstract, after arXiv's API refused this host. They
+were rated with the current prompts on `gpt-5.4-mini`, and labelled by Claude
+for how central each topic is. Reports are in
+`evals/results/2026-11-13_05*_{prompt_audit_probe,rubric_probe}.json`. The
+probe cost under $0.15.
+
+**Summaries generalize.** Across all eight fields:
+- no LaTeX leaked, even from math-heavy abstracts (`XYZ^2` came out readable);
+- every summary is 3–4 sentences;
+- the summaries spot-checked were concrete and faithful.
+
+Two style weaknesses remain, both for 2d:
+- they're long for a 5–10 paper email: 88 words on average, against 204 for an abstract;
+- 33 of 47 open with "The paper".
+
+**Ratings don't.** Peripheral papers get rated as if the topic were their
+subject. That is the same failure §5.1 found in Gemma, and gpt-5.4-mini
+still has it:
+
+| Paper | How it uses the topic | Rating |
+|---|---|---|
+| A qubit-reset paper | motivation | 8 |
+| An astronomy paper | uses persistent homology as a classifier | 8 |
+| An interpretability survey | a different sense of "causal inference" | 7 |
+| Papers on LLM use in classrooms | as a tool | 8–10 |
+
+51% of all ratings were 10, and the combined summarize-and-rate prompt rates
+higher still.
+
+Since the rating is 60% of the ranking, this decides which papers make the
+top K.
+
+**A candidate rubric helps on both sets, without regressing.** It describes
+every band (10 / 8–9 / 6–7 / 4–5 / 2–3 / 1) and names "used as a tool",
+"motivation or example" and "a different meaning" explicitly (single runs,
+rate-only):
+
+| | Probe: current → candidate | Original eval set: current → candidate |
+|---|---|---|
+| ρ | 0.84 → 0.86 | 0.76 → 0.80 |
+| ρ among on-topic papers | 0.37 → 0.59 | 0.38 → 0.53 |
+| MAE | 1.94 → 1.62 | 1.36 → 1.26 |
+| Share of 10s | 51% → 34% | 36% → 23% |
+
+The gain is in ordering the relevant papers. Peripheral papers still
+average 6.6 on the probe against labels of 5 or below: the astronomy and
+"different meaning" cases dropped to 4, but the motivation-only and
+application papers stayed at 8. A variant that asks the model to name how
+the paper uses the topic before rating did worse on both sets (ρ 0.74 and
+0.69) and was rejected.
+
+**Caveats.**
+- Single runs, against 81% run-to-run exact agreement.
+- Claude's labels, not the owner's.
+- OpenAlex's exact-phrase filter only approximates arXiv's `all:` search.
+
 ## 6. Phases
 
 | # | Scope | Ships | Size |
