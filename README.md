@@ -20,7 +20,7 @@ sleeping laptop delays a digest instead of losing it.
 > running in CI.
 
 **Status (2026-11-13): being turned into a small public service.** The plan is
-[`docs/public-launch-plan.md`](docs/public-launch-plan.md) (v2.2): free
+[`docs/public-launch-plan.md`](docs/public-launch-plan.md) (v2.1): free
 twice-weekly digests for US readers, capped at 200 subscribers and $20/month of
 OpenAI spend. There is no public signup yet; the service still runs for its
 owner.
@@ -31,7 +31,6 @@ owner.
 | 2a | OpenAI spend log, monthly budget guard, owner alerts | Live |
 | 2b | OpenAI embeddings (`text-embedding-3-small`), recalibrated thresholds | Live |
 | 2c | Three passes on Eastern time (ingest, send prep, send), stored per-topic editions, a rating rubric audited across fields | Live since 2026-11-13; first full cycle Mon 2026-11-16 |
-| 2c+ | OpenAlex as a second paper source (journal articles, other preprint servers) | In progress: the client is built (task 1 of 6); nothing live uses it yet |
 | 2d | Picks-first email and rewritten summary/overview prompts | Planned |
 | 2e | Cost and load rehearsal | Planned |
 | 3–6 | Public signup, website, production host (Hetzner), legal and launch | Planned |
@@ -535,7 +534,7 @@ app/
 ├── topic_query.py          query normalization and public-input validation
 ├── services/
 │   ├── arxiv.py            arXiv Atom API client
-│   ├── openalex.py         OpenAlex search, the second paper source (2c+; not wired in yet)
+│   ├── openalex.py         OpenAlex search client (not wired in)
 │   ├── summarize.py        OpenAI or Ollama: summaries, ratings, overviews
 │   ├── embed.py            OpenAI or Ollama: paper, chunk and topic embeddings
 │   ├── retrieval.py        pgvector storage + nearest-neighbour queries
@@ -565,7 +564,7 @@ evals/                      offline evaluation harness (not run in CI)
 tests/                      530 tests (see Testing)
 docs/
 ├── rag-plan.md             the retrieval plan, measurements and decisions
-├── public-launch-plan.md   public launch plan (v2.2); Phase 1 and 2a–2c done
+├── public-launch-plan.md   public launch plan (v2.1); Phase 1 and 2a–2c done
 └── superpowers/plans/      one implementation plan per launch phase, with its outcome
 ```
 
