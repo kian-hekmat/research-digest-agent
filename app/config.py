@@ -265,18 +265,6 @@ class Settings(BaseSettings):
     semantic_scholar_api_url: str = "https://api.semanticscholar.org/graph/v1"
     semantic_scholar_api_key: str = ""
     openalex_api_url: str = "https://api.openalex.org"
-    # --- OpenAlex as a second paper source (app.services.openalex) ---
-    # Phrase topics only; journal articles, preprints and conference papers.
-    openalex_enabled: bool = True
-    # A free key gives this deployment its own $1/day of requests; without
-    # one, every request from this IP shares $0.10/day. Never put an email in
-    # OpenAlex requests (no `mailto`).
-    openalex_api_key: str = ""
-    # Publication dates can be backdated, and OpenAlex lists works a day or
-    # two after publication: each fetch looks this far behind the watermark.
-    openalex_lookback_days: int = 3
-    openalex_max_results: int = 200
-    openalex_min_interval: float = 1.0  # seconds between any two OpenAlex requests
 
     # --- Temporal ---
     temporal_address: str = "localhost:7233"

@@ -534,7 +534,6 @@ app/
 ├── topic_query.py          query normalization and public-input validation
 ├── services/
 │   ├── arxiv.py            arXiv Atom API client
-│   ├── openalex.py         OpenAlex search client (not wired in)
 │   ├── summarize.py        OpenAI or Ollama: summaries, ratings, overviews
 │   ├── embed.py            OpenAI or Ollama: paper, chunk and topic embeddings
 │   ├── retrieval.py        pgvector storage + nearest-neighbour queries
