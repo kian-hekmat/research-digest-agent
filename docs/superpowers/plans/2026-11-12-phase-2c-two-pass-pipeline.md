@@ -384,7 +384,13 @@ Built: Tasks 1–2 subagent-driven with a review per task; Tasks 3–6 inline (t
 
 **Carried forward:**
 - **Verify the first cycle**, and record it here:
-  - **After tonight's 21:30 ET ingest:** new papers have ratings and no summaries; `llm_usage` has only `rating` and `embedding` rows; fewer than half the ratings are 10. This also closes the 2b check of embedding rows.
+  - ✅ **Ingest, verified 2026-11-13 20:26 ET** (triggered by hand from the `daily-topic-digests` schedule, an hour before its 21:30 fire; it also caught up the run skipped during the build):
+    - 3 digests completed with no error and no overview. Numerical Analysis got 25 papers, PINNs 4 and RLHF 0.
+    - All 29 papers are rated and none is summarized.
+    - `llm_usage` gained only 29 `rating` rows ($0.0115, about $0.0004 a rating) and 2 `embedding` calls ($0.00015).
+    - Ratings: 4 ×3, 6 ×2, 7 ×8, 8 ×10, 9 ×3, 10 ×3. That's 10% at 10, against about half under the old prompt.
+    - 28 new `paper_embeddings`, all `text-embedding-3-small`, which closes the 2b check. No alerts, and no editions yet.
+    - Numerical Analysis returned exactly 25, arXiv's per-fetch cap again. It's an admin `cat:` topic, so it's outside the public broad-topic rule, but it does drop papers.
   - **After Monday 01:00 ET prep:** each topic has a `ready` edition, `llm_usage` has `summary` and `overview` rows, and the first per-topic costs from `/admin/usage` go into the 2a plan.
   - **At Monday 08:00 ET:** one email with each topic's edition.
 - **Deferred minors from the final review:**

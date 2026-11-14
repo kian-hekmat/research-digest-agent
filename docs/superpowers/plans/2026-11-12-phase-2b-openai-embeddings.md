@@ -361,3 +361,5 @@ Built inline (executing-plans); one whole-plan review after Task 3, before anyth
   - Bound `month_to_date_usd` above at the next month.
   - Full-text chunks aren't backfilled for the new model (full text goes off in 2c).
   - Strengthen the backfill-mode tests.
+
+**Verified 2026-11-13 (20:26 ET ingest):** `llm_usage` recorded 2 `embedding` calls ($0.00015), and the run's 28 new `paper_embeddings` rows are all `text-embedding-3-small`. No EmbeddingGemma rows were written.
