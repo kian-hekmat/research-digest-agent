@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A research alerting service: FastAPI + Postgres/pgvector + Temporal. It fetches new papers per topic from arXiv, rates them with OpenAI (`gpt-5.4-mini`), embeds them (`text-embedding-3-small`, 768 dims), and emails twice-weekly per-topic digests. It's being turned into a small public service per `docs/public-launch-plan.md`. Each phase has an implementation plan in `docs/superpowers/plans/`, and each plan ends with an "Outcome / Carried forward" section. Read the latest one before starting new work. `docs/rag-plan.md` records every retrieval and prompt measurement and the decision it led to.
+A research alerting service: FastAPI + Postgres/pgvector + Temporal. The end goal is to fetch new papers per topic from arXiv, rates them with OpenAI (`gpt-5.4-mini`), embeds them (`text-embedding-3-small`, 768 dims), and emails twice-weekly per-topic digests. It's being turned into a small public service per `docs/public-launch-plan.md`. Each phase has an implementation plan in `docs/superpowers/plans/`, and each plan ends with an "Outcome / Carried forward" section. Read the latest one before starting new work. `docs/rag-plan.md` records every retrieval and prompt measurement and the decision it led to.
 
 ## Commands
 
