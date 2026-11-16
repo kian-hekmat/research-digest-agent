@@ -339,6 +339,12 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1].rsplit(" ", 1)[0] + "…"
 
 
+def _JSON_FORMAT(name: str, schema: dict) -> dict:
+    """OpenAI structured output for `schema`: strict JSON Schema, as
+    gpt-5.4-mini accepts it on /chat/completions (probed 2026-11-16)."""
+    return {"type": "json_schema", "json_schema": {"name": name, "strict": True, "schema": schema}}
+
+
 class Summarizer:
     def __init__(
         self,
@@ -494,16 +500,30 @@ class Summarizer:
             purpose="overview",
         )
 
-    def _complete(self, *, system: str, user: str, max_tokens: int, purpose: str) -> str | None:
+    def _complete(
+        self, *, system: str, user: str, max_tokens: int, purpose: str,
+        response_format: dict | None = None,
+    ) -> str | None:
         """One non-streaming chat call. Left to raise on failure (server
         down, bad key, rate limit, model not pulled, timeout) - the activity's
         retry policy governs attempts. None means the spend guard stopped the
-        call: callers treat it like no-summary mode."""
+        call: callers treat it like no-summary mode.
+
+        `response_format` (structured output, phase 2d) is OpenAI-only: on
+        any other backend the call is skipped and returns None."""
         if self._settings.summary_backend == "openai":
-            return self._complete_openai(system=system, user=user, max_tokens=max_tokens, purpose=purpose)
+            return self._complete_openai(
+                system=system, user=user, max_tokens=max_tokens, purpose=purpose,
+                response_format=response_format,
+            )
+        if response_format is not None:
+            return None
         return self._complete_ollama(system=system, user=user, max_tokens=max_tokens)
 
-    def _complete_openai(self, *, system: str, user: str, max_tokens: int, purpose: str) -> str | None:
+    def _complete_openai(
+        self, *, system: str, user: str, max_tokens: int, purpose: str,
+        response_format: dict | None = None,
+    ) -> str | None:
         if not self._settings.openai_api_key:
             raise RuntimeError("SUMMARY_BACKEND=openai needs OPENAI_API_KEY to be set")
         model = self._settings.openai_model
@@ -515,22 +535,25 @@ class Summarizer:
                 return None
         owns_client = self._http_client is None
         client = self._http_client or httpx.Client(timeout=self._settings.openai_timeout)
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "max_completion_tokens": max_tokens,
+            # Reasoning tokens count against max_completion_tokens,
+            # which is as low as 10 for a rating.
+            "reasoning_effort": "none",
+            "temperature": 0.2,
+        }
+        if response_format is not None:
+            payload["response_format"] = response_format
         try:
             resp = client.post(
                 f"{self._settings.openai_base_url.rstrip('/')}/chat/completions",
                 headers={"Authorization": f"Bearer {self._settings.openai_api_key}"},
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                    "max_completion_tokens": max_tokens,
-                    # Reasoning tokens count against max_completion_tokens,
-                    # which is as low as 10 for a rating.
-                    "reasoning_effort": "none",
-                    "temperature": 0.2,
-                },
+                json=payload,
             )
             if self._ledger is not None and is_spend_limit_error(resp):
                 self._ledger.hard_limit_hit()

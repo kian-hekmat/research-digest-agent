@@ -188,3 +188,34 @@ def test_out_of_credits_429_returns_none_and_reports():
     ledger = FakeLedger()
     assert _summarizer(ledger).write_overview("RLHF", ["s1"]) is None
     assert ledger.hard_limits == 1
+
+
+# ---------- structured output (phase 2d) ----------
+@respx.mock
+def test_response_format_is_sent_when_given():
+    import json
+
+    route = respx.post(OPENAI_CHAT).mock(return_value=_reply('{"ok": "yes"}'))
+    out = _summarizer(FakeLedger())._complete(
+        system="s", user="u", max_tokens=50, purpose="summary", response_format={"type": "json_object"}
+    )
+    assert out == '{"ok": "yes"}'
+    assert json.loads(route.calls.last.request.content)["response_format"] == {"type": "json_object"}
+
+
+@respx.mock
+def test_no_response_format_key_by_default():
+    import json
+
+    route = respx.post(OPENAI_CHAT).mock(return_value=_reply("text"))
+    _summarizer(FakeLedger())._complete(system="s", user="u", max_tokens=50, purpose="summary")
+    assert "response_format" not in json.loads(route.calls.last.request.content)
+
+
+@respx.mock
+def test_response_format_on_ollama_returns_none_without_http():
+    out = _summarizer(FakeLedger(), summary_backend="ollama")._complete(
+        system="s", user="u", max_tokens=50, purpose="summary", response_format={"type": "json_object"}
+    )
+    assert out is None
+    assert not respx.calls
