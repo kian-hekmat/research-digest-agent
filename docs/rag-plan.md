@@ -831,11 +831,33 @@ These are the new email prompts from `docs/superpowers/specs/2026-11-16-phase-2d
 - **Some blurbs' `what` turns into a dense list of numbers.** 2609.23493 runs to about 90 words with over ten figures and a garbled LaTeX fragment.
 - **One blurb's `what` opens with "The paper splits…".** The opener rule is meant to stop that.
 
-**Gates: owner review pending.**
-1. At most 1 overview factual error across the 17.
-2. Every citation is supported by its paper's abstract.
-3. New blurbs are preferred over old summaries in the blind pairs.
-4. No overclaiming.
+**Gate review (2026-11-16): round 1 fails 3 of the 4 gates.**
+
+The owner delegated the review to a fresh `opus` agent, asking for it to be as critical as possible.
+- **How it was set up:** the prompt is in `2026-11-16_1222_email_prompts_review_prompt.md`. The reviewer was blind to the A/B key and to the automatic checks. Abstracts were the only source of truth, and unsure claims counted as unsupported.
+- **What it produced:**
+  - the filled-in sheet, `2026-11-16_1222_email_prompts_review.md`;
+  - an evidence file listing each claim with its verdict and the abstract quote behind it, `..._review_evidence.json`.
+- **Unblinding:** the pair verdicts were matched against the key afterwards.
+- **Spot-checks:** three of its top findings were checked against the abstracts, and all three held.
+
+| Gate | Result | |
+|---|---|---|
+| 1. At most 1 overview factual error | **Fail** | 16 errors. 9 of them are opening sentences that rank the week ("split between", "dominated by", "pushed hardest") when the offered papers don't show it |
+| 2. Every citation supported | **Fail** | 13 of 17 overviews have at least one bad cite (a claim stated more strongly than its abstract, or attributed to the wrong paper) |
+| 3. New blurbs preferred | **Pass** | 15 new vs 5 old, no ties |
+| 4. No overclaiming | **Fail** | Overviews: 16 of 17. Blurb pairs: the new side overclaims in 9 of 20, the same as the old side's 9 of 20 |
+
+**Patterns that recur:**
+- **Dropped hedges and conditions:** "often" and "to the best of our knowledge" go missing, and results on synthetic data are presented without saying so.
+- **One case presented as general:** a single benchmark, a single seed, or synthetic data is stated as if it held generally.
+- **Credit the abstract withholds:** effects are attributed to a component when the abstract says they weren't isolated (pair 10).
+- **Wrong counts:** "three parameterizations" when the abstract says four (overview 6).
+- **Comparisons that never happened:** "outperformed … CFD reconstructions" when the method was only applied to CFD data (overview 6).
+- **Mislabelled papers:** a textbook chapter called "a companion line of work".
+- **Overviews run long.**
+
+**Caveat.** The old summaries overclaim just as often under this standard. The "1 in 25" baseline (§5.6) was judged more leniently, by a different reviewer, on the older model. So this standard is stricter than the one the current prompts passed. **Next:** revise both prompts against these patterns and re-run (round 1b).
 
 ## 6. Phases
 
