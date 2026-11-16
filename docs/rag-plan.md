@@ -802,6 +802,41 @@ owner-written labels. Reports:
 `evals/results/2026-11-13_060124_paired_rubric_labels.json` and
 `evals/results/2026-11-13_060248_paired_rubric_labels_diverse.json`.
 
+### 5.11 Phase 2d prompts, round 1 (2026-11-16)
+
+These are the new email prompts from `docs/superpowers/specs/2026-11-16-phase-2d-picks-first-email-design.md`: a shared paper blurb (hook plus what it did), and one overview-and-picks call. Both return strict JSON.
+
+**How it was run:** `venv/bin/python -m evals.email_prompts`. It rebuilt 17 Monday-to-Monday windows of at least 5 papers each: Numerical Analysis 7, PINNs 9, RLHF 1. All 17 are used, with no padding (owner's call). It also made 20 blind blurb pairs, each comparing today's prep summary (`summarize_and_rate`, re-run on `gpt-5.4-mini`) with the new blurb.
+
+**Files**, in `evals/results/`:
+- `2026-11-16_1222_email_prompts.json`: the report and the blind key.
+- `..._overviews_review.json`: for checking each citation against its abstract.
+- `..._blurbs_blind.json`: the blind pairs.
+
+**Cost:** $0.148 in total. Overviews were $0.106 for 17, about $0.006 each. Blurbs and summaries were $0.042 for 41 calls, including the probe.
+
+**Automatic checks:**
+
+| Check | Result |
+|---|---|
+| Overviews written | 17 / 17 |
+| Words per overview | mean 122.8, range 106–144. 9 of 17 are over 120 (none under 80) |
+| Citations of ids not offered | 0 |
+| Picks outside the top 5 (dropped by validation) | 3, so 14 overviews have 2 picks and 3 have 1 |
+| Overviews with numbers not in their abstracts | 0 |
+| Blurbs with numbers not in the abstract | 5, all false positives: LaTeX (`\times10^{-7}`, `121\times605`) or numbers written as words ("two-dimensional", "factor of two", "nine") |
+
+**Noticed while checking:** these are not gate judgments.
+- **Overviews run long.** The prompt asks for 80–120 words.
+- **Some blurbs' `what` turns into a dense list of numbers.** 2609.23493 runs to about 90 words with over ten figures and a garbled LaTeX fragment.
+- **One blurb's `what` opens with "The paper splits…".** The opener rule is meant to stop that.
+
+**Gates: owner review pending.**
+1. At most 1 overview factual error across the 17.
+2. Every citation is supported by its paper's abstract.
+3. New blurbs are preferred over old summaries in the blind pairs.
+4. No overclaiming.
+
 ## 6. Phases
 
 | # | Scope | Ships | Size |
