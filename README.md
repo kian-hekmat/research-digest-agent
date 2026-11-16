@@ -19,10 +19,10 @@ sleeping laptop delays a digest instead of losing it.
 > offline evaluation harness, scheduled email delivery, and a 530-test suite
 > running in CI.
 
-**Status (2026-11-13): being turned into a small public service.** The plan is
-[`docs/public-launch-plan.md`](docs/public-launch-plan.md) (v2.1): free
-twice-weekly digests for US readers, capped at 200 subscribers and $20/month of
-OpenAI spend. There is no public signup yet; the service still runs for its
+**Status (2026-11-16): being turned into a small public service.** The plan is
+[`docs/public-launch-plan.md`](docs/public-launch-plan.md) (v2.2): free
+weekly digests (Monday mornings) for US readers, capped at 200 subscribers and
+$50/month of OpenAI spend. There is no public signup yet; the service still runs for its
 owner.
 
 | Step | What | State |
@@ -80,8 +80,9 @@ September 28, 2026
 ```
 
 Each subscriber chooses topics and a cap on papers per topic. Every subscription
-is currently twice weekly; the weekly and biweekly cadences still exist but are
-admin-only, and the public launch will offer twice weekly only. When the cap cuts a topic down, the papers kept are the
+is weekly (Monday 08:00 Eastern). Biweekly still exists but is admin-only, and
+`twice_weekly` is kept only as a stored value that now means the same as
+weekly; the public launch will offer weekly only. When the cap cuts a topic down, the papers kept are the
 highest-ranked, not just the newest. A paper that is a near-duplicate of another
 in the same section is folded under it ("Also (near-duplicate): ...") instead of
 taking a slot. Only the model's own summary and links to arXiv go out; the
@@ -216,7 +217,7 @@ paper's text never does.
 
 ## How it works
 
-Three passes, all on Eastern time: a cheap daily **ingest**, a twice-weekly
+Three passes, all on Eastern time: a cheap daily **ingest**, a weekly
 **send prep** that does the expensive work only for the papers that will be
 emailed, and a **send** that only assembles stored content.
 
@@ -248,7 +249,7 @@ subscription from a confirmed subscriber, and on demand for any topic via
 5. **Finalize**: mark the digest completed and advance the topic's watermark.
 
 ### 2. Send prep (`PrepEditionsWorkflow`)
-Runs Mondays and Thursdays at 01:00 Eastern and stores one **edition** per
+Runs Mondays at 01:00 Eastern and stores one **edition** per
 topic for the coming send: the window of papers ingested since the topic's
 previous edition, ranked, with an overview.
 
@@ -267,7 +268,7 @@ previous edition, ranked, with an overview.
 7. **Store** the edition. If every summary failed, the owner gets an alert.
 
 ### 3. Email delivery (`SendDigestEmailsWorkflow`)
-Runs Mondays and Thursdays at 08:00 Eastern. Its own steps make no LLM,
+Runs Mondays at 08:00 Eastern. Its own steps make no LLM,
 arXiv or h-index call.
 
 1. **Find due subscriptions**, each judged against its own cadence. Only active
@@ -457,9 +458,9 @@ curl -H "$H" -X POST localhost:8000/topics -H 'Content-Type: application/json' \
 curl -H "$H" -X PATCH localhost:8000/topics/<topic_id> -H 'Content-Type: application/json' \
   -d '{"description": "Reward modeling and preference optimization; not papers that only cite RLHF"}'
 
-# Subscribe: twice weekly, the 10 best papers per email
+# Subscribe: weekly, the 10 best papers per email
 curl -H "$H" -X POST localhost:8000/topics/<topic_id>/subscriptions -H 'Content-Type: application/json' \
-  -d '{"email": "you@example.com", "cadence": "twice_weekly", "max_papers": 10}'
+  -d '{"email": "you@example.com", "cadence": "weekly", "max_papers": 10}'
 
 # Run a digest now, then poll it (pending -> completed)
 curl -H "$H" -X POST localhost:8000/digests/<topic_id>
@@ -494,7 +495,7 @@ All settings are environment variables (see [`.env.example`](.env.example)).
 | `SUMMARY_BACKEND` | `openai` | `openai` for summaries through the OpenAI API; `ollama` for a local model; `none` to send digests without AI text |
 | `OPENAI_API_KEY` | unset | Required with `SUMMARY_BACKEND=openai`. Keep it in `.env`, which is gitignored; never commit it |
 | `OPENAI_MODEL` | `gpt-5.4-mini` | Model for summaries, ratings and overviews. Must accept `reasoning_effort: none` |
-| `OPENAI_MONTHLY_BUDGET_USD` | `20` | Monthly OpenAI cap, enforced in the app: alert at 80%, AI text paused at 100% until the 1st (UTC). Every call is recorded in `llm_usage` |
+| `OPENAI_MONTHLY_BUDGET_USD` | `50` | Monthly OpenAI cap, enforced in the app: alert at 80%, AI text paused at 100% until the 1st (UTC). Every call is recorded in `llm_usage` |
 | `ALERT_EMAIL` | unset | Where spend alerts are emailed; while unset they're only logged |
 | `OPENAI_PRICES` | `gpt-5.4-mini` and `text-embedding-3-small` | USD per 1M tokens per model, as JSON. A model with no price can't be called, so spend is never unrecorded |
 | `OLLAMA_BASE_URL` | `http://host.docker.internal:11434` (in Docker) | Where the worker reaches Ollama, for embeddings and the `ollama` backend |
