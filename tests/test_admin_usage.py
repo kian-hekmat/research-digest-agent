@@ -45,7 +45,7 @@ def test_current_month_by_purpose_and_topic(client, db_session):
     assert resp.status_code == 200
     body = resp.json()
     assert body["month"] == now.strftime("%Y-%m")
-    assert body["budget_usd"] == 20.0
+    assert body["budget_usd"] == 50.0
     assert body["spent_usd"] == 0.91
     assert body["state"] == "ok"
     assert body["by_purpose"]["summary"] == {
@@ -71,14 +71,14 @@ def test_past_month_has_no_state(client, db_session):
 
 
 def test_state_reflects_the_budget(client, db_session):
-    _row(db_session, datetime.now(timezone.utc), "17", "summary")
+    _row(db_session, datetime.now(timezone.utc), "42.5", "summary")
     assert client.get("/admin/usage").json()["state"] == "soft"
 
 
 def test_empty_month(client):
     body = client.get("/admin/usage?month=2020-01").json()
     assert body == {
-        "month": "2020-01", "budget_usd": 20.0, "spent_usd": 0.0, "state": None,
+        "month": "2020-01", "budget_usd": 50.0, "spent_usd": 0.0, "state": None,
         "by_purpose": {}, "by_topic": [],
     }
 

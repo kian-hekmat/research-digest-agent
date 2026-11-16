@@ -134,7 +134,7 @@ class Settings(BaseSettings):
     # spend_alert_fraction of it the owner is alerted (and, from Phase 3, new
     # topics wait); at 100% AI text stops until the 1st (UTC). Raising the cap
     # is this one setting. docs/public-launch-plan.md §3.6.
-    openai_monthly_budget_usd: float = 20.0
+    openai_monthly_budget_usd: float = 50.0
     spend_alert_fraction: float = 0.8
     # USD per 1M tokens, by model. Settings rather than code so a price change
     # needs no deploy; overridable as JSON in OPENAI_PRICES (merged over

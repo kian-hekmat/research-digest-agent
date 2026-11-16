@@ -20,7 +20,7 @@ PRICES = Settings().openai_prices
 
 def test_default_prices_and_budget():
     s = Settings()
-    assert s.openai_monthly_budget_usd == 20.0
+    assert s.openai_monthly_budget_usd == 50.0  # v2.2
     assert s.spend_alert_fraction == 0.8
     assert s.alert_email == ""
     assert PRICES["gpt-5.4-mini"] == {"input": 0.75, "cached_input": 0.075, "output": 4.50}

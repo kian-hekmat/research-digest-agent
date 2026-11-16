@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A research alerting service: FastAPI + Postgres/pgvector + Temporal. The end goal is to fetch new papers per topic from arXiv, rates them with OpenAI (`gpt-5.4-mini`), embeds them (`text-embedding-3-small`, 768 dims), and emails twice-weekly per-topic digests. It's being turned into a small public service per `docs/public-launch-plan.md`. Each phase has an implementation plan in `docs/superpowers/plans/`, and each plan ends with an "Outcome / Carried forward" section. Read the latest one before starting new work. `docs/rag-plan.md` records every retrieval and prompt measurement and the decision it led to.
+A research alerting service: FastAPI + Postgres/pgvector + Temporal. The end goal is to fetch new papers per topic from arXiv, rates them with OpenAI (`gpt-5.4-mini`), embeds them (`text-embedding-3-small`, 768 dims), and emails weekly per-topic digests (Monday mornings). It's being turned into a small public service per `docs/public-launch-plan.md`. Each phase has an implementation plan in `docs/superpowers/plans/`, and each plan ends with an "Outcome / Carried forward" section. Read the latest one before starting new work. `docs/rag-plan.md` records every retrieval and prompt measurement and the decision it led to.
 
 ## Commands
 
@@ -38,8 +38,8 @@ There is no linter or formatter configured. CI (`.github/workflows/ci.yml`) runs
 | Pass | Schedule | Workflow | What it does |
 |---|---|---|---|
 | Ingest | `daily-topic-digests`, 21:30 daily | `RunAllTopicDigestsWorkflow` → `DigestWorkflow` per topic | fetch arXiv → ingest → embed → rate only |
-| Send prep | `send-prep`, 01:00 Mon/Thu | `PrepEditionsWorkflow` → `PrepTopicEditionWorkflow` | re-rate unrated → h-index → rank → summarize the top K → overview → store an **edition** |
-| Send | `weekly-digest-emails`, 08:00 Mon/Thu | `SendDigestEmailsWorkflow` | per due subscriber, render the topic's edition, capped at their `max_papers` |
+| Send prep | `send-prep`, 01:00 Monday | `PrepEditionsWorkflow` → `PrepTopicEditionWorkflow` | re-rate unrated → h-index → rank → summarize the top K → overview → store an **edition** |
+| Send | `weekly-digest-emails`, 08:00 Monday | `SendDigestEmailsWorkflow` | per due subscriber, render the topic's edition, capped at their `max_papers` |
 
 **Editions** (`topic_editions`, `edition_papers`).
 - One edition per topic per send slot. Its window is `(window_start, window_end]` on `Digest.completed_at`, and it chains from the topic's previous edition. All subscribers of a topic share it.
@@ -57,7 +57,7 @@ There is no linter or formatter configured. CI (`.github/workflows/ci.yml`) runs
 
 **Spend guard** (`app/services/spend.py`, `app/spend_ledger.py`).
 - Every OpenAI call goes through `Summarizer._complete` or `Embedder` with a `DbLedger`, which writes `llm_usage` rows.
-- The monthly budget is $20 in code (`openai_monthly_budget_usd`); launch plan v2.2 raises it to $50. At 80% the owner gets an email alert; at 100% chat calls return None (not an error) while embeddings continue.
+- The monthly budget is $50 (`openai_monthly_budget_usd`). At 80% the owner gets an email alert; at 100% chat calls return None (not an error) while embeddings continue.
 - Owner alerts go through `app.alerts.send_alert`, deduped by a dated key in `sent_alerts`.
 
 **Ranking** (`app/services/ranking.py`, used through `app/services/email.py`): 0.6 × relevance + 0.3 × log h-index + 0.1 × novelty, plus up to 0.08 for venue. Missing signals take the batch median. Novelty anchors and every retrieval threshold are per embedding model, in `Settings.retrieval_calibration`. The worker refuses to start without a calibration row for the active model.

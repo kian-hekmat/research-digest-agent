@@ -94,8 +94,8 @@ abstract supports. The eval harness checks both (Phase 2).
 | Cadence | Twice-weekly, Mon and Thu 08:00 ET | **Weekly, Monday 08:00 ET**; prep Monday 01:00 ET | Owner's call. Halves sends, prep calls and email volume. Monday matches the existing weekly cadence (`_WEEKLY_WEEKDAYS`) |
 | Workflow | Commits straight to `main` | Unchanged: commits straight to `main`, authored as the owner, with no AI attribution. Pull requests were tried from 2026-11-13 and dropped 2026-11-16 | Owner's call |
 
-The live pipeline still runs v2.1's twice-weekly schedule and $20 budget
-until the v2.2 switch-over (Phase 2) lands.
+Live since the v2.2 switch-over, 2026-11-16 (Phase 2): Monday-only sends
+and prep, every subscription weekly, a $50 budget.
 
 ---
 
@@ -495,7 +495,7 @@ deployment migrates with no data loss.
   queue time.
 - **Bounded fan-out** ✅ 2c. `RunAllTopicDigestsWorkflow` and prep run their children
   in batches rather than all at once.
-- **v2.2 switch-over** (not built yet): `openai_monthly_budget_usd` 20 → 50;
+- **v2.2 switch-over** ✅ 2026-11-16: `openai_monthly_budget_usd` 20 → 50;
   `send-prep` and `weekly-digest-emails` fire Monday only; every
   subscription's cadence becomes `weekly`; a slot-window test covers a full
   week. Weekly sends mean the 3-week beta yields 3 send days of cost data,

@@ -70,7 +70,7 @@ def test_month_to_date_is_zero_with_no_rows(db_session):
 
 @pytest.mark.parametrize(
     "spent,state",
-    [("15.99", "ok"), ("16", "soft"), ("19.99", "soft"), ("20", "hard"), ("25", "hard")],
+    [("39.99", "ok"), ("40", "soft"), ("49.99", "soft"), ("50", "hard"), ("62.5", "hard")],
 )
 def test_spend_state_thresholds(db_session, spent, state):
     _usage_row(db_session, NOV, spent)
@@ -112,7 +112,7 @@ def test_deleting_a_topic_keeps_its_spend(db_session):
 
 
 def test_allow_blocks_chat_purposes_at_100_but_never_embeddings(db_session):
-    _usage_row(db_session, NOV, "20")
+    _usage_row(db_session, NOV, "50")
     ledger = _ledger()
     assert ledger.allow("summary") is False
     assert ledger.allow("rating") is False
@@ -124,14 +124,14 @@ def test_allow_blocks_chat_purposes_at_100_but_never_embeddings(db_session):
 
 
 def test_existing_work_still_runs_at_80(db_session):
-    _usage_row(db_session, NOV, "16")
+    _usage_row(db_session, NOV, "40")
     assert spend_state(db_session, NOV) == "soft"
     ledger = _ledger()
     assert all(ledger.allow(p) for p in ("summary", "rating", "overview"))
 
 
 def test_crossing_80_sends_one_alert_even_when_recorded_twice(db_session, alerting):
-    _usage_row(db_session, NOV, "15.99")
+    _usage_row(db_session, NOV, "39.99")
     ledger = _ledger()
     big = Usage(0, 0, 2_300)  # $0.01035 each at $4.50 / 1M output tokens
 
@@ -146,7 +146,7 @@ def test_crossing_80_sends_one_alert_even_when_recorded_twice(db_session, alerti
 
 
 def test_crossing_100_sends_both_alerts_once(db_session, alerting):
-    _usage_row(db_session, NOV, "19.999")
+    _usage_row(db_session, NOV, "49.999")
     ledger = _ledger()
     ledger.record(model="gpt-5.4-mini", purpose="summary", topic_id=None, usage=Usage(0, 0, 2_300))
     ledger.record(model="gpt-5.4-mini", purpose="summary", topic_id=None, usage=Usage(0, 0, 2_300))
@@ -158,10 +158,10 @@ def test_crossing_100_sends_both_alerts_once(db_session, alerting):
 
 
 def test_alerts_rearm_next_month(db_session, alerting):
-    _usage_row(db_session, NOV, "16")
+    _usage_row(db_session, NOV, "40")
     _ledger().record(model="gpt-5.4-mini", purpose="summary", topic_id=None, usage=Usage(1, 0, 1))
     dec = datetime(2026, 12, 20, tzinfo=timezone.utc)
-    _usage_row(db_session, dec, "16")
+    _usage_row(db_session, dec, "40")
     _ledger(dec).record(model="gpt-5.4-mini", purpose="summary", topic_id=None, usage=Usage(1, 0, 1))
     assert sorted(a.key for a in db_session.query(models.SentAlert).all()) == [
         "spend-80:2026-11",
@@ -180,7 +180,7 @@ def test_hard_limit_hit_alerts_once_per_month(db_session, alerting):
 def test_failed_alert_never_fails_record(db_session, monkeypatch):
     monkeypatch.setattr(get_settings(), "alert_email", "owner@example.com")
     monkeypatch.setattr("app.alerts._default_sender", lambda: FakeSender(fail=True))
-    _usage_row(db_session, NOV, "16")
+    _usage_row(db_session, NOV, "40")
 
     _ledger().record(model="gpt-5.4-mini", purpose="summary", topic_id=None, usage=Usage(1, 0, 1))
 
@@ -198,14 +198,14 @@ def test_80_percent_alert_claims_nothing_that_isnt_enforced_yet(db_session, monk
         bodies.append((key, body))
         return True
 
-    _usage_row(db_session, NOV, "16")
+    _usage_row(db_session, NOV, "40")
     DbLedger(now=lambda: NOV, alert=capture).record(
         model="gpt-5.4-mini", purpose="summary", topic_id=None, usage=Usage(1, 0, 1)
     )
 
     ((key, body),) = bodies
     assert key == "spend-80:2026-11"
-    assert "$16.00 of the $20 budget" in body
+    assert "$40.00 of the $50 budget" in body
     assert "new topics" not in body.lower()
 
 
@@ -226,7 +226,7 @@ def test_concurrent_records_crossing_80_send_one_alert(db_session, monkeypatch):
     monkeypatch.setattr(get_settings(), "alert_email", "owner@example.com")
     sender = SlowSender()
     monkeypatch.setattr("app.alerts._default_sender", lambda: sender)
-    _usage_row(db_session, NOV, "15.99")
+    _usage_row(db_session, NOV, "39.99")
     ledger = _ledger()
     barrier = threading.Barrier(4)
     errors = []

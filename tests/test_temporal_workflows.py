@@ -250,7 +250,7 @@ async def test_at_100_percent_of_budget_digests_and_emails_go_out_without_ai_tex
     db_session.add(
         models.LlmUsage(
             model="gpt-5.4-mini", purpose="summary", input_tokens=1, cached_input_tokens=0,
-            output_tokens=1, cost_usd=Decimal("20"),
+            output_tokens=1, cost_usd=Decimal("50"),
         )
     )
     db_session.commit()
