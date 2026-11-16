@@ -101,9 +101,9 @@ def test_write_overview_and_picks_request_and_usage():
 
 
 @respx.mock
-def test_write_overview_and_picks_none_when_blocked_or_not_openai():
+def test_write_overview_and_picks_none_when_blocked_or_summaries_off():
     assert _summarizer(FakeLedger(allow=False)).write_overview_and_picks("T", _papers(5)) is None
-    assert _summarizer(FakeLedger(), summary_backend="ollama").write_overview_and_picks("T", _papers(5)) is None
+    assert _summarizer(FakeLedger(), summary_backend="none").write_overview_and_picks("T", _papers(5)) is None
     assert not respx.calls
 
 

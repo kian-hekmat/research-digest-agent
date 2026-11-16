@@ -126,27 +126,6 @@ def quantile_map(value: float, from_sample: Sequence[float], to_sample: Sequence
     return dst[i] + (pos - i) * (dst[i + 1] - dst[i])
 
 
-def separating_threshold(same: Sequence[float], different: Sequence[float]) -> tuple[float, bool]:
-    """A similarity floor that tells `same` pairs from `different` ones.
-    Separable: the midpoint between the lowest same and the highest
-    different (overlap False). Otherwise the observed value with the best F1
-    for "same" (ties to the lower one: a wrong suggestion only costs a
-    click), with overlap True."""
-    if not same or not different:
-        raise ValueError("separating_threshold needs both kinds of pairs")
-    if min(same) > max(different):
-        return (min(same) + max(different)) / 2, False
-    best, best_f1 = None, -1.0
-    for t in sorted(set(same) | set(different)):
-        tp = sum(s >= t for s in same)
-        fp = sum(d >= t for d in different)
-        fn = len(same) - tp
-        f1 = 0.0 if tp == 0 else 2 * tp / (2 * tp + fp + fn)
-        if f1 > best_f1:
-            best, best_f1 = t, f1
-    return best, True
-
-
 def latency(seconds: Sequence[float]) -> dict:
     if not seconds:
         return {"n": 0}

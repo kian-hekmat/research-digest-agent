@@ -4,9 +4,8 @@
 
 Reads a CSV with `topic`, `arxiv_id`, `label` (1-10) and `labeler` columns -
 the format `python -m evals.rag sample/label` writes - and stores each label
-as that topic-paper pair's reference_relevance. These are the few-shot
-anchors new relevance ratings are calibrated against (see
-app.services.retrieval.rating_anchors). Rows whose paper isn't linked to the
+as that topic-paper pair's reference_relevance, which the ranking eval
+(evals.ranking) compares against. Rows whose paper isn't linked to the
 topic, or with no valid label, are skipped and counted. Safe to re-run: it
 overwrites the labels it finds.
 """

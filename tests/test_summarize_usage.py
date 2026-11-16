@@ -57,7 +57,6 @@ def _summarizer(ledger, **overrides):
     [
         (lambda s: s.summarize_paper("T", "A"), ["summary"]),
         (lambda s: s.summarize_and_rate("T", "A", "RLHF", "rlhf"), ["summary"]),
-        (lambda s: s.summarize_and_rate("T", "A", "RLHF", "rlhf", excerpts=["x"]), ["summary", "rating"]),
         (lambda s: s.rate_relevance("T", "A", "RLHF", "rlhf"), ["rating"]),
         (lambda s: s.write_overview("RLHF", ["s1", "s2"]), ["overview"]),
     ],
@@ -83,9 +82,6 @@ def test_blocked_purpose_makes_no_http_call_and_returns_no_text():
     s = _summarizer(ledger)
 
     assert s.summarize_and_rate("T", "A", "RLHF", "rlhf") == RatedSummary(summary=None, relevance=None)
-    assert s.summarize_and_rate("T", "A", "RLHF", "rlhf", excerpts=["x"]) == RatedSummary(
-        summary=None, relevance=None
-    )
     assert s.rate_relevance("T", "A", "RLHF", "rlhf") is None
     assert s.write_overview("RLHF", ["s1"]) is None
     assert s.summarize_paper("T", "A") is None
@@ -167,20 +163,6 @@ def test_no_ledger_records_nothing_and_still_works():
 
 
 @respx.mock
-def test_ollama_backend_records_nothing():
-    respx.post("http://ollama.test:11434/api/chat").mock(
-        return_value=httpx.Response(200, json={"message": {"content": "A summary."}})
-    )
-    ledger = FakeLedger()
-    s = Summarizer(
-        settings=Settings(summary_backend="ollama", ollama_base_url="http://ollama.test:11434"),
-        ledger=ledger,
-    )
-    assert s.summarize_paper("T", "A") == "A summary."
-    assert ledger.records == [] and ledger.asked == []
-
-
-@respx.mock
 def test_out_of_credits_429_returns_none_and_reports():
     respx.post(OPENAI_CHAT).mock(
         return_value=httpx.Response(429, json={"error": {"code": "insufficient_quota"}})
@@ -210,12 +192,3 @@ def test_no_response_format_key_by_default():
     route = respx.post(OPENAI_CHAT).mock(return_value=_reply("text"))
     _summarizer(FakeLedger())._complete(system="s", user="u", max_tokens=50, purpose="summary")
     assert "response_format" not in json.loads(route.calls.last.request.content)
-
-
-@respx.mock
-def test_response_format_on_ollama_returns_none_without_http():
-    out = _summarizer(FakeLedger(), summary_backend="ollama")._complete(
-        system="s", user="u", max_tokens=50, purpose="summary", response_format={"type": "json_object"}
-    )
-    assert out is None
-    assert not respx.calls

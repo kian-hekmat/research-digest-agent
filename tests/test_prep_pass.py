@@ -175,42 +175,6 @@ async def test_prep_with_an_empty_window_stores_nothing(db_session, temporal_cli
     assert FakeSummarizer.summarized == []
 
 
-async def test_prep_fetches_full_text_only_for_top_k_when_enabled(db_session, temporal_client, monkeypatch):
-    settings = get_settings()
-    monkeypatch.setattr(settings, "rag_fulltext", True)
-    monkeypatch.setattr(settings, "summary_backend", "ollama")  # embeddings need it on
-    monkeypatch.setattr(temporal_activities, "Embedder", FakeEmbedder)
-    monkeypatch.setattr(temporal_activities, "fulltext_excerpts", lambda *a, **k: [])
-    fetched = []
-    monkeypatch.setattr(
-        temporal_activities, "index_fulltext",
-        lambda db, embedder, paper, fetch=None: fetched.append(paper.title) or "ok",
-    )
-    topic = _make_topic(db_session)
-    _subscribed(db_session, topic, 5)
-    _window(db_session, topic, 8)
-
-    await _prep(temporal_client, topic)
-
-    assert sorted(fetched) == sorted(f"P{i}" for i in range(4, 9))
-
-
-async def test_prep_makes_no_full_text_request_when_off(db_session, temporal_client, monkeypatch):
-    monkeypatch.setattr(get_settings(), "rag_fulltext", False)
-    fetched = []
-    monkeypatch.setattr(
-        temporal_activities, "index_fulltext",
-        lambda db, embedder, paper, fetch=None: fetched.append(paper.title) or "ok",
-    )
-    topic = _make_topic(db_session)
-    _subscribed(db_session, topic, 5)
-    _window(db_session, topic, 3)
-
-    await _prep(temporal_client, topic)
-
-    assert fetched == []
-
-
 async def test_prep_alerts_when_every_summary_fails(db_session, temporal_client, monkeypatch):
     _alerts_on(monkeypatch)
     topic = _make_topic(db_session)
@@ -285,8 +249,8 @@ async def test_second_edition_overview_sees_the_first(db_session, temporal_clien
     await _prep(temporal_client, topic, slot=later)
 
     first, second = FakeSummarizer.overview_histories
-    assert first is None or first.previous == ()
-    assert [text for _, text in second.previous] == ["Overview of RLHF: 2 papers."]
+    assert first == []
+    assert second == ["Overview of RLHF: 2 papers."]
     assert _edition(db_session, topic, later).window_start == _edition(db_session, topic).window_end
 
 

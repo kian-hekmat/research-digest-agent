@@ -92,16 +92,6 @@ class EmbedPapersInput:
     an embedding are skipped by the activity)."""
 
     paper_ids: list[str] = field(default_factory=list)
-    # The digest's topic, embedded too if it has no embedding yet (for
-    # similar-topic suggestions). Empty for older callers.
-    topic_id: str = ""
-
-
-@dataclass
-class FetchFulltextInput:
-    """Papers from this run whose full text to fetch and index."""
-
-    paper_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -126,7 +116,6 @@ class WriteOverviewInput:
     # existed) means no history.
     topic_id: str = ""
     digest_id: str = ""
-    paper_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -176,7 +165,6 @@ class EditionPlan:
     # Window papers with no rating for this topic yet, ready to re-rate.
     unrated: list[SummarizePaperInput] = field(default_factory=list)
     llm_max_concurrency: int = 8
-    fulltext: bool = False
 
 
 @dataclass

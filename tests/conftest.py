@@ -11,14 +11,13 @@ TEST_DATABASE_URL = os.getenv(
     "postgresql+psycopg2://digest_user:digest_pass@localhost:5432/digest_test_db",
 )
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
-# Summarization defaults to the local Gemma model; no test may call a real
-# Ollama server. Tests that exercise the Ollama path pass their own Settings
-# and fake the HTTP layer with respx.
+# No test may call the real OpenAI API. Tests that exercise the OpenAI path
+# pass their own Settings and fake the HTTP layer with respx.
 os.environ["SUMMARY_BACKEND"] = "none"
 # Tests with hand-built embedders switch Settings.embedding_model to
-# "fake-embed"; give it embeddinggemma's thresholds (app.config.Calibration).
+# "fake-embed"; give it round thresholds (app.config.Calibration).
 os.environ["RETRIEVAL_CALIBRATION"] = (
-    '{"fake-embed": {"similar_paper": 0.75, "near_duplicate": 0.9, "related_min": 0.72,'
+    '{"fake-embed": {"similar_paper": 0.75, "near_duplicate": 0.9,'
     ' "novelty_repeat": 0.85, "novelty_unrelated": 0.45}}'
 )
 # The JSON API is admin-only and fails closed, so the suite needs a token set
@@ -40,9 +39,8 @@ from app.config import Settings, get_settings  # noqa: E402
 
 # Settings would otherwise silently pick up whatever real .env the developer
 # has locally for every field a test doesn't override - a real credential
-# could end up in an assertion and from there in a failure message, and a
-# setting like SUMMARY_BACKEND=ollama makes "real Summarizer" tests call the
-# developer's actual local model. Environment variables (like DATABASE_URL
+# could end up in an assertion and from there in a failure message.
+# Environment variables (like DATABASE_URL
 # above) are unaffected - only the local .env file is disabled, process-wide.
 #
 # This must happen BEFORE anything below is imported: app.database calls
@@ -64,9 +62,9 @@ _ALEMBIC_CFG.set_main_option("sqlalchemy.url", TEST_DATABASE_URL)
 
 
 class EmbedderTextMixin:
-    """For hand-written fake embedders: the Embedder text methods, in the
-    EmbeddingGemma formats the fakes were written against, and a constructor
-    that accepts what activities pass (ledger=, topic_id=)."""
+    """For hand-written fake embedders: Embedder.document_text (in a format
+    the fakes parse) and a constructor that accepts what activities pass
+    (ledger=, topic_id=)."""
 
     def __init__(self, *args, **kwargs):
         pass
@@ -74,8 +72,23 @@ class EmbedderTextMixin:
     def document_text(self, title, abstract):
         return f"title: {title} | text: {abstract}"
 
-    def query_text(self, query):
-        return f"task: search result | query: {query}"
+
+# A fake OpenAI endpoint for Summarizer tests (respx mocks it).
+OPENAI_TEST_BASE = "http://openai.test/v1"
+OPENAI_TEST_CHAT = f"{OPENAI_TEST_BASE}/chat/completions"
+
+
+def openai_test_settings(**overrides) -> Settings:
+    return Settings(**{
+        "summary_backend": "openai", "openai_api_key": "test-key",
+        "openai_base_url": OPENAI_TEST_BASE, **overrides,
+    })
+
+
+def openai_reply(text: str):
+    import httpx
+
+    return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": text}}]})
 
 
 def make_result(arxiv_id, title, published_at=None):

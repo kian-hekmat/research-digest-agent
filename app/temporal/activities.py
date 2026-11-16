@@ -7,7 +7,7 @@ These are Phase 2's `run_digest` steps (that function is retired), split at
 I/O boundaries so `DigestWorkflow` can apply a retry policy per boundary and
 stay itself free of I/O.
 
-`fetch_arxiv` and `fetch_fulltext` run on their own task queue
+`fetch_arxiv` runs on its own task queue
 (`workflows.arxiv_queue`), served by a worker that runs one activity at a
 time, so there is never more than one arXiv request in flight.
 """
@@ -28,11 +28,6 @@ from app.services.ranking import venue_score
 from app.services.retrieval import (
     compute_signals,
     embed_missing,
-    embed_missing_topics,
-    fulltext_excerpts,
-    index_fulltext,
-    rating_anchors,
-    related_context,
 )
 from app.services.scholar import fetch_max_author_h_index
 from app.services.spend import SpendLimitReached
@@ -49,10 +44,7 @@ from app.services.email import (
     render_digest_email,
 )
 from app.services.summarize import (
-    OverviewHistory,
-    RatingAnchor,
     RatingContext,
-    RelatedPaper,
     Summarizer,
 )
 from app.temporal.types import (
@@ -63,7 +55,6 @@ from app.temporal.types import (
     EditionPlan,
     EditionRanking,
     EmbedPapersInput,
-    FetchFulltextInput,
     FinalizeDigestInput,
     GatherContentInput,
     GatheredContent,
@@ -246,8 +237,6 @@ def embed_papers(input: EmbedPapersInput) -> int:
             # Retrying can't help until the limit resets or credits are added;
             # the workflow carries on without retrieval this run.
             raise ApplicationError(str(exc), non_retryable=True) from exc
-        if input.topic_id:
-            embed_missing_topics(db, embedder, [input.topic_id])
         if embedder.enabled:
             compute_signals(
                 db,
@@ -262,96 +251,15 @@ def embed_papers(input: EmbedPapersInput) -> int:
         db.close()
 
 
-@activity.defn
-def fetch_fulltext(input: FetchFulltextInput) -> int:
-    """Fetch, chunk and embed the full text of this run's papers that were
-    never checked (see app.services.fulltext for how this stays within
-    arXiv's terms). One paper at a time through the shared arXiv rate gate,
-    heartbeating between papers. A paper whose fetch fails is marked "error"
-    and summarized without full text. Returns how many were indexed."""
-    settings = get_settings()
-    if not (settings.rag_fulltext and settings.embeddings_enabled):
-        return 0
-    embedder = Embedder(ledger=DbLedger())
-    db = SessionLocal()
-    indexed = 0
-    try:
-        papers = (
-            db.query(models.Paper)
-            .filter(models.Paper.id.in_(input.paper_ids), models.Paper.fulltext_status.is_(None))
-            .all()
-        )
-        for paper in papers:
-            activity.heartbeat(paper.arxiv_id)
-            try:
-                indexed += index_fulltext(db, embedder, paper) == "ok"
-            except Exception:
-                logger.exception("Full text failed for %s", paper.arxiv_id)
-        return indexed
-    finally:
-        db.close()
-
-
-def _excerpts(paper_id: str) -> list[str]:
-    """Full-text excerpts for the summary; empty when off, not indexed, or
-    on any failure (an enhancement, like the other retrieval steps)."""
-    settings = get_settings()
-    if not (settings.rag_fulltext and settings.embeddings_enabled):
-        return []
-    db = SessionLocal()
-    try:
-        return fulltext_excerpts(db, Embedder(ledger=DbLedger()), paper_id, max_excerpts=settings.rag_fulltext_excerpts)
-    except Exception:
-        logger.exception("Full-text excerpts failed for paper %s", paper_id)
-        return []
-    finally:
-        db.close()
-
-
-def _related_papers(paper_id: str) -> tuple[list[RelatedPaper], dict[str, tuple[str, float]]]:
-    """Earlier papers to offer the summarizer, and arxiv_id -> (paper_id,
-    similarity) for recording which ones its note cites. Retrieval is an
-    enhancement: any failure here means summarizing without it."""
-    settings = get_settings()
-    if not (settings.embeddings_enabled and settings.rag_related_notes):
-        return [], {}
-    db = SessionLocal()
-    try:
-        found = related_context(
-            db,
-            paper_id,
-            model=settings.embedding_model,
-            k=settings.rag_top_k,
-            min_similarity=settings.calibration.related_min,
-        )
-    except Exception:
-        logger.exception("Related-work retrieval failed for paper %s", paper_id)
-        return [], {}
-    finally:
-        db.close()
-    offered = [RelatedPaper(n.arxiv_id, n.title, n.summary or n.abstract or "") for n in found]
-    return offered, {n.arxiv_id: (n.paper_id, n.similarity) for n in found}
-
-
 def _rating_context(topic_id: str, paper_id: str) -> RatingContext | None:
-    """The topic's description and reference-rated anchors for rating this
-    paper. An enhancement like retrieval: a failure means rating without it."""
+    """The topic's description, for rating this paper. A failure means
+    rating without it."""
     if not topic_id:
         return None
-    settings = get_settings()
     db = SessionLocal()
     try:
         topic = db.get(models.Topic, topic_id)
-        anchors = []
-        if settings.rag_rating_anchors:
-            anchors = rating_anchors(
-                db, topic_id, paper_id,
-                model=settings.embedding_model, per_band=settings.rag_anchors_per_band,
-            )
-        return RatingContext(
-            description=topic.description if topic else None,
-            anchors=tuple(RatingAnchor(a.title, a.abstract, a.rating) for a in anchors),
-        )
+        return RatingContext(description=topic.description if topic else None)
     except Exception:
         logger.exception("Rating context failed for paper %s", paper_id)
         return None
@@ -366,32 +274,19 @@ def summarize_for_edition(input: SummarizePaperInput) -> str | None:
     Uses the evaluated combined prompt (summarize_and_rate) but stores only
     the summary: the ingest rating stands (the combined prompt's own rating
     runs higher - docs/rag-plan.md §5.10). Returns the summary: None when
-    the Summarizer is in no-key mode or the budget skipped it - not a failure.
-
-    With RAG_RELATED_NOTES on, earlier, similar papers are offered as related
-    work, and a related-work note is stored only when its citations checked
-    out (see Summarizer); its citations then replace the "similar earlier
-    paper" link that embed_papers recorded."""
-    related, by_arxiv_id = _related_papers(input.paper_id)
+    the Summarizer is in no-key mode or the budget skipped it - not a failure."""
     rated = Summarizer(ledger=DbLedger(), topic_id=input.topic_id or None).summarize_and_rate(
         input.title,
         input.abstract or "",
         input.topic_name,
         input.topic_query,
-        related=related,
         rating_context=_rating_context(input.topic_id, input.paper_id),
-        excerpts=_excerpts(input.paper_id),
     )
-    if rated.related_rejected:
-        logger.info("Dropped a related-work note with unchecked citations for %s", input.paper_id)
     db = SessionLocal()
     try:
         paper = db.get(models.Paper, input.paper_id)
         if paper is not None:
             paper.summary = rated.summary
-            paper.related_note = rated.related_note
-            if rated.related_ids:
-                crud.set_paper_related(db, paper.id, [by_arxiv_id[a] for a in rated.related_ids])
             db.commit()
         return rated.summary
     finally:
@@ -420,29 +315,22 @@ def rate_relevance(input: SummarizePaperInput) -> int | None:
         db.close()
 
 
-def _overview_history(input: WriteOverviewInput) -> OverviewHistory | None:
-    """The topic's recent overviews and the batch's similar earlier papers.
-    An enhancement: any failure means writing the overview without them."""
+def _previous_overviews(input: WriteOverviewInput) -> list[str]:
+    """The topic's recent overviews, oldest first, shown to the writer only so
+    it doesn't repeat them. Any failure means writing without them."""
     settings = get_settings()
     if not (settings.rag_overview_history and input.topic_id):
-        return None
+        return []
     db = SessionLocal()
     try:
         previous = crud.recent_overviews(
             db, input.topic_id, exclude_digest_id=input.digest_id or None,
             limit=settings.rag_overview_history_count,
         )
-        style = settings.rag_overview_history_style
-        return OverviewHistory(
-            previous=tuple((f"{when:%b} {when.day}", text) for when, text in previous),
-            earlier_papers=(
-                tuple(crud.similar_earlier_papers(db, input.paper_ids)) if style == "compare" else ()
-            ),
-            style=style,
-        )
+        return [text for _, text in previous]
     except Exception:
         logger.exception("Overview history failed for digest %s", input.digest_id)
-        return None
+        return []
     finally:
         db.close()
 
@@ -450,7 +338,7 @@ def _overview_history(input: WriteOverviewInput) -> OverviewHistory | None:
 @activity.defn
 def write_overview(input: WriteOverviewInput) -> str | None:
     return Summarizer(ledger=DbLedger(), topic_id=input.topic_id or None).write_overview(
-        input.topic_name, input.summaries, history=_overview_history(input)
+        input.topic_name, input.summaries, previous=_previous_overviews(input)
     )
 
 
@@ -589,7 +477,6 @@ def _paper_for_email(p: models.Paper, relevance: int | None) -> PaperForEmail:
         max_author_h_index=p.max_author_h_index,
         venue_score=venue_score(p.comment, p.journal_ref),
         prior_similarity=p.prior_similarity,
-        related_note=p.related_note,
         similar=[(r.arxiv_id, r.title) for r in p.related_papers],
         near_duplicate_of=p.near_duplicate_of.arxiv_id if p.near_duplicate_of else None,
     )
@@ -626,7 +513,6 @@ def plan_edition(input: PlanEditionInput) -> EditionPlan:
             window_end=input.window_end,
             k=_edition_k(db, topic.id),
             llm_max_concurrency=settings.llm_max_concurrency,
-            fulltext=bool(settings.rag_fulltext and settings.embeddings_enabled),
         )
         if crud.get_edition(db, topic.id, input.slot) is not None:
             plan.exists = True

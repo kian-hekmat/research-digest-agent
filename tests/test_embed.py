@@ -8,15 +8,15 @@ from app.config import Settings
 from app.services.embed import Embedder
 from app.services.spend import SpendLimitReached, UnknownModelPrice, Usage
 
-EMBED_URL = "http://ollama.test/api/embed"
+OPENAI_EMBED = "http://openai.test/v1/embeddings"
 
 
 def _settings(**overrides) -> Settings:
     base = dict(
-        summary_backend="ollama",
-        ollama_base_url="http://ollama.test",
-        embedding_backend="ollama",
-        embedding_model="embeddinggemma",
+        summary_backend="openai",
+        openai_api_key="k",
+        openai_base_url="http://openai.test/v1",
+        embedding_model="text-embedding-3-small",
         embedding_dim=4,
         embedding_batch_size=2,
     )
@@ -25,30 +25,31 @@ def _settings(**overrides) -> Settings:
 
 def _reply(request: httpx.Request) -> httpx.Response:
     texts = json.loads(request.content)["input"]
-    return httpx.Response(200, json={"embeddings": [[float(len(t)), 0.0, 0.0, 1.0] for t in texts]})
+    return httpx.Response(200, json={
+        "data": [{"index": i, "embedding": [float(len(t)), 0.0, 0.0, 1.0]} for i, t in enumerate(texts)],
+        "usage": {"prompt_tokens": 1, "total_tokens": 1},
+    })
 
 
-def test_document_text_uses_embeddinggemma_document_prompt():
-    e = Embedder(Settings(embedding_backend="ollama"))
-    assert e.document_text("A Title", "An abstract.") == "title: A Title | text: An abstract."
-    assert e.query_text("main results") == "task: search result | query: main results"
+def _data(vectors):
+    return {"data": [{"index": i, "embedding": v} for i, v in enumerate(vectors)], "usage": {"prompt_tokens": 1}}
 
 
 @respx.mock
 def test_embed_batches_and_preserves_order():
-    route = respx.post(EMBED_URL).mock(side_effect=_reply)
+    route = respx.post(OPENAI_EMBED).mock(side_effect=_reply)
 
     vectors = Embedder(_settings()).embed(["a", "bb", "ccc"])
 
     assert [v[0] for v in vectors] == [1.0, 2.0, 3.0]
     assert route.call_count == 2  # batch size 2
     first = json.loads(route.calls[0].request.content)
-    assert first == {"model": "embeddinggemma", "input": ["a", "bb"]}
+    assert first == {"model": "text-embedding-3-small", "input": ["a", "bb"], "dimensions": 4}
 
 
 @respx.mock
 def test_wrong_width_raises_instead_of_storing_garbage():
-    respx.post(EMBED_URL).mock(return_value=httpx.Response(200, json={"embeddings": [[1.0, 2.0]]}))
+    respx.post(OPENAI_EMBED).mock(return_value=httpx.Response(200, json=_data([[1.0, 2.0]])))
 
     with pytest.raises(ValueError, match="2-dim"):
         Embedder(_settings()).embed(["a"])
@@ -56,7 +57,7 @@ def test_wrong_width_raises_instead_of_storing_garbage():
 
 @respx.mock
 def test_count_mismatch_raises():
-    respx.post(EMBED_URL).mock(return_value=httpx.Response(200, json={"embeddings": []}))
+    respx.post(OPENAI_EMBED).mock(return_value=httpx.Response(200, json=_data([])))
 
     with pytest.raises(ValueError, match="asked for 1"):
         Embedder(_settings()).embed(["a"])
@@ -64,7 +65,7 @@ def test_count_mismatch_raises():
 
 @respx.mock
 def test_server_error_raises_for_the_retry_policy():
-    respx.post(EMBED_URL).mock(return_value=httpx.Response(500))
+    respx.post(OPENAI_EMBED).mock(return_value=httpx.Response(500))
 
     with pytest.raises(httpx.HTTPStatusError):
         Embedder(_settings()).embed(["a"])
@@ -73,7 +74,7 @@ def test_server_error_raises_for_the_retry_policy():
 @pytest.mark.parametrize("overrides", [{"rag_enabled": False}, {"summary_backend": "none"}])
 @respx.mock
 def test_disabled_makes_no_call(overrides):
-    route = respx.post(EMBED_URL).mock(side_effect=_reply)
+    route = respx.post(OPENAI_EMBED).mock(side_effect=_reply)
 
     embedder = Embedder(_settings(**overrides))
 
@@ -82,10 +83,7 @@ def test_disabled_makes_no_call(overrides):
     assert not route.called
 
 
-# ---------- OpenAI backend (text-embedding-3-small) ----------
-OPENAI_EMBED = "http://openai.test/v1/embeddings"
-
-
+# ---------- OpenAI request shape, pricing and the spend ledger ----------
 class FakeLedger:
     def __init__(self, allow: bool = True) -> None:
         self._allow = allow
@@ -107,7 +105,6 @@ def _openai(**overrides) -> Settings:
         summary_backend="openai",
         openai_api_key="k",
         openai_base_url="http://openai.test/v1",
-        embedding_backend="openai",
         embedding_model="text-embedding-3-small",
         embedding_dim=768,
     )
@@ -123,12 +120,11 @@ def _vectors(n, dim=768, order=None):
 
 
 @respx.mock
-def test_openai_request_shape_and_no_task_prompts():
+def test_openai_request_shape_and_document_text():
     route = respx.post(OPENAI_EMBED).mock(return_value=httpx.Response(200, json=_vectors(1)))
     e = Embedder(_openai())
 
     assert e.document_text("T", "A") == "T\n\nA"
-    assert e.query_text("main results") == "main results"
     e.embed([e.document_text("T", "A")])
 
     request = route.calls.last.request

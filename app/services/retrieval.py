@@ -5,7 +5,6 @@ here commit only where noted.
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -14,8 +13,6 @@ from sqlalchemy.orm import Session
 
 from app import crud, models
 from app.services.embed import Embedder
-from app.services.fulltext import Chunk, chunk_sections, fetch_html, parse_sections
-from app.topic_query import normalize_query
 
 ABSTRACT = "abstract"
 
@@ -84,71 +81,6 @@ def embed_missing(
         db.commit()
         written += len(batch)
     return written
-
-
-def embed_missing_topics(
-    db: Session, embedder: Embedder, topic_ids: list[str] | None = None
-) -> int:
-    """Embed each topic's normalized query, for topics with no embedding for
-    this model yet (only `topic_ids` when given). Commits. Returns how many
-    were written; 0 when embeddings are off."""
-    if not embedder.enabled:
-        return 0
-    has = db.query(models.TopicEmbedding.topic_id).filter(models.TopicEmbedding.model == embedder.model)
-    q = db.query(models.Topic).filter(models.Topic.id.notin_(has))
-    if topic_ids is not None:
-        if not topic_ids:
-            return 0
-        q = q.filter(models.Topic.id.in_(topic_ids))
-    topics = q.order_by(models.Topic.created_at, models.Topic.id).all()
-    if not topics:
-        return 0
-    texts = [embedder.query_text(t.normalized_query) for t in topics]
-    vectors = embedder.embed(texts)
-    for topic, content, vector in zip(topics, texts, vectors):
-        db.add(models.TopicEmbedding(topic_id=topic.id, model=embedder.model, content=content, embedding=vector))
-    db.commit()
-    return len(topics)
-
-
-@dataclass(frozen=True)
-class TopicMatch:
-    topic_id: str
-    name: str
-    normalized_query: str
-    similarity: float
-
-
-_SIMILAR_TOPICS_SQL = """
-SELECT t.id, t.name, t.normalized_query,
-       1 - (te.embedding <=> CAST(:query AS vector)) AS similarity
-FROM topic_embeddings te
-JOIN topics t ON t.id = te.topic_id
-WHERE te.model = :model
-  AND 1 - (te.embedding <=> CAST(:query AS vector)) >= :min_similarity
-ORDER BY te.embedding <=> CAST(:query AS vector)
-LIMIT :k
-"""
-
-
-def similar_topics(
-    db: Session, embedder: Embedder, query: str, *, min_similarity: float, k: int = 3
-) -> list[TopicMatch]:
-    """Existing topics whose query is at least `min_similarity` similar to
-    `query` (normalized first, then embedded - one call), most similar first.
-    Empty when embeddings are off. Phase 3's signup offers these as "join the
-    existing topic?"; the floor is Settings.calibration.topic_suggestion."""
-    if not embedder.enabled:
-        return []
-    vectors = embedder.embed([embedder.query_text(normalize_query(query))])
-    if not vectors:
-        return []
-    literal = "[" + ",".join(repr(float(x)) for x in vectors[0]) + "]"
-    rows = db.execute(
-        text(_SIMILAR_TOPICS_SQL),
-        {"query": literal, "model": embedder.model, "min_similarity": min_similarity, "k": k},
-    ).all()
-    return [TopicMatch(r.id, r.name, r.normalized_query, float(r.similarity)) for r in rows]
 
 
 _NEIGHBOURS_SQL = """
@@ -240,8 +172,8 @@ def neighbours(
 def related_context(
     db: Session, paper_id: str, *, model: str, k: int, min_similarity: float
 ) -> list[Neighbour]:
-    """Earlier, topic-linked papers close enough to offer the summarizer as
-    related work."""
+    """Earlier, topic-linked papers at least `min_similarity` similar: the
+    "similar earlier paper" an email links to."""
     return neighbours(
         db,
         paper_id,
@@ -280,8 +212,7 @@ def compute_signals(
       threshold that comes *first* (by submission date, then arXiv id), so of
       two near-identical papers only the later one points at the other.
     - similar paper: the closest earlier, topic-linked paper at or above
-      `similar_paper_similarity`, recorded in paper_related - unless the paper
-      has an LLM related-work note, whose checked citations take its place."""
+      `similar_paper_similarity`, recorded in paper_related."""
     q = db.query(models.Paper).join(
         models.PaperEmbedding,
         (models.PaperEmbedding.paper_id == models.Paper.id)
@@ -306,212 +237,9 @@ def compute_signals(
         mine = _order_key(paper.published_at, paper.arxiv_id)
         earlier = [n for n in close if _order_key(n.published_at, n.arxiv_id) < mine]
         paper.near_duplicate_of_id = earlier[0].paper_id if earlier else None
-        if paper.related_note is None:
-            similar = related_context(
-                db, paper.id, model=model, k=1, min_similarity=similar_paper_similarity
-            )
-            crud.set_paper_related(db, paper.id, [(n.paper_id, n.similarity) for n in similar])
+        similar = related_context(
+            db, paper.id, model=model, k=1, min_similarity=similar_paper_similarity
+        )
+        crud.set_paper_related(db, paper.id, [(n.paper_id, n.similarity) for n in similar])
     db.commit()
     return len(papers)
-
-
-@dataclass(frozen=True)
-class Anchor:
-    paper_id: str
-    arxiv_id: str
-    title: str
-    abstract: str
-    rating: int  # reference_relevance for the topic
-    similarity: float | None  # to the paper being rated; None without embeddings
-
-
-# Rating bands anchors are drawn from, so examples span the scale instead of
-# all being the nearest (usually highly rated) papers.
-_BANDS = ((8, 10), (4, 7), (1, 3))
-
-_ANCHORS_SQL = """
-SELECT p.id, p.arxiv_id, p.title, p.abstract, tp.reference_relevance AS rating,
-       {similarity} AS similarity
-FROM topic_paper tp
-JOIN papers p ON p.id = tp.paper_id
-{embedding_join}
-WHERE tp.topic_id = :topic_id AND tp.reference_relevance IS NOT NULL
-  AND p.id <> ALL(CAST(:exclude AS uuid[])) AND p.abstract IS NOT NULL
-ORDER BY {order}
-"""
-
-
-def rating_anchors(
-    db: Session,
-    topic_id: str,
-    paper_id: str,
-    *,
-    model: str,
-    per_band: int = 2,
-    exclude_paper_ids: tuple[str, ...] = (),
-) -> list[Anchor]:
-    """Reference-rated papers of this topic to show as calibration examples
-    when rating `paper_id`: up to `per_band` from each rating band (8-10,
-    4-7, 1-3), the most similar to the paper first. Highest rating first in
-    the result. Never the paper itself or anything in `exclude_paper_ids`.
-    Without an embedding for the paper, falls back to the newest labeled
-    papers per band."""
-    has_embedding = db.execute(
-        text(
-            "SELECT 1 FROM paper_embeddings WHERE paper_id = :pid AND model = :model "
-            "AND kind = :kind AND chunk_ix = 0"
-        ),
-        {"pid": paper_id, "model": model, "kind": ABSTRACT},
-    ).first()
-    if has_embedding:
-        sql = _ANCHORS_SQL.format(
-            similarity="1 - (e.embedding <=> q.embedding)",
-            embedding_join=(
-                "JOIN paper_embeddings e ON e.paper_id = p.id AND e.model = :model "
-                "AND e.kind = :kind AND e.chunk_ix = 0 "
-                "JOIN paper_embeddings q ON q.paper_id = :paper_id AND q.model = :model "
-                "AND q.kind = :kind AND q.chunk_ix = 0"
-            ),
-            order="e.embedding <=> q.embedding",
-        )
-    else:
-        sql = _ANCHORS_SQL.format(
-            similarity="NULL", embedding_join="", order="p.published_at DESC NULLS LAST, p.arxiv_id"
-        )
-    rows = db.execute(
-        text(sql),
-        {
-            "topic_id": topic_id,
-            "paper_id": paper_id,
-            "model": model,
-            "kind": ABSTRACT,
-            # str(): callers may hold uuid.UUID or str ids; the cast takes text.
-            "exclude": [str(x) for x in (paper_id, *exclude_paper_ids)],
-        },
-    ).all()
-    picked: list[Anchor] = []
-    for low, high in _BANDS:
-        band = [r for r in rows if low <= r.rating <= high][:per_band]
-        picked += [
-            Anchor(
-                paper_id=r.id, arxiv_id=r.arxiv_id, title=r.title, abstract=r.abstract,
-                rating=r.rating, similarity=None if r.similarity is None else float(r.similarity),
-            )
-            for r in band
-        ]
-    return sorted(picked, key=lambda a: -a.rating)
-
-
-# ---------- full text (phase E) ----------
-CHUNK = "chunk"
-
-# What the summarizer most often lacks from an abstract. Each query pulls
-# the paper's best-matching chunk. (An "experimental setup" query was tried
-# and dropped: it mostly surfaced hardware and hyperparameter trivia.)
-FULLTEXT_QUERIES = (
-    "main quantitative results: accuracy, error, speedup, and comparison with baselines",
-    "the proposed method, model or algorithm and how it works",
-    "limitations, assumptions and failure cases",
-)
-
-
-def store_chunks(db: Session, embedder: Embedder, paper: models.Paper, chunks: list[Chunk]) -> int:
-    """Embed and store a paper's full-text chunks, replacing any it had for
-    this model. Does not commit. Returns how many were stored."""
-    db.query(models.PaperEmbedding).filter(
-        models.PaperEmbedding.paper_id == paper.id,
-        models.PaperEmbedding.model == embedder.model,
-        models.PaperEmbedding.kind == CHUNK,
-    ).delete(synchronize_session=False)
-    if not chunks:
-        return 0
-    texts = [embedder.document_text(f"{paper.title} - {c.section}", c.text) for c in chunks]
-    vectors = embedder.embed(texts)
-    for i, (chunk, vector) in enumerate(zip(chunks, vectors)):
-        db.add(
-            models.PaperEmbedding(
-                paper_id=paper.id,
-                model=embedder.model,
-                kind=CHUNK,
-                chunk_ix=i,
-                content=f"[{chunk.section}] {chunk.text}" if chunk.section else chunk.text,
-                embedding=vector,
-            )
-        )
-    return len(chunks)
-
-
-_query_vectors: dict[str, list[list[float]]] = {}
-
-
-def _fulltext_query_vectors(embedder: Embedder) -> list[list[float]]:
-    """The fixed queries' embeddings, computed once per process and model."""
-    if embedder.model not in _query_vectors:
-        _query_vectors[embedder.model] = embedder.embed([embedder.query_text(q) for q in FULLTEXT_QUERIES])
-    return _query_vectors[embedder.model]
-
-
-_BEST_CHUNK_SQL = """
-SELECT chunk_ix, content FROM paper_embeddings
-WHERE paper_id = :paper_id AND model = :model AND kind = :kind
-ORDER BY embedding <=> CAST(:query AS vector)
-LIMIT 1
-"""
-
-
-def fulltext_excerpts(
-    db: Session, embedder: Embedder, paper_id: str, *, max_excerpts: int = 4
-) -> list[str]:
-    """The paper's chunks that best answer FULLTEXT_QUERIES (one per query,
-    de-duplicated), in the paper's own order. Empty when it has none."""
-    found: dict[int, str] = {}
-    for vector in _fulltext_query_vectors(embedder):
-        row = db.execute(
-            text(_BEST_CHUNK_SQL),
-            {
-                "paper_id": paper_id,
-                "model": embedder.model,
-                "kind": CHUNK,
-                "query": "[" + ",".join(repr(float(x)) for x in vector) + "]",
-            },
-        ).first()
-        if row is not None:
-            found.setdefault(row.chunk_ix, row.content)
-        if len(found) >= max_excerpts:
-            break
-    return [_simplify_math(found[i]) for i in sorted(found)]
-
-
-_INLINE_MATH = re.compile(r"\$[^$]*\$")
-_LONG_FORMULA_CHARS = 25
-
-
-def _simplify_math(text_: str) -> str:
-    """Long inline formulas become "[formula]" so they don't leak into
-    summaries; short ones (`$n=50000$`) stay readable. Formulas are paired
-    left to right ($...$), so prose between two formulas is never touched."""
-    return _INLINE_MATH.sub(
-        lambda m: "[formula]" if len(m.group(0)) - 2 >= _LONG_FORMULA_CHARS else m.group(0), text_
-    )
-
-
-def index_fulltext(
-    db: Session, embedder: Embedder, paper: models.Paper, fetch=fetch_html
-) -> str:
-    """Fetch, parse, chunk and store one paper's full text, and record the
-    outcome in paper.fulltext_status ("ok" / "unavailable" / "empty" /
-    "error"). Commits. A fetch error is recorded, logged by the caller, and
-    never retried automatically - the summary just goes without full text."""
-    status = "error"
-    try:
-        html = fetch(paper.arxiv_id)
-        if html is None:
-            status = "unavailable"
-        else:
-            chunks = chunk_sections(parse_sections(html))
-            status = "ok" if store_chunks(db, embedder, paper, chunks) else "empty"
-    finally:
-        paper.fulltext_status = status
-        paper.fulltext_checked_at = datetime.now(timezone.utc)
-        db.commit()
-    return status

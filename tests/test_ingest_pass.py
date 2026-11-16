@@ -1,5 +1,5 @@
 """The daily ingest (`DigestWorkflow`) after Phase 2c: fetch, embed and rate
-only - no summaries, overview or full text, which move to send prep - plus
+only - no summaries or overview, which move to send prep - plus
 the arXiv queue that keeps one request in flight, the batched fan-out and
 the alert when every rating in a run fails.
 
@@ -59,16 +59,10 @@ async def test_ingest_rates_and_embeds_but_writes_no_summary_or_overview(
     db_session, temporal_client, monkeypatch
 ):
     settings = get_settings()
-    # Full text and summaries switched on, to show ingest skips them anyway.
-    monkeypatch.setattr(settings, "rag_fulltext", True)
-    monkeypatch.setattr(settings, "summary_backend", "ollama")
+    # Summaries switched on, to show ingest skips them anyway.
+    monkeypatch.setattr(settings, "summary_backend", "openai")
     monkeypatch.setattr(temporal_activities, "Embedder", FakeEmbedder)
     monkeypatch.setattr(FakeEmbedder, "fail", False)
-    fulltext_fetched = []
-    monkeypatch.setattr(
-        temporal_activities, "index_fulltext",
-        lambda db, embedder, paper, fetch=None: fulltext_fetched.append(paper.arxiv_id) or "ok",
-    )
     topic = _make_topic(db_session)
     # Another topic already summarized Paper Two: it's rated the same way.
     db_session.add(
@@ -90,7 +84,6 @@ async def test_ingest_rates_and_embeds_but_writes_no_summary_or_overview(
     assert FakeSummarizer.summarized == []
     assert FakeSummarizer.overview_histories == []  # write_overview never called
     assert sorted(FakeSummarizer.rated) == [("Paper One", "RLHF"), ("Paper Two", "RLHF")]
-    assert fulltext_fetched == []
     db_session.expire_all()
     refreshed = db_session.get(models.Digest, digest.id)
     assert refreshed.status == models.DigestStatus.completed
@@ -263,13 +256,6 @@ async def test_arxiv_requests_one_in_flight_and_spaced(db_session, temporal_clie
     assert max_overlap == 1
     starts = sorted(s for s, _ in calls)
     assert min(b - a for a, b in zip(starts, starts[1:])) >= 0.05
-
-
-def test_rag_fulltext_defaults_off():
-    assert Settings.model_fields["rag_fulltext"].default is False
-    compose = (Path(__file__).resolve().parent.parent / "docker-compose.yml").read_text()
-    assert "RAG_FULLTEXT: ${RAG_FULLTEXT:-true}" not in compose
-    assert compose.count("RAG_FULLTEXT: ${RAG_FULLTEXT:-false}") == 2  # api and worker
 
 
 def test_pipeline_concurrency_defaults():

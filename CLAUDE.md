@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A research alerting service: FastAPI + Postgres/pgvector + Temporal. The end goal is to fetch new papers per topic from arXiv, rates them with OpenAI (`gpt-5.4-mini`), embeds them (`text-embedding-3-small`, 768 dims), and emails weekly per-topic digests (Monday mornings). It's being turned into a small public service per `docs/public-launch-plan.md`. Each phase has an implementation plan in `docs/superpowers/plans/`, and each plan ends with an "Outcome / Carried forward" section. Read the latest one before starting new work. `docs/rag-plan.md` records every retrieval and prompt measurement and the decision it led to.
+A research alerting service: FastAPI + Postgres/pgvector + Temporal. The end goal is to fetch new papers per topic from arXiv, rates them with OpenAI (`gpt-5.4-mini`), embeds them (`text-embedding-3-small`, 768 dims), and emails weekly per-topic digests (Monday mornings). It's being turned into a small public service for 5–10 invited readers first, per `docs/public-launch-plan.md` (v3, lean: a checklist of what's left, and what was cut or deferred). Each phase has an implementation plan in `docs/superpowers/plans/`, and each plan ends with an "Outcome / Carried forward" section. Read the latest one before starting new work. `docs/rag-plan.md` records every retrieval and prompt measurement and the decision it led to.
 
 ## Commands
 
@@ -52,7 +52,7 @@ There is no linter or formatter configured. CI (`.github/workflows/ci.yml`) runs
 - Settings that affect concurrency are read through activities (`DigestContext`, `PipelineLimits`, `EditionPlan`), so they're recorded in workflow history.
 - Every `Worker` must be built with `workflow_runner=WORKFLOW_RUNNER`, whose sandbox passthrough list includes `app.temporal.types`.
 - `app/temporal/types.py` must stay stdlib-only and must not use `from __future__ import annotations`. Datetime fields otherwise fail to decode, and the workflow task retries forever, which looks like a hang.
-- arXiv requests (`fetch_arxiv`, `fetch_fulltext`) run on a separate `<queue>-arxiv` task queue with `max_concurrent_activities=1`, behind a process-wide 3 s gate (`arxiv.throttle`).
+- arXiv requests (`fetch_arxiv`) run on a separate `<queue>-arxiv` task queue with `max_concurrent_activities=1`, behind a process-wide 3 s gate (`arxiv.throttle`).
 - Changing a workflow's shape is a history change: deploy only with no workflows running.
 
 **Spend guard** (`app/services/spend.py`, `app/spend_ledger.py`).
@@ -88,6 +88,6 @@ There is no linter or formatter configured. CI (`.github/workflows/ci.yml`) runs
 - **Back up before a live migration:** `docker-compose exec -T db pg_dump -U digest_user digest_db > ~/research-digest-backups/<name>.sql`.
 - **Never read or print `.env` secrets** (`OPENAI_API_KEY`, `ADMIN_TOKEN`, `OPENALEX_API_KEY`). Ask the owner before OpenAI spend beyond what a plan calls for, such as summary backfills.
 - **Never put the owner's email or other personal details in requests to external services.** That includes OpenAlex's `mailto`.
-- **Full text stays off** (`RAG_FULLTEXT=false`) until arXiv allows it, and there's no bulk arXiv download, per arXiv's terms.
+- **Abstracts only.** Full-text fetching was removed on 2026-11-16 (arXiv's terms; it's in git history), and there's no bulk arXiv download.
 - Never falsify tests, if a test fails, always report as such to the user, propose fixes, and get their approval before implementing. Never try to circumvent failing tests by rewriting them.  
 - Prioritize test-driven development. Every chunk of features that's added should be driven by a test suite and should be reported to the features along with its results after it's done being implemented. 

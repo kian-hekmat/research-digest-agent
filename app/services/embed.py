@@ -1,25 +1,15 @@
-"""Text embeddings, from OpenAI or from a local model served by Ollama.
+"""Text embeddings from an OpenAI embedding model (`text-embedding-3-small`),
+requested at `embedding_dim` dimensions so they fit the vector(768) column.
 
-`EMBEDDING_BACKEND` picks the backend:
-- "openai": an OpenAI embedding model (`text-embedding-3-small`), requested
-  at `embedding_dim` dimensions so it fits the existing vector(768) column.
-  Priced and recorded like every OpenAI call (app.services.spend), with
-  purpose "embedding" - never blocked by the budget, since retrieval,
-  previews and similar-topic suggestions depend on it and it costs a
-  fraction of a cent.
-- "ollama": EmbeddingGemma, served by Ollama on the owner's Mac. Kept as a
-  local development backend.
+Priced and recorded like every OpenAI call (app.services.spend), with
+purpose "embedding" - never blocked by the budget, since retrieval and
+ranking depend on it and it costs a fraction of a cent.
 
 Same shape as app.services.summarize: plain HTTP per batch, `Settings`-
 driven, injectable `http_client` for tests. With embeddings off
 (`Settings.embeddings_enabled` False: RAG_ENABLED=false or
 SUMMARY_BACKEND=none) `embed` returns None immediately - no network call, no
 error - and the pipeline runs without retrieval.
-
-EmbeddingGemma is trained with task prompts; `document_text` and `query_text`
-apply them, and only for Ollama. OpenAI's models take plain text. Papers are
-embedded as documents and compared document to document; full-text chunks
-and topic queries are found with queries.
 """
 from __future__ import annotations
 
@@ -60,19 +50,9 @@ class Embedder:
     def model(self) -> str:
         return self._settings.embedding_model
 
-    @property
-    def _openai(self) -> bool:
-        return self._settings.embedding_backend == "openai"
-
-    def document_text(self, title: str, abstract: str) -> str:
-        if self._openai:
-            return f"{title}\n\n{abstract}"
-        return f"title: {title} | text: {abstract}"  # EmbeddingGemma's document prompt
-
-    def query_text(self, query: str) -> str:
-        if self._openai:
-            return query
-        return f"task: search result | query: {query}"  # EmbeddingGemma's retrieval-query prompt
+    @staticmethod
+    def document_text(title: str, abstract: str) -> str:
+        return f"{title}\n\n{abstract}"
 
     def embed(self, texts: list[str]) -> list[list[float]] | None:
         """Embed `texts` in order, in batches of `embedding_batch_size`.
@@ -81,14 +61,14 @@ class Embedder:
         SpendLimitReached when OpenAI refuses paid calls."""
         if not self.enabled:
             return None
-        if self._openai and self._ledger is not None:
+        if self._ledger is not None:
             # A model without a price could never be recorded.
             cost_usd(self.model, Usage(0, 0, 0), self._settings.openai_prices)
         size = max(1, self._settings.embedding_batch_size)
         vectors: list[list[float]] = []
         for start in range(0, len(texts), size):
             batch = texts[start : start + size]
-            vectors.extend(self._embed_openai(batch) if self._openai else self._embed_ollama(batch))
+            vectors.extend(self._embed_openai(batch))
         return vectors
 
     def _post(self, url: str, timeout: float, **kwargs) -> httpx.Response:
@@ -102,7 +82,7 @@ class Embedder:
 
     def _embed_openai(self, texts: list[str]) -> list[list[float]]:
         if not self._settings.openai_api_key:
-            raise RuntimeError("EMBEDDING_BACKEND=openai needs OPENAI_API_KEY to be set")
+            raise RuntimeError("Embeddings need OPENAI_API_KEY to be set")
         resp = self._post(
             f"{self._settings.openai_base_url.rstrip('/')}/embeddings",
             self._settings.openai_timeout,
@@ -124,15 +104,6 @@ class Embedder:
         # list itself is in order.
         vectors = [d["embedding"] for d in sorted(body["data"], key=lambda d: d["index"])]
         return self._checked(vectors, texts)
-
-    def _embed_ollama(self, texts: list[str]) -> list[list[float]]:
-        resp = self._post(
-            f"{self._settings.ollama_base_url.rstrip('/')}/api/embed",
-            self._settings.ollama_timeout,
-            json={"model": self.model, "input": texts},
-        )
-        resp.raise_for_status()
-        return self._checked(resp.json()["embeddings"], texts)
 
     def _checked(self, vectors: list[list[float]], texts: list[str]) -> list[list[float]]:
         if len(vectors) != len(texts):

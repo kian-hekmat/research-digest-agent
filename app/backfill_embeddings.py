@@ -1,4 +1,4 @@
-"""One-off: embed every paper and topic that has no embedding for the
+"""One-off: embed every paper that has no embedding for the
 configured model, then recompute every embedded paper's retrieval signals
 (novelty, near duplicates, similar earlier paper).
 
@@ -8,8 +8,7 @@ worker container: `docker-compose exec worker python -m app.backfill_embeddings`
 Digest runs embed papers as they're ingested; this covers everything ingested
 before retrieval existed, and is how a new EMBEDDING_MODEL is switched to:
 
-1. `--embed-only` with the new model (e.g. `-e EMBEDDING_BACKEND=openai
-   -e EMBEDDING_MODEL=text-embedding-3-small`) writes its embeddings side by
+1. `--embed-only` with the new model (e.g. `-e EMBEDDING_MODEL=...`) writes its embeddings side by
    side and touches no signal. Signals are stored per paper, not per model,
    so recomputing them now would switch live ranking to the new model's
    similarities while it still uses the old model's thresholds.
@@ -27,7 +26,7 @@ import logging
 from app.config import get_settings
 from app.database import SessionLocal
 from app.services.embed import Embedder
-from app.services.retrieval import compute_signals, embed_missing, embed_missing_topics
+from app.services.retrieval import compute_signals, embed_missing
 from app.spend_ledger import DbLedger
 
 logger = logging.getLogger(__name__)
@@ -38,7 +37,7 @@ def main(argv: list[str] | None = None) -> None:
         prog="python -m app.backfill_embeddings", description=__doc__.split("\n")[0]
     )
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--embed-only", action="store_true", help="embed papers and topics; leave signals alone")
+    mode.add_argument("--embed-only", action="store_true", help="embed papers; leave signals alone")
     mode.add_argument("--signals-only", action="store_true", help="recompute signals; embed nothing")
     args = parser.parse_args(argv)
 
@@ -52,11 +51,10 @@ def main(argv: list[str] | None = None) -> None:
     calibration = None if args.embed_only else settings.calibration
     db = SessionLocal()
     try:
-        papers = topics = updated = 0
+        papers = updated = 0
         if not args.signals_only:
             embedder = Embedder(settings, ledger=DbLedger())
             papers = embed_missing(db, embedder, batch_size=settings.embedding_batch_size)
-            topics = embed_missing_topics(db, embedder)
         if calibration is not None:
             updated = compute_signals(
                 db,
@@ -69,8 +67,8 @@ def main(argv: list[str] | None = None) -> None:
     finally:
         db.close()
     logger.info(
-        "Done with %s: embedded %d papers and %d topics, recomputed signals for %d",
-        settings.embedding_model, papers, topics, updated,
+        "Done with %s: embedded %d papers, recomputed signals for %d",
+        settings.embedding_model, papers, updated,
     )
 
 

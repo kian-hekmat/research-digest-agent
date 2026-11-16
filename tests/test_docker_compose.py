@@ -58,21 +58,13 @@ def test_every_service_restarts_with_docker():
 
 def test_worker_receives_the_summarization_settings():
     """The worker is what runs summarize_paper. Settings it isn't passed fall
-    back to their defaults silently - summaries just stay off, or it looks for
-    Ollama on the container's own localhost, where nothing is listening."""
+    back to their defaults silently - summaries just stay off."""
     block = _service_block(COMPOSE_PATH.read_text(), "worker")
     code_only = "\n".join(line for line in block.splitlines() if not line.strip().startswith("#"))
 
     assert re.search(r"SUMMARY_BACKEND: \$\{SUMMARY_BACKEND", code_only)
     assert re.search(r"OPENAI_API_KEY: \$\{OPENAI_API_KEY", code_only)
     assert re.search(r"OPENAI_MODEL: \$\{OPENAI_MODEL", code_only)
-    assert re.search(r"OLLAMA_MODEL: \$\{OLLAMA_MODEL", code_only)
-    base_url = re.search(r"OLLAMA_BASE_URL: \$\{OLLAMA_BASE_URL:-(\S+)\}", code_only)
-    assert base_url, "worker must be given OLLAMA_BASE_URL"
-    assert "host.docker.internal" in base_url.group(1), (
-        "inside a container, localhost is the container itself - the default "
-        "must point at the Mac, where Ollama runs"
-    )
 
 
 def test_temporal_data_volume_is_declared_top_level():

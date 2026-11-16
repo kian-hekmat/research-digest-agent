@@ -108,9 +108,8 @@ topic_paper_association = Table(
     Column("relevance", SmallInteger, nullable=True),
     CheckConstraint("relevance BETWEEN 1 AND 10", name="ck_topic_paper_relevance_range"),
     # A rating from outside the pipeline - a person, or a stronger model doing
-    # reference labeling - and who gave it. These, not the LLM's own
-    # ratings, are the few-shot anchors that calibrate new ratings (see
-    # app.services.retrieval.rating_anchors). NULL = not labeled.
+    # reference labeling - and who gave it. The ranking eval compares
+    # against these (evals.ranking). NULL = not labeled.
     Column("reference_relevance", SmallInteger, nullable=True),
     Column("reference_labeler", String, nullable=True),
     CheckConstraint(
@@ -230,9 +229,8 @@ class Paper(Base):
     # looked up yet, or not indexed yet (fresh papers lag a day or so).
     max_author_h_index = Column(Integer, nullable=True)
     # --- retrieval (app.services.retrieval) ---
-    # One LLM-written sentence on how this paper relates to earlier ones the
-    # reader has seen, citing them; NULL when none was close enough or the
-    # model's citations didn't check out.
+    # Unused since 2026-11-16 (LLM related-work notes were removed: 5 of 19
+    # misdescribed the cited paper). Kept so no migration is needed.
     related_note = Column(Text, nullable=True)
     # Highest cosine similarity to an earlier-published, topic-linked paper
     # within the novelty window - low = novel. NULL = not computed, or nothing
@@ -243,10 +241,8 @@ class Paper(Base):
     near_duplicate_of_id = Column(
         UUID(as_uuid=False), ForeignKey("papers.id", ondelete="SET NULL"), nullable=True
     )
-    # Full text (app.services.fulltext), stored as kind="chunk" rows in
-    # paper_embeddings: "ok", "unavailable" (arXiv has no HTML for it),
-    # "empty" (HTML with no body text), "error" (fetch failed); NULL = never
-    # tried. Checked once, at ingestion.
+    # Unused since 2026-11-16: full-text fetching was removed (arXiv's terms;
+    # the code is in git history). Kept so no migration is needed.
     fulltext_status = Column(String(16), nullable=True)
     fulltext_checked_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
@@ -279,9 +275,10 @@ EMBEDDING_DIM = 768  # vector(N) width; app.config.Settings.embedding_dim must m
 
 
 class TopicEmbedding(Base):
-    """A topic's normalized query, embedded, for "join the existing topic?"
-    suggestions (app.services.retrieval.similar_topics). Keyed by model like
-    paper_embeddings, so a new model can be backfilled side by side."""
+    """A topic's normalized query, embedded. Unused since 2026-11-16: it was
+    for "join the existing topic?" suggestions, cut from the launch plan
+    (no calibrated threshold for text-embedding-3-small). The table stays so
+    no migration is needed."""
 
     __tablename__ = "topic_embeddings"
 
@@ -302,8 +299,8 @@ class PaperEmbedding(Base):
     """One embedded piece of a paper, for retrieval (see app.services.retrieval).
 
     `model` is part of the key so a new embedding model can be backfilled side
-    by side and cut over to, instead of overwriting. `kind`/`chunk_ix` leave
-    room for full-text chunks; for now every row is kind "abstract", chunk 0.
+    by side and cut over to, instead of overwriting. Every row is kind
+    "abstract", chunk 0 (`kind`/`chunk_ix` were for full-text chunks, removed).
     """
 
     __tablename__ = "paper_embeddings"

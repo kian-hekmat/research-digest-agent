@@ -23,22 +23,15 @@ class Calibration(BaseModel):
     similar_paper: float
     # At or above this, an earlier paper counts as the same work.
     near_duplicate: float
-    # Floor for related-work candidates offered to the summarizer.
-    related_min: float
     # prior_similarity -> novelty anchors: novelty 0 at novelty_repeat,
     # novelty 1 at novelty_unrelated (app.services.ranking).
     novelty_repeat: float
     novelty_unrelated: float
-    # Floor for "join this existing topic?" suggestions at signup; None
-    # turns suggestions off for the model.
-    topic_suggestion: float | None = None
 
     @model_validator(mode="after")
     def _consistent(self) -> "Calibration":
-        values = [self.similar_paper, self.near_duplicate, self.related_min,
+        values = [self.similar_paper, self.near_duplicate,
                   self.novelty_repeat, self.novelty_unrelated]
-        if self.topic_suggestion is not None:
-            values.append(self.topic_suggestion)
         if any(not -1.0 <= v <= 1.0 for v in values):
             raise ValueError("cosine thresholds must be within [-1, 1]")
         if self.novelty_unrelated >= self.novelty_repeat:
@@ -48,30 +41,17 @@ class Calibration(BaseModel):
         return self
 
 
-# embeddinggemma's numbers (docs/rag-plan.md §5.2-5.3): its scale is
-# compressed - random pairs ~0.41 (p99 0.67), nearest neighbours ~0.66. Every
-# neighbour reviewed at >= 0.75 was genuinely related (~7% of papers have
-# one); at 0.65 half the related-work notes were wrong, all from neighbours
-# <= 0.70, hence 0.72. Near duplicates are untested: no pair reached 0.89.
 DEFAULT_RETRIEVAL_CALIBRATION: dict[str, Calibration] = {
-    "embeddinggemma": Calibration(
-        similar_paper=0.75,
-        near_duplicate=0.9,
-        related_min=0.72,
-        novelty_repeat=0.85,
-        novelty_unrelated=0.45,
-    ),
     # Measured on the live corpus 2026-11-12 (evals.embeddings; docs/rag-plan.md
-    # §5.9). At 768 dimensions its scale nearly matches embeddinggemma's, so
-    # the thresholds are carried over by quantile and barely move; 20/20
+    # §5.9). At 768 dimensions its scale nearly matches embeddinggemma's (the
+    # model used before; §5.2-5.3), so the thresholds were carried over by
+    # quantile and barely moved; 20/20
     # neighbours reviewed at >= 0.749 were related. near_duplicate folds the
     # corpus's one companion pair (GDSW Schwarz preconditioners in 2D and 3D,
-    # 0.924), as embeddinggemma does today. No topic_suggestion: acronyms sit
-    # far from their expansions ("RLHF" vs its expansion: 0.196).
+    # 0.924), as embeddinggemma did.
     "text-embedding-3-small": Calibration(
         similar_paper=0.749,
         near_duplicate=0.92,
-        related_min=0.721,
         novelty_repeat=0.838,
         novelty_unrelated=0.459,
     ),
@@ -111,23 +91,14 @@ class Settings(BaseSettings):
     # --- summarization ---
     # "openai": summaries, relevance ratings and overviews come from the OpenAI
     # API (needs OPENAI_API_KEY; billed per token).
-    # "ollama": they come from a local open-weights model served by Ollama, as
-    # they did until November 2026 - no API key, no per-call cost.
     # "none": summarization off; digests and emails still work, without
     # AI-written text.
-    summary_backend: Literal["openai", "ollama", "none"] = "openai"
+    summary_backend: Literal["openai", "none"] = "openai"
 
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-5.4-mini"
     openai_timeout: float = 60.0
-
-    # Ollama also serves embeddings, whichever backend writes the summaries.
-    # It listens on 127.0.0.1 only; docker-compose points containers at the
-    # Mac via host.docker.internal instead (colima forwards it to loopback).
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "gemma3:12b"  # used only with SUMMARY_BACKEND=ollama
-    ollama_timeout: float = 120.0  # first call of a session also loads the model
 
     # --- spend (app.services.spend, app.spend_ledger) ---
     # Hard monthly cap on OpenAI spend, enforced in the app: at
@@ -162,20 +133,12 @@ class Settings(BaseSettings):
         misconfigured, calls fail and are retried like any other outage."""
         return self.summary_backend != "none"
 
-    @property
-    def summary_model(self) -> str:
-        return self.openai_model if self.summary_backend == "openai" else self.ollama_model
-
     # --- retrieval (embeddings in pgvector, see docs/rag-plan.md) ---
     # Embeddings (EMBEDDING_BACKEND, below) are off whenever summaries are
     # (SUMMARY_BACKEND=none) as well as with RAG_ENABLED=false.
     rag_enabled: bool = True
-    # "openai" (default since 2026-11-12): text-embedding-3-small, requested
-    # at embedding_dim dimensions, recorded and priced like every OpenAI call.
-    # "ollama": EmbeddingGemma served by a local Ollama, for development or a
-    # rollback (EMBEDDING_BACKEND=ollama EMBEDDING_MODEL=embeddinggemma, then
-    # `python -m app.backfill_embeddings`).
-    embedding_backend: Literal["openai", "ollama"] = "openai"
+    # An OpenAI embedding model, requested at embedding_dim dimensions,
+    # recorded and priced like every OpenAI call.
     embedding_model: str = "text-embedding-3-small"
     # Must match the vector(N) column in paper_embeddings - changing models
     # to one with another width needs a migration.
@@ -199,43 +162,15 @@ class Settings(BaseSettings):
         except KeyError:
             raise MissingCalibration(self.embedding_model) from None
 
-    # Related-work context for summaries: up to this many earlier papers,
-    # each at least calibration.related_min similar.
-    rag_top_k: int = 4
-    # LLM-written related-work notes are off by default: even at 0.72, 5 of 19
-    # notes misdescribed the cited paper (§5.3) - over the 10% bar. Emails
-    # show the closest earlier paper as a plain link instead
-    # (calibration.similar_paper), which
-    # makes no claim about how the two relate.
-    rag_related_notes: bool = False
-    # Few-shot calibration for relevance ratings: up to this many
-    # reference-rated papers per rating band (8-10, 4-7, 1-3), most similar
-    # first. Only reference labels (topic_paper.reference_relevance) are
-    # used, never the LLM's own ratings, which would just echo its biases.
-    # Off: with ~20 labels per topic the nearest anchors are only loosely
-    # related, and they made gemma3:12b's ratings worse (overall rho 0.71 ->
-    # 0.52, on-topic 0.27 -> 0.02; docs/rag-plan.md §5.4).
-    rag_rating_anchors: bool = False
-    rag_anchors_per_band: int = 2
     # History-aware overviews: show the writer this many of the topic's most
-    # recent previous overviews, plus each new paper's similar earlier paper.
+    # recent previous overviews, only so it doesn't repeat them; it never
+    # mentions them (1/25 overviews with a factual error in review, against
+    # 7/25 when it was allowed to compare; docs/rag-plan.md §5.6).
     rag_overview_history: bool = True
     rag_overview_history_count: int = 3
-    # "avoid_repeats": the writer sees earlier overviews only so as not to
-    # repeat them and never mentions them (1/25 overviews with a factual
-    # error in review). "compare": it may relate the batch to them and to
-    # similar earlier papers - more cross-references, but 7/25 had an error.
-    # docs/rag-plan.md §5.6.
-    rag_overview_history_style: Literal["avoid_repeats", "compare"] = "avoid_repeats"
-    # Full-text excerpts for summaries (phase E): fetch each new paper's arXiv
-    # HTML, chunk and embed it, and show the summarizer the best-matching
-    # chunks. Readers preferred the result 17 to 3; 2 of 20 misread a number's
-    # context (docs/rag-plan.md §5.7). Costs ~3s of fetch + ~4s of LLM per paper.
-    # Off by default: arXiv's terms allow e-print content for personal use or
-    # research, and a public service is a grey area (docs/public-launch-plan.md
-    # §0.1). When on, it runs in send prep, for each topic's top K only.
-    rag_fulltext: bool = False
-    rag_fulltext_excerpts: int = 3
+    # Full text (arXiv HTML) was tried and removed on 2026-11-16: arXiv's
+    # terms allow e-print content for personal use or research only
+    # (docs/public-launch-plan.md; the code is in git history before that date).
     # Novelty compares a paper with earlier ones published within this window.
     rag_novelty_window_days: int = 90
 
@@ -253,9 +188,6 @@ class Settings(BaseSettings):
     # watermark so late-announced papers aren't dropped; already-ingested ones
     # are skipped by arxiv_id.
     arxiv_lookback_days: int = 7
-    # Full text (app.services.fulltext): arXiv's HTML rendering, from the
-    # export host arXiv asks scripts to use, through the same rate gate.
-    arxiv_html_url: str = "https://export.arxiv.org/html"
 
     # --- ranking (app.services.ranking) ---
     # Author h-indices come from Semantic Scholar when a key is set (fresher

@@ -13,8 +13,9 @@ JSON report to evals/results/, nothing else. It is never run in CI - the test
 suite only covers the pure metrics (evals/metrics.py).
 
 A variant is how the eval asks for a rating or a summary. `baseline` is the
-production prompt; RAG phases register theirs in VARIANTS and are compared
-against the baseline's report.
+production prompt; `desc` adds the topic's description. New prompt
+candidates register in VARIANTS and are compared against the baseline's
+report.
 """
 from __future__ import annotations
 
@@ -35,13 +36,10 @@ from sqlalchemy.orm import Session
 from app import models
 from app.config import get_settings
 from app.database import SessionLocal
-from app.services.retrieval import Neighbour, rating_anchors, related_context
 from app.services.summarize import (
     _RELEVANCE_BANDS,
     RatedSummary,
-    RatingAnchor,
     RatingContext,
-    RelatedPaper,
     Summarizer,
 )
 from app.spend_ledger import DbLedger
@@ -72,9 +70,6 @@ class EvalItem:
 class Variant:
     rate: Callable[[EvalItem], int | None]
     summarize: Callable[[EvalItem], RatedSummary]
-    # Earlier papers offered as related work, recorded in the report so each
-    # related-work claim can be checked against what the model was shown.
-    related: Callable[[EvalItem], list[Neighbour]] | None = None
 
 
 def _baseline(db: Session, summarizer: Summarizer) -> Variant:
@@ -86,66 +81,28 @@ def _baseline(db: Session, summarizer: Summarizer) -> Variant:
     )
 
 
-def _rag_related(db: Session, summarizer: Summarizer) -> Variant:
-    """Phase 2: summaries see earlier, similar papers and may add a checked
-    related-work note. Same retrieval as the summarize_paper activity."""
-    settings = get_settings()
+def _with_description(db: Session, summarizer: Summarizer) -> Variant:
+    """Rate and summarize with the topic's description (what production does
+    whenever a topic has one)."""
+    topics = {t.id: t for t in db.query(models.Topic)}
 
-    def related(i: EvalItem) -> list[Neighbour]:
-        return related_context(
-            db, i.paper_id, model=settings.embedding_model,
-            k=settings.rag_top_k, min_similarity=settings.calibration.related_min,
-        )
+    def context(i: EvalItem) -> RatingContext:
+        return RatingContext(description=topics[i.topic_id].description)
 
-    def summarize(i: EvalItem) -> RatedSummary:
-        offered = [RelatedPaper(n.arxiv_id, n.title, n.summary or n.abstract or "") for n in related(i)]
-        return summarizer.summarize_and_rate(
-            i.title, i.abstract, i.topic_name, i.topic_query, related=offered
-        )
-
-    base = _baseline(db, summarizer)
-    return Variant(rate=base.rate, summarize=summarize, related=related)
+    return Variant(
+        rate=lambda i: summarizer.rate_relevance(
+            i.title, i.abstract, i.topic_name, i.topic_query, rating_context=context(i)
+        ),
+        summarize=lambda i: summarizer.summarize_and_rate(
+            i.title, i.abstract, i.topic_name, i.topic_query, rating_context=context(i)
+        ),
+    )
 
 
-def _rating_context_variant(description: bool, anchors: bool):
-    """Phase 3: rate with the topic's description and/or reference-rated
-    anchors. Anchors never include the paper being rated (rating_anchors
-    excludes it), so against the reference labels this is leave-one-out."""
-
-    def factory(db: Session, summarizer: Summarizer) -> Variant:
-        settings = get_settings()
-        topics = {t.id: t for t in db.query(models.Topic)}
-
-        def context(i: EvalItem) -> RatingContext:
-            found = (
-                rating_anchors(db, i.topic_id, i.paper_id, model=settings.embedding_model,
-                               per_band=settings.rag_anchors_per_band)
-                if anchors else []
-            )
-            return RatingContext(
-                description=topics[i.topic_id].description if description else None,
-                anchors=tuple(RatingAnchor(a.title, a.abstract, a.rating) for a in found),
-            )
-
-        return Variant(
-            rate=lambda i: summarizer.rate_relevance(
-                i.title, i.abstract, i.topic_name, i.topic_query, rating_context=context(i)
-            ),
-            summarize=lambda i: summarizer.summarize_and_rate(
-                i.title, i.abstract, i.topic_name, i.topic_query, rating_context=context(i)
-            ),
-        )
-
-    return factory
-
-
-# name -> factory(db, summarizer). RAG phases add theirs here.
+# name -> factory(db, summarizer).
 VARIANTS: dict[str, Callable[[Session, Summarizer], Variant]] = {
     "baseline": _baseline,
-    "rag-related": _rag_related,
-    "desc": _rating_context_variant(description=True, anchors=False),
-    "anchors": _rating_context_variant(description=False, anchors=True),
-    "desc+anchors": _rating_context_variant(description=True, anchors=True),
+    "desc": _with_description,
 }
 
 ON_TOPIC = 6  # reference label at or above this = on topic; the cap cuts among these
@@ -372,7 +329,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         variant = VARIANTS[args.variant](db, Summarizer(settings, ledger=DbLedger()))
         report: dict = {
             "variant": args.variant,
-            "model": settings.summary_model,
+            "model": settings.openai_model,
             "labels": str(args.labels),
             "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "items": len(items),
@@ -425,7 +382,6 @@ def cmd_run(args: argparse.Namespace) -> None:
         subset = items[::step][: args.summaries] if step else []
         summaries, sum_times = [], []
         for n, item in enumerate(subset, 1):
-            offered = variant.related(item) if variant.related else []
             rated, secs, err = _timed(variant.summarize, item)
             sum_times.append(secs)
             if err:
@@ -440,13 +396,6 @@ def cmd_run(args: argparse.Namespace) -> None:
                 if text else [],
                 "chars": len(text) if text else 0,
                 "abstract_chars": len(item.abstract),
-                "offered": [
-                    {"arxiv_id": n.arxiv_id, "title": n.title, "similarity": round(n.similarity, 3)}
-                    for n in offered
-                ],
-                "related_note": rated.related_note if rated else None,
-                "related_ids": list(rated.related_ids) if rated else [],
-                "related_rejected": bool(rated and rated.related_rejected),
             })
             print(f"\rsummaries: {n}/{len(subset)}", end="", flush=True)
         print()
@@ -466,9 +415,6 @@ def cmd_run(args: argparse.Namespace) -> None:
                 [s["relevance"] for s, i in zip(summaries, subset) if i.label and i.label >= ON_TOPIC],
                 [i.label for i in subset if i.label and i.label >= ON_TOPIC],
             ),
-            "with_offered": sum(bool(s["offered"]) for s in ok),
-            "with_related_note": sum(bool(s["related_note"]) for s in ok),
-            "related_rejected": sum(s["related_rejected"] for s in ok),
             "latency": metrics.latency(sum_times),
             "outputs": summaries,
         }
@@ -529,9 +475,6 @@ def print_report(r: dict) -> None:
         if sv["n"]:
             print(f"Combined-call relevance vs reference: n={sv['n']} rho={sv['spearman']} mae={sv['mae']}"
                   + (f"; on-topic n={so['n']} rho={so['spearman']} mae={so['mae']}" if so["n"] else ""))
-        if s.get("with_offered"):
-            print(f"Related work: offered to {s['with_offered']}, note kept for "
-                  f"{s['with_related_note']}, rejected (bad citation) {s['related_rejected']}")
     c = r["corpus"]["stored_summaries"]
     print(f"\nStored summaries with numbers absent from the abstract: "
           f"{c['with_unsupported_numbers']}/{c['n']}")

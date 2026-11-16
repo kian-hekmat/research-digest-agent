@@ -8,6 +8,7 @@ import respx
 from app.config import Settings
 from app.services.arxiv import search_arxiv
 from app.services.summarize import Summarizer, parse_rated_summary, parse_relevance
+from tests.conftest import OPENAI_TEST_CHAT, openai_reply, openai_test_settings
 
 # A trimmed but realistically-shaped arXiv Atom response: line-wrapped title and
 # summary, a version suffix on the id, two entries with different dates, and
@@ -95,23 +96,9 @@ def test_search_arxiv_raises_on_http_error():
         search_arxiv("retrieval", delay=0)
 
 
-# ---------- Summarizer (local Gemma via Ollama) ----------
-OLLAMA_CHAT = "http://ollama.test:11434/api/chat"
-
-
-def _ollama_settings(**overrides):
-    fields = {
-        "summary_backend": "ollama",
-        "ollama_base_url": "http://ollama.test:11434",
-        "ollama_model": "gemma3:12b",
-    }
-    return Settings(**{**fields, **overrides})
-
-
-def _ollama_reply(text):
-    return httpx.Response(
-        200, json={"model": "gemma3:12b", "message": {"role": "assistant", "content": text}, "done": True}
-    )
+# ---------- Summarizer (OpenAI, faked with respx) ----------
+def _settings(**overrides):
+    return openai_test_settings(**{"openai_model": "test-model", **overrides})
 
 
 def _sent(route):
@@ -121,15 +108,14 @@ def _sent(route):
 
 @respx.mock
 def test_summarize_paper_posts_a_chat_request():
-    route = respx.post(OLLAMA_CHAT).mock(return_value=_ollama_reply("  A local summary.\n"))
+    route = respx.post(OPENAI_TEST_CHAT).mock(return_value=openai_reply("  A summary.\n"))
 
-    out = Summarizer(settings=_ollama_settings()).summarize_paper("Some Title", "Some abstract.")
+    out = Summarizer(settings=_settings()).summarize_paper("Some Title", "Some abstract.")
 
-    assert out == "A local summary."
+    assert out == "A summary."
     body = _sent(route)
-    assert body["model"] == "gemma3:12b"
-    assert body["stream"] is False
-    assert body["options"]["num_predict"] == 400
+    assert body["model"] == "test-model"
+    assert body["max_completion_tokens"] == 400
     system, user = body["messages"]
     assert system["role"] == "system" and "3-4 sentences" in system["content"]
     assert user == {"role": "user", "content": "Title: Some Title\n\nAbstract: Some abstract."}
@@ -137,14 +123,14 @@ def test_summarize_paper_posts_a_chat_request():
 
 @respx.mock
 def test_write_overview_numbers_the_summaries():
-    route = respx.post(OLLAMA_CHAT).mock(return_value=_ollama_reply("Synthesized overview."))
+    route = respx.post(OPENAI_TEST_CHAT).mock(return_value=openai_reply("Synthesized overview."))
 
-    out = Summarizer(settings=_ollama_settings()).write_overview("RLHF", ["first point", "second point"])
+    out = Summarizer(settings=_settings()).write_overview("RLHF", ["first point", "second point"])
 
     assert out == "Synthesized overview."
     body = _sent(route)
-    assert body["model"] == "gemma3:12b"
-    assert body["options"]["num_predict"] == 500
+    assert body["model"] == "test-model"
+    assert body["max_completion_tokens"] == 500
     user = body["messages"][1]["content"]
     assert "1. first point" in user and "2. second point" in user
 
@@ -152,7 +138,7 @@ def test_write_overview_numbers_the_summaries():
 def test_every_method_is_a_no_op_when_summaries_are_off():
     """SUMMARY_BACKEND=none: return nothing without touching the network.
     respx.mock with no routes would raise on any request at all."""
-    summarizer = Summarizer(settings=_ollama_settings(summary_backend="none"))
+    summarizer = Summarizer(settings=_settings(summary_backend="none"))
 
     with respx.mock:
         assert summarizer.summarize_paper("T", "A") is None
@@ -165,9 +151,9 @@ def test_every_method_is_a_no_op_when_summaries_are_off():
 # ---------- relevance rating ----------
 @respx.mock
 def test_summarize_and_rate_splits_the_rating_off_the_summary():
-    route = respx.post(OLLAMA_CHAT).mock(return_value=_ollama_reply("Relevance: 8\n\nA tight summary."))
+    route = respx.post(OPENAI_TEST_CHAT).mock(return_value=openai_reply("Relevance: 8\n\nA tight summary."))
 
-    out = Summarizer(settings=_ollama_settings()).summarize_and_rate(
+    out = Summarizer(settings=_settings()).summarize_and_rate(
         "Some Title", "Some abstract.", "PINNs", "physics-informed neural networks"
     )
 
@@ -182,21 +168,21 @@ def test_summarize_and_rate_splits_the_rating_off_the_summary():
 
 @respx.mock
 def test_topic_query_is_left_out_when_it_just_repeats_the_name():
-    route = respx.post(OLLAMA_CHAT).mock(return_value=_ollama_reply("7"))
+    route = respx.post(OPENAI_TEST_CHAT).mock(return_value=openai_reply("7"))
 
-    Summarizer(settings=_ollama_settings()).rate_relevance("T", "A", "RLHF", '"rlhf"')
+    Summarizer(settings=_settings()).rate_relevance("T", "A", "RLHF", '"rlhf"')
 
     assert _sent(route)["messages"][1]["content"].startswith("Reader's topic: RLHF\n\n")
 
 
 @respx.mock
 def test_rate_relevance_is_a_short_rating_only_call():
-    route = respx.post(OLLAMA_CHAT).mock(return_value=_ollama_reply("6"))
+    route = respx.post(OPENAI_TEST_CHAT).mock(return_value=openai_reply("6"))
 
-    out = Summarizer(settings=_ollama_settings()).rate_relevance("T", "A", "RLHF", "rlhf")
+    out = Summarizer(settings=_settings()).rate_relevance("T", "A", "RLHF", "rlhf")
 
     assert out == 6
-    assert _sent(route)["options"]["num_predict"] == 10
+    assert _sent(route)["max_completion_tokens"] == 10
 
 
 @pytest.mark.parametrize(
@@ -225,39 +211,21 @@ def test_parse_relevance(text, expected):
 
 @respx.mock
 def test_summarize_and_rate_end_to_end():
-    respx.post(OLLAMA_CHAT).mock(return_value=_ollama_reply("Relevance: 5\n\nLocal summary."))
+    respx.post(OPENAI_TEST_CHAT).mock(return_value=openai_reply("Relevance: 5\n\nA summary."))
 
-    out = Summarizer(settings=_ollama_settings()).summarize_and_rate("T", "A", "RLHF", "rlhf")
+    out = Summarizer(settings=_settings()).summarize_and_rate("T", "A", "RLHF", "rlhf")
 
-    assert (out.summary, out.relevance) == ("Local summary.", 5)
+    assert (out.summary, out.relevance) == ("A summary.", 5)
 
 
 @respx.mock
 def test_trailing_slash_in_base_url():
-    route = respx.post(OLLAMA_CHAT).mock(return_value=_ollama_reply("ok"))
-    settings = _ollama_settings()
-    settings.ollama_base_url = "http://ollama.test:11434/"
+    route = respx.post(OPENAI_TEST_CHAT).mock(return_value=openai_reply("ok"))
+    settings = _settings(openai_base_url="http://openai.test/v1/")
 
     Summarizer(settings=settings).summarize_paper("T", "A")
 
     assert route.called
-
-
-@pytest.mark.parametrize(
-    "response",
-    [
-        httpx.Response(404, json={"error": "model 'gemma3:12b' not found"}),  # not pulled
-        httpx.Response(500, json={"error": "llama runner process has terminated"}),
-    ],
-)
-@respx.mock
-def test_ollama_errors_raise_so_the_activity_retries(response):
-    """Must raise, not return None - None means "summaries deliberately off"
-    and would be stored as no summary instead of being retried/counted."""
-    respx.post(OLLAMA_CHAT).mock(return_value=response)
-
-    with pytest.raises(httpx.HTTPStatusError):
-        Summarizer(settings=_ollama_settings()).summarize_paper("T", "A")
 
 
 OPENAI_CHAT = "http://openai.test/v1/chat/completions"
@@ -295,7 +263,7 @@ def test_openai_request_and_reply():
 
 
 @respx.mock
-def test_openai_rated_summary_parses_like_ollama():
+def test_openai_rated_summary_parses():
     respx.post(OPENAI_CHAT).mock(return_value=_openai_reply("Relevance: 8\n\nA tight summary."))
 
     out = Summarizer(settings=_openai_settings()).summarize_and_rate("T", "A", "RLHF", "rlhf")
@@ -323,28 +291,27 @@ def test_openai_errors_raise_so_the_activity_retries(status):
 
 
 @respx.mock
-def test_ollama_server_down_raises():
-    respx.post(OLLAMA_CHAT).mock(side_effect=httpx.ConnectError("connection refused"))
+def test_server_down_raises():
+    respx.post(OPENAI_TEST_CHAT).mock(side_effect=httpx.ConnectError("connection refused"))
 
     with pytest.raises(httpx.ConnectError):
-        Summarizer(settings=_ollama_settings()).summarize_paper("T", "A")
+        Summarizer(settings=_settings()).summarize_paper("T", "A")
 
 
 def test_test_session_never_reads_the_local_env_file():
     """conftest disables .env loading; it once did so only after
     app.database had already cached a .env-loaded Settings, so tests ran with
-    the developer's real SMTP credentials and SUMMARY_BACKEND (and called
-    their real local model). Every field below is set only in .env, never by
+    the developer's real SMTP credentials and SUMMARY_BACKEND. Every field below is set only in .env, never by
     the test harness, so a default here proves the cached Settings is clean."""
     from app.config import get_settings
 
     settings = get_settings()
     assert settings.smtp_password == ""
-    # Set by conftest's environment, so the developer's SUMMARY_BACKEND=ollama
-    # in .env can't make tests call their real local model.
+    # Set by conftest's environment, so the developer's SUMMARY_BACKEND=openai
+    # in .env can't make tests call the real API.
     assert settings.summary_backend == "none"
 
 
 def test_summaries_enabled_by_backend():
-    assert Settings(summary_backend="ollama").summaries_enabled is True
+    assert Settings(summary_backend="openai").summaries_enabled is True
     assert Settings(summary_backend="none").summaries_enabled is False

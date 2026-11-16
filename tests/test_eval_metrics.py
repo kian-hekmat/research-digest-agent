@@ -108,16 +108,3 @@ def test_quantile_map_clamps_outside_the_old_range():
 def test_quantile_map_needs_samples():
     with pytest.raises(ValueError):
         metrics.quantile_map(0.5, [], [0.1])
-
-
-def test_separating_threshold_midpoint_when_separable():
-    t, overlap = metrics.separating_threshold(same=[0.8, 0.9], different=[0.3, 0.5])
-    assert t == pytest.approx(0.65) and overlap is False
-
-
-def test_separating_threshold_best_f1_when_overlapping():
-    t, overlap = metrics.separating_threshold(same=[0.6, 0.8, 0.9], different=[0.3, 0.7])
-    assert overlap is True
-    # At 0.6: all 3 same pairs, 1 false positive (0.7) -> F1 0.857, beating
-    # 0.8 (F1 0.8). A wrong suggestion only costs a click, so recall wins.
-    assert t == pytest.approx(0.6)

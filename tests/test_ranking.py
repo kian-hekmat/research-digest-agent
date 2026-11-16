@@ -144,7 +144,7 @@ def test_without_explicit_anchors_ranking_uses_the_active_models_calibration(mon
         settings,
         "retrieval_calibration",
         {**settings.retrieval_calibration, "wide-scale": Calibration(
-            similar_paper=0.6, near_duplicate=0.95, related_min=0.55,
+            similar_paper=0.6, near_duplicate=0.95,
             novelty_repeat=0.95, novelty_unrelated=0.6,
         )},
     )

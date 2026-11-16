@@ -1,14 +1,12 @@
 """The audited rating rubric (rag-plan 5.10), adopted for the rate-only prompt."""
 import json
 
-import httpx
 import respx
 
-from app.config import Settings
 from app.services import summarize as summarize_module
 from app.services.summarize import Summarizer
+from tests.conftest import OPENAI_TEST_CHAT, openai_reply, openai_test_settings
 
-OLLAMA_CHAT = "http://ollama.test:11434/api/chat"
 
 CANDIDATE = (
     "You rate academic papers for a research alerting digest. "
@@ -39,10 +37,8 @@ def test_combined_prompt_keeps_its_evaluated_rubric():
 
 @respx.mock
 def test_rate_relevance_sends_the_new_rubric():
-    route = respx.post(OLLAMA_CHAT).mock(
-        return_value=httpx.Response(200, json={"message": {"content": "7"}})
-    )
-    summarizer = Summarizer(Settings(summary_backend="ollama", ollama_base_url="http://ollama.test:11434"))
+    route = respx.post(OPENAI_TEST_CHAT).mock(return_value=openai_reply("7"))
+    summarizer = Summarizer(openai_test_settings())
 
     assert summarizer.rate_relevance("T", "A.", "PINNs", "pinns") == 7
 

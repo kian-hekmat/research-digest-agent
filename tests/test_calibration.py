@@ -4,17 +4,11 @@ import pytest
 from app import models
 from app.config import Calibration, MissingCalibration, Settings
 
-GEMMA = (0.75, 0.9, 0.72, 0.85, 0.45)
+OPENAI_SMALL = (0.749, 0.92, 0.838, 0.459)
 
 
 def _tuple(c: Calibration):
-    return (c.similar_paper, c.near_duplicate, c.related_min, c.novelty_repeat, c.novelty_unrelated)
-
-
-def test_embeddinggemma_calibration_is_the_old_numbers():
-    c = Settings(embedding_model="embeddinggemma").calibration
-    assert _tuple(c) == GEMMA
-    assert c.topic_suggestion is None
+    return (c.similar_paper, c.near_duplicate, c.novelty_repeat, c.novelty_unrelated)
 
 
 def test_missing_calibration_names_the_model_and_the_fix():
@@ -25,12 +19,12 @@ def test_missing_calibration_names_the_model_and_the_fix():
 def test_env_override_merges_per_model(monkeypatch):
     monkeypatch.setenv(
         "RETRIEVAL_CALIBRATION",
-        '{"m": {"similar_paper": 0.6, "near_duplicate": 0.95, "related_min": 0.5,'
-        ' "novelty_repeat": 0.8, "novelty_unrelated": 0.2, "topic_suggestion": 0.7}}',
+        '{"m": {"similar_paper": 0.6, "near_duplicate": 0.95,'
+        ' "novelty_repeat": 0.8, "novelty_unrelated": 0.2}}',
     )
     s = Settings(embedding_model="m")
-    assert s.calibration.topic_suggestion == 0.7
-    assert _tuple(s.retrieval_calibration["embeddinggemma"]) == GEMMA
+    assert _tuple(s.calibration) == (0.6, 0.95, 0.8, 0.2)
+    assert _tuple(s.retrieval_calibration["text-embedding-3-small"]) == OPENAI_SMALL
 
 
 def test_removed_scalar_threshold_settings_are_gone():
@@ -80,7 +74,7 @@ def test_embed_papers_with_uncalibrated_model_writes_nothing(db_session, monkeyp
 def test_inconsistent_calibration_is_rejected(fields):
     from pydantic import ValidationError
 
-    base = dict(similar_paper=0.75, near_duplicate=0.9, related_min=0.72, novelty_repeat=0.85, novelty_unrelated=0.45)
+    base = dict(similar_paper=0.75, near_duplicate=0.9, novelty_repeat=0.85, novelty_unrelated=0.45)
     with pytest.raises(ValidationError):
         Calibration(**{**base, **fields})
 
@@ -92,20 +86,15 @@ def test_worker_refuses_to_start_without_a_calibration_for_its_model():
 
     with pytest.raises(SystemExit, match="calibration"):
         check_config(Settings(embedding_model="typo-model", summary_backend="none"))
-    check_config(Settings(embedding_model="embeddinggemma"))  # fine
+    check_config(Settings(embedding_model="text-embedding-3-small"))  # fine
 
 
 def test_text_embedding_3_small_is_calibrated_from_the_live_corpus():
     c = Settings(embedding_model="text-embedding-3-small").calibration
-    assert (c.similar_paper, c.near_duplicate, c.related_min, c.novelty_repeat, c.novelty_unrelated) == (
-        0.749, 0.92, 0.721, 0.838, 0.459,
-    )
-    # Plain embedding similarity can't tell "RLHF" from its expansion
-    # (docs/rag-plan.md §5.9): suggestions stay off for this model.
-    assert c.topic_suggestion is None
+    assert _tuple(c) == OPENAI_SMALL
 
 
 def test_defaults_are_openai_embeddings_with_a_calibration():
     s = Settings()
-    assert (s.embedding_backend, s.embedding_model) == ("openai", "text-embedding-3-small")
+    assert s.embedding_model == "text-embedding-3-small"
     assert s.calibration.similar_paper == 0.749

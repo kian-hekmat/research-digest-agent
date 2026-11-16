@@ -40,7 +40,7 @@ def test_write_blurb_sends_title_and_abstract_and_records_summary():
 
 
 @respx.mock
-def test_write_blurb_none_when_blocked_or_not_openai():
+def test_write_blurb_none_when_blocked_or_summaries_off():
     assert _summarizer(FakeLedger(allow=False)).write_blurb("T", "A") is None
-    assert _summarizer(FakeLedger(), summary_backend="ollama").write_blurb("T", "A") is None
+    assert _summarizer(FakeLedger(), summary_backend="none").write_blurb("T", "A") is None
     assert not respx.calls

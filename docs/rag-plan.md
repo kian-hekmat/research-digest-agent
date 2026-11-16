@@ -8,6 +8,15 @@ Status: proposal, nothing implemented. Written 2026-10-16 against `main` @ `81da
 > §5.8 re-measures the main ones on the new model. Embeddings still use
 > `embeddinggemma`, so embedding-only results still apply.
 
+> **Update, 2026-11-16 (lean launch):** the features this plan measured and
+> left off were deleted from the code: LLM-written related-work notes (§5.3),
+> few-shot rating anchors (§5.4), the "compare" overview style (§5.6), full-text
+> excerpts (§5.7; off for arXiv's terms), similar-topic suggestions (§5.9; no
+> threshold for the current model) and the Ollama backends. What remains: abstract
+> embeddings, the similar-earlier-paper link, novelty, near-duplicate folding and
+> avoid-repeats overview history. The code is in git history before that date;
+> the measurements below stand as the record of why.
+
 ## 1. Where the LLM phase stands today
 
 Every LLM call in `app/services/summarize.py` sees exactly one thing: the text

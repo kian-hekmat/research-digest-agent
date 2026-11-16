@@ -5,9 +5,9 @@ this one process until stopped (Ctrl-C / SIGTERM / container stop):
 
 - the main worker, on TEMPORAL_TASK_QUEUE: every workflow and every activity
   except arXiv's, on `worker_activity_threads` threads;
-- the arXiv worker, on `arxiv_queue(TEMPORAL_TASK_QUEUE)`: `fetch_arxiv` and
-  `fetch_fulltext`, one at a time, so there's never more than one arXiv
-  request in flight however many topics ingest at once.
+- the arXiv worker, on `arxiv_queue(TEMPORAL_TASK_QUEUE)`: `fetch_arxiv`,
+  one at a time, so there's never more than one arXiv request in flight
+  however many topics ingest at once.
 """
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ ACTIVITIES = [
 ]
 
 # Every activity that sends a request to arXiv.
-ARXIV_ACTIVITIES = [activities.fetch_arxiv, activities.fetch_fulltext]
+ARXIV_ACTIVITIES = [activities.fetch_arxiv]
 
 
 def build_workers(

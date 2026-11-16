@@ -5,7 +5,7 @@ topic's new papers. Summaries and overviews are written later, for each
 topic's top papers only, by send prep. Every step is an Activity with its own
 timeout/retry policy, and per-paper ratings fan out concurrently.
 
-arXiv requests (`fetch_arxiv`, `fetch_fulltext`) run on a separate task queue,
+arXiv requests (`fetch_arxiv`) run on a separate task queue,
 `arxiv_queue(<the workflow's queue>)`, whose worker runs one activity at a
 time: however many topics ingest at once, one arXiv request is in flight.
 
@@ -56,7 +56,6 @@ WORKFLOW_RUNNER = SandboxedWorkflowRunner(
         "app.services.summarize",
         "app.services.embed",
         "app.services.retrieval",
-        "app.services.fulltext",
         "app.services.email",
         "app.services.ranking",
         "app.services.scholar",
@@ -84,8 +83,7 @@ _LLM_RETRY = RetryPolicy(
     backoff_coefficient=2.0,
     maximum_interval=timedelta(seconds=30),
 )
-# Generous enough for a local model on its first call of a session, when
-# Ollama also has to load it into memory.
+# Generous: a slow OpenAI reply shouldn't count as a failed attempt.
 _LLM_TIMEOUT = timedelta(seconds=180)
 # An ingest alerts when every rating raised, once at least this many ran.
 _MIN_RATINGS_FOR_ALERT = 3
@@ -203,9 +201,7 @@ class DigestWorkflow:
             try:
                 await workflow.execute_activity(
                     activities.embed_papers,
-                    types.EmbedPapersInput(
-                        paper_ids=[p.paper_id for p in papers], topic_id=ctx.topic_id
-                    ),
+                    types.EmbedPapersInput(paper_ids=[p.paper_id for p in papers]),
                     start_to_close_timeout=_LLM_TIMEOUT,
                     retry_policy=_LLM_RETRY,
                 )
@@ -349,8 +345,8 @@ class RunAllTopicDigestsWorkflow:
 @workflow.defn
 class PrepTopicEditionWorkflow:
     """Send prep for one topic and slot: re-rate what ingest left unrated,
-    look up h-indices, rank the window, summarize the top K only (full text
-    first when it's on), write the overview over them, and store it all as
+    look up h-indices, rank the window, summarize the top K only, write the
+    overview over them, and store it all as
     the topic's edition. Returns "written", "exists" (the slot already has
     an edition: a second prep is a no-op) or "empty" (no papers: nothing
     stored)."""
@@ -401,22 +397,8 @@ class PrepTopicEditionWorkflow:
             retry_policy=_DB_RETRY,
         )
 
-        # 3. Full text for the top K only, on the one-at-a-time arXiv queue.
+        # 3. Summaries for the top K that don't have one yet.
         to_summarize = [p for p in ranking.top if p.summary is None]
-        if plan.fulltext and to_summarize:
-            try:
-                await workflow.execute_activity(
-                    activities.fetch_fulltext,
-                    types.FetchFulltextInput(paper_ids=[p.paper_id for p in to_summarize]),
-                    task_queue=arxiv_queue(workflow.info().task_queue),
-                    start_to_close_timeout=timedelta(minutes=30),
-                    heartbeat_timeout=timedelta(minutes=3),
-                    retry_policy=_LLM_RETRY,
-                )
-            except ActivityError:
-                pass
-
-        # 4. Summaries for the top K that don't have one yet.
         outcomes = await asyncio.gather(
             *[
                 llm(
@@ -442,7 +424,7 @@ class PrepTopicEditionWorkflow:
             if isinstance(s := (p.summary or new.get(p.paper_id)), str) and s
         ]
 
-        # 5. The overview over the top K's summaries, history-aware.
+        # 4. The overview over the top K's summaries, history-aware.
         overview = None
         if summaries:
             try:
@@ -452,7 +434,6 @@ class PrepTopicEditionWorkflow:
                         topic_name=plan.topic_name,
                         summaries=summaries,
                         topic_id=plan.topic_id,
-                        paper_ids=[p.paper_id for p in ranking.top],
                     ),
                 )
             except ActivityError:

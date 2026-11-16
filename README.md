@@ -5,25 +5,25 @@
 **A self-hosted research alerting service.** It watches arXiv for new papers on
 topics you choose, summarizes and scores each paper with an LLM (OpenAI's
 GPT-5.4 mini), ranks them, and emails you one combined digest on your
-cadence. Summaries and overviews are retrieval-augmented: each paper's nearest
-earlier papers (by embedding, in pgvector) and the topic's recent overviews
-inform what the model writes, and so can its full text from arXiv's HTML
-rendering (built and evaluated, but off until arXiv allows it). Every
-retrieval feature was measured against a baseline before it was switched on.
+cadence. Embeddings in pgvector drive novelty scoring, near-duplicate folding
+and a "similar earlier paper" link, and each overview is written knowing the
+topic's recent overviews. Every retrieval feature was measured against a
+baseline before it was switched on, and the ones that didn't pay off were
+removed.
 Everything is orchestrated as durable Temporal workflows, so a crash, reboot, or
 sleeping laptop delays a digest instead of losing it.
 
 > Built as a realistic backend/AI engineering project: an HTTP API, a relational
 > schema with migrations, durable workflow orchestration, external API
 > integration, LLM summarization with retrieval (RAG) over a vector store, an
-> offline evaluation harness, scheduled email delivery, and a 530-test suite
+> offline evaluation harness, scheduled email delivery, and a 576-test suite
 > running in CI.
 
 **Status (2026-11-16): being turned into a small public service.** The plan is
-[`docs/public-launch-plan.md`](docs/public-launch-plan.md) (v2.2): free
-weekly digests (Monday mornings) for US readers, capped at 200 subscribers and
-$50/month of OpenAI spend. There is no public signup yet; the service still runs for its
-owner.
+[`docs/public-launch-plan.md`](docs/public-launch-plan.md) (v3, lean): free
+weekly digests (Monday mornings) for a first group of 5–10 readers, with a
+$50/month cap on OpenAI spend. Signup, confirmation and self-service pages are
+built; they go public once the service is on its production host.
 
 | Step | What | State |
 |---|---|---|
@@ -31,9 +31,9 @@ owner.
 | 2a | OpenAI spend log, monthly budget guard, owner alerts | Live |
 | 2b | OpenAI embeddings (`text-embedding-3-small`), recalibrated thresholds | Live |
 | 2c | Three passes on Eastern time (ingest, send prep, send), stored per-topic editions, a rating rubric audited across fields | Live since 2026-11-13; first full cycle Mon 2026-11-16 |
-| 2d | Picks-first email and rewritten summary/overview prompts | Planned |
-| 2e | Cost and load rehearsal | Planned |
-| 3–6 | Public signup, website, production host (Hetzner), legal and launch | Planned |
+| 3a | Signup, confirmation, manage page, one-click unsubscribe, hand-admitted waitlist | Live (fails closed until real Turnstile keys are set) |
+| Launch | Production host, HTTPS, real email, short legal pages, first readers | Next (plan v3) |
+| After launch | Picks-first email and prompt tuning (2d) | Deferred |
 
 Each phase's implementation plan, with its outcome, is in
 [`docs/superpowers/plans/`](docs/superpowers/plans/).
@@ -44,12 +44,12 @@ Each phase's implementation plan, with its outcome, is in
 
 | | |
 |---|---|
-| **What it does** | arXiv → full text + embeddings → retrieval-augmented LLM summary and relevance rating → ranked, per-topic email digests |
+| **What it does** | arXiv → embeddings + LLM relevance rating → ranking → LLM summaries and overview for the top papers → per-topic weekly email digests |
 | **Backend** | Python 3.12, FastAPI, Pydantic, SQLAlchemy 2, PostgreSQL 16 + pgvector, Alembic |
 | **Orchestration** | Temporal (workflows, activities, retry policies, cron schedules) |
-| **AI / LLM** | OpenAI `gpt-5.4-mini` for summaries, ratings and overviews; OpenAI `text-embedding-3-small` (768-dim) for embeddings; Ollama optional for local development |
-| **Retrieval** | pgvector (HNSW, cosine) over abstract and full-text chunk embeddings |
-| **External data** | arXiv Atom API and HTML full text, OpenAlex / Semantic Scholar (author h-index) |
+| **AI / LLM** | OpenAI `gpt-5.4-mini` for summaries, ratings and overviews; OpenAI `text-embedding-3-small` (768-dim) for embeddings |
+| **Retrieval** | pgvector (HNSW, cosine) over abstract embeddings |
+| **External data** | arXiv Atom API, OpenAlex / Semantic Scholar (author h-index) |
 | **Email** | SMTP (Gmail or any relay), Mailpit for local development |
 | **Infrastructure** | Docker Compose (5 services), colima on macOS, GitHub Actions CI |
 | **Testing** | pytest, real Postgres + pgvector, Temporal time-skipping test server, respx HTTP mocking |
@@ -69,9 +69,7 @@ RLHF - 10 new papers
 September 28, 2026
 ------------------
 * Using Context Is Not Enough: Test-Time Training for Personalized Reward Modeling
-  <3–4 sentence summary: problem, method, setting, headline result - drawing on
-   the paper's full text, e.g. "outperforming the strongest baseline by an
-   average of 3.94 percentage points">
+  <3–4 sentence summary of the abstract: problem, method, setting, headline result>
   <when an earlier paper is close (cosine >= 0.75):
    Similar earlier paper: <its title> <its arXiv link>>
   https://arxiv.org/abs/2609.35109
@@ -127,26 +125,22 @@ paper's text never does.
   degrade (the digest completes without them) rather than fail
 
 **Applied AI / LLM engineering**
-- Swappable summarization backends behind one interface: the OpenAI API by
-  default, or a local model through Ollama, with no change to the pipeline
-- Swappable embedding backends too (OpenAI or a local Ollama model), with
-  similarity thresholds calibrated per model on the real corpus, and a
-  side-by-side backfill so switching models never mixes two models' scales
+- Moved summaries and embeddings from a local model (Gemma via Ollama) to the
+  OpenAI API, with similarity thresholds recalibrated per embedding model on
+  the real corpus and a side-by-side backfill so switching models never mixes
+  two models' scales
 - Prompt design for structured output: a summary plus a 1–10 relevance rating
   in one call, with a tolerant parser that never loses a summary over a
   malformed rating
 - Multi-signal ranking: LLM relevance (60%), author h-index (30%, log-scaled),
   novelty from embedding similarity (10%), and a venue-acceptance bonus, with
   median imputation for missing signals
-- Retrieval-augmented generation end to end: full-text fetch and section-aware
-  chunking, embedding with task prompts, per-query chunk retrieval, a citation
-  check on any model-written cross-reference, and guards that strip output the
-  model copies from placeholders
-- Evaluation-driven decisions: every RAG feature was measured against the
-  abstract-only baseline (rank correlation with reference labels, NDCG, blind
-  A/B review with an error tally) against a ~10% error bar; five ideas were
-  measured, found wanting, and left off, and full-text summaries, right at the
-  bar, shipped with the owner's sign-off
+- Evaluation-driven decisions: every RAG feature (full-text excerpts,
+  LLM-written related-work notes, few-shot rating anchors, history-aware
+  overviews) was built and measured against the abstract-only baseline (rank
+  correlation with reference labels, NDCG, blind A/B review with an error
+  tally) against a ~10% error bar; the ones that failed it, or that arXiv's
+  terms rule out for a public service, were removed
   ([Retrieval and evaluation](#retrieval-and-evaluation))
 
 **Reliability engineering**
@@ -156,12 +150,12 @@ paper's text never does.
   [Problems solved](#problems-solved)): non-durable scheduler state, data lost
   to API publication lag, race conditions between concurrent workflows,
   test-environment leakage, and a rate limiter that wasn't thread-safe
-- Third-party terms respected by construction: every arXiv request (search and
-  full text) goes through one process-wide gate, at most one per 3 seconds, to
+- Third-party terms respected by construction: every arXiv request goes
+  through one process-wide gate, at most one per 3 seconds, to
   the export host arXiv asks scripts to use
 
 **Testing & CI**
-- 530 tests against a real Postgres built by running the migrations, so model
+- 576 tests against a real Postgres built by running the migrations, so model
   and migration drift fails the suite
 - Workflows run end to end against Temporal's time-skipping server, so minutes
   of retry backoff finish in about a second
@@ -200,16 +194,13 @@ paper's text never does.
 - **`worker`** runs every workflow and activity. All external calls (arXiv, the
   LLM and embedding model, scholarly APIs, SMTP) happen here, each behind a
   retry policy.
-- **PostgreSQL** holds everything, including the vector index: paper and
-  full-text chunk embeddings live in `paper_embeddings` (pgvector, HNSW), so
+- **PostgreSQL** holds everything, including the vector index: paper
+  embeddings live in `paper_embeddings` (pgvector, HNSW), so
   there is no separate vector database to run.
 - **OpenAI writes the text and the embeddings**: summaries, relevance ratings
   and overviews with `gpt-5.4-mini`, embeddings with `text-embedding-3-small`.
   Every call is priced and recorded against the monthly budget. The API key
   lives only in the gitignored `.env`.
-- **Ollama is optional**, for running everything locally: set
-  `SUMMARY_BACKEND=ollama` and/or `EMBEDDING_BACKEND=ollama`. It runs natively
-  on the Mac (for the GPU), reached from containers at `host.docker.internal`.
 - **Temporal persists its state** to a volume, so schedules and in-flight
   workflows survive restarts and resume where they stopped.
 
@@ -258,14 +249,12 @@ previous edition, ranked, with an overview.
    without), done now because both lag arXiv by a day or more.
 3. **Rank** the window and take the top K, the largest paper count any
    subscriber of the topic asked for (at least 5).
-4. **Full text** for the top K only, when `RAG_FULLTEXT` is on (off by
-   default, pending arXiv's permission): fetch the arXiv HTML, split it into
-   section-aware chunks and embed them.
-5. **Summarize** the top K papers that don't have a summary yet.
-6. **Overview**: one LLM-written paragraph over the top K. The writer also
+4. **Summarize** the top K papers that don't have a summary yet, from their
+   abstracts.
+5. **Overview**: one LLM-written paragraph over the top K. The writer also
    sees the topic's last three overviews, so it says what is specific to this
    edition instead of re-describing the field each time.
-7. **Store** the edition. If every summary failed, the owner gets an alert.
+6. **Store** the edition. If every summary failed, the owner gets an alert.
 
 ### 3. Email delivery (`SendDigestEmailsWorkflow`)
 Runs Mondays at 08:00 Eastern. Its own steps make no LLM,
@@ -324,29 +313,29 @@ The tables below were first measured on the previous summarization model, Gemma
 | Full text preferred over abstract-only, of 20 | 17 vs 3 | 17 vs 1, 2 ties |
 | Full-text summaries with a factual error, of 20 | 3 | 0 |
 
-The evidence below stays as measured on Gemma. Each feature's on/off setting
-held up where it was re-tested, but related-work notes and rating anchors were
-not re-tested. The overview review was partial and its preference count isn't
+The evidence below stays as measured on Gemma. Each feature's on/off decision
+held up where it was re-tested; related-work notes and rating anchors were
+not re-tested before they were removed. The overview review was partial and its preference count isn't
 usable, because the two versions were recognizable by their opening words.
 
 **What's on**
 
 | Feature | What it does | Evidence |
 |---|---|---|
-| Paper embeddings | Every paper's abstract embedded with EmbeddingGemma into pgvector | Nearest neighbours share a topic 89% of the time |
+| Paper embeddings | Every paper's abstract embedded into pgvector (EmbeddingGemma, then `text-embedding-3-small` from 2026-11-12) | Nearest neighbours share a topic 89% of the time |
 | Similar earlier paper | Emails link the closest earlier paper (cosine ≥ 0.75), with no LLM claim attached | Every neighbour reviewed at ≥ 0.75 was genuinely related |
 | Novelty in ranking | 10% of the score: how unlike earlier topic papers this one is | Small by design, since novelty correlates with relevance |
 | Near-duplicate folding | A near-identical later paper is listed under the earlier one | Wired and tested; no live duplicates yet |
 | History-aware overviews | The overview writer sees the topic's last 3 overviews so it stops repeating them | Preferred 15 vs 2 over plain overviews in a blind review; 1 error in 25 |
-| Full-text excerpts | Summaries draw on the paper's results, method and limitations sections | Preferred 17 vs 3; numbers per summary 0.02 → 1.69; 2 of 20 misread a figure's context |
 
-**What was measured and left off**
+**What was measured and removed** (the code is in git history before 2026-11-16)
 
-| Feature | Why it's off |
+| Feature | Why it was removed |
 |---|---|
+| Full-text excerpts | Readers preferred them 17 vs 3, but arXiv's terms allow e-print content for personal use or research only, and this became a public service |
 | LLM-written related-work notes | 26% misdescribed the cited paper, even after a second round of prompt work |
 | Few-shot rating anchors | Made ratings worse (overall ρ 0.71 → 0.52) with ~20 labels per topic |
-| Topic descriptions (as defaults) | No measurable gain; kept as an opt-in, user-written field |
+| Topic descriptions (as defaults) | No measurable gain; kept as an opt-in, admin-written field |
 | Relevance as an on/off gate | Ranked worse than graded relevance on every topic |
 | Overviews that compare against history | 28% contained an invented cross-reference |
 
@@ -358,16 +347,15 @@ usable, because the two versions were recognizable by their opening words.
   such in a `labeler` column.
 - `evals.ranking`: replays each topic's labeled papers as one email batch under
   several scoring schemes; NDCG@k with bootstrap intervals.
-- `evals.overviews` and `evals.fulltext`: generate old-vs-new outputs for the
-  same inputs, compute automatic checks, and write a blind A/B file. The key is
-  kept in a separate report, so the review is judged before unblinding.
+- `evals.email_prompts`: the picks-first email prompts on real windows, with
+  blind summary pairs for review.
+- The one-off blind A/B scripts for overviews and full text (`evals.overviews`,
+  `evals.fulltext`) are in git history; their reports stay in `evals/results/`.
 
-**Data use.** Full text comes from arXiv's HTML rendering on
-`export.arxiv.org`, fetched only for newly ingested papers (about 20 a day),
-at most one request every 3 seconds across the whole worker. It is stored
-locally for personal use, as arXiv's terms allow, and never sent in an email.
-Excerpts are sent to OpenAI as part of each summary prompt, along with titles
-and abstracts. A multi-user deployment would need a fresh read of those terms.
+**Data use.** Only arXiv metadata and abstracts (CC0) are used, at most one
+arXiv request every 3 seconds across the whole worker. Titles and abstracts
+are sent to OpenAI in each prompt; nothing but the model's text and links to
+arXiv goes out in an email.
 
 ---
 
@@ -395,7 +383,7 @@ regression test:
 ## Testing
 
 ```bash
-venv/bin/python -m pytest -q        # 521 tests
+venv/bin/python -m pytest -q        # 576 tests
 ```
 
 | Layer | How |
@@ -406,7 +394,7 @@ venv/bin/python -m pytest -q        # 521 tests
 | Retrieval | Real vector queries on synthetic embeddings whose similarities are known by construction (unit vectors at chosen angles) |
 | Workflows | Real workflows and activities on Temporal's **time-skipping** test server, so retry backoff is fast-forwarded |
 | Schedules | Temporal's local dev server (the time-skipping server has no Schedule API) |
-| HTTP integrations | `respx` mocks for arXiv (API and HTML), OpenAI, Ollama (chat and embed), OpenAlex and Semantic Scholar; no test reaches a real external service |
+| HTTP integrations | `respx` mocks for arXiv, OpenAI (chat and embeddings), OpenAlex and Semantic Scholar; no test reaches a real external service |
 | Prompts | Exact request bodies asserted, including that every retrieval feature leaves the original prompt byte-for-byte unchanged when it has nothing to add |
 | Email | Full MIME output checked (multipart parts, UTF-8 round trip, well-formed HTML, escaping) |
 | Config | Static checks on `docker-compose.yml`: persistence, restart policies, worker env |
@@ -422,8 +410,7 @@ helpers are unit-tested in CI.
 ## Running locally
 
 **Prerequisites:** Docker (colima on macOS) and an
-[OpenAI API key](https://platform.openai.com/api-keys). [Ollama](https://ollama.com)
-only if you want local models (`EMBEDDING_BACKEND=ollama`, `SUMMARY_BACKEND=ollama`).
+[OpenAI API key](https://platform.openai.com/api-keys).
 
 ```bash
 # 1. Configure
@@ -492,31 +479,26 @@ All settings are environment variables (see [`.env.example`](.env.example)).
 | Variable | Default | Purpose |
 |---|---|---|
 | `ADMIN_TOKEN` | unset | Required for every API route except `/health`; when unset, the API refuses everything. Generate one with `python -c "import secrets; print(secrets.token_urlsafe(32))"` and keep it in `.env` |
-| `SUMMARY_BACKEND` | `openai` | `openai` for summaries through the OpenAI API; `ollama` for a local model; `none` to send digests without AI text |
+| `SUMMARY_BACKEND` | `openai` | `openai` for summaries through the OpenAI API; `none` to send digests without AI text |
 | `OPENAI_API_KEY` | unset | Required with `SUMMARY_BACKEND=openai`. Keep it in `.env`, which is gitignored; never commit it |
 | `OPENAI_MODEL` | `gpt-5.4-mini` | Model for summaries, ratings and overviews. Must accept `reasoning_effort: none` |
 | `OPENAI_MONTHLY_BUDGET_USD` | `50` | Monthly OpenAI cap, enforced in the app: alert at 80%, AI text paused at 100% until the 1st (UTC). Every call is recorded in `llm_usage` |
 | `ALERT_EMAIL` | unset | Where spend alerts are emailed; while unset they're only logged |
 | `OPENAI_PRICES` | `gpt-5.4-mini` and `text-embedding-3-small` | USD per 1M tokens per model, as JSON. A model with no price can't be called, so spend is never unrecorded |
-| `OLLAMA_BASE_URL` | `http://host.docker.internal:11434` (in Docker) | Where the worker reaches Ollama, for embeddings and the `ollama` backend |
-| `OLLAMA_MODEL` | `gemma3:12b` | Summary model with `SUMMARY_BACKEND=ollama` (`ollama pull gemma3:12b`, ~8 GB) |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_USE_TLS` / `SMTP_FROM_ADDRESS` | Mailpit | Outgoing email |
 | `SEMANTIC_SCHOLAR_API_KEY` | unset | Optional; without it, h-indices come from OpenAlex |
 | `ARXIV_MAX_RESULTS` / `ARXIV_LOOKBACK_DAYS` | `25` / `7` | Fetch size and publication-lag window |
-| `ARXIV_PAGE_DELAY` | `3.0` | Minimum seconds between any two arXiv requests (search or full text) |
+| `ARXIV_PAGE_DELAY` | `3.0` | Minimum seconds between any two arXiv requests |
 | `RAG_ENABLED` | `true` | Embeddings and every retrieval feature (also off when `SUMMARY_BACKEND=none`) |
-| `EMBEDDING_BACKEND` / `EMBEDDING_MODEL` | `openai` / `text-embedding-3-small` | Where embeddings come from. Requested at 768 dimensions; a model needs a `RETRIEVAL_CALIBRATION` row (the worker refuses to start without one). `ollama` / `embeddinggemma` runs locally |
-| `RAG_FULLTEXT` | `false` | Full-text excerpts in the top K's summaries (off until arXiv allows it) |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model, requested at 768 dimensions; it needs a `RETRIEVAL_CALIBRATION` row (the worker refuses to start without one) |
 | `LLM_MAX_CONCURRENCY` | `8` | LLM calls in flight per workflow (ratings at ingest, summaries at prep) |
 | `FANOUT_BATCH_SIZE` | `10` | Topics whose ingest or prep run at once |
 | `WORKER_ACTIVITY_THREADS` | `20` | Activities the worker runs at once (arXiv requests are separate, one at a time) |
 | `RAG_OVERVIEW_HISTORY` | `true` | Overviews see the topic's last 3 overviews so they don't repeat them |
-| `RAG_RELATED_NOTES` | `false` | LLM-written related-work notes (measured: 26% wrong) |
-| `RAG_RATING_ANCHORS` | `false` | Reference-rated few-shot examples for the relevance rater (measured: worse) |
 
 Every field of `Settings` in [`app/config.py`](app/config.py) can be overridden
 the same way. Retrieval thresholds (the "similar earlier paper" floor, near
-duplicates, novelty anchors, similar-topic suggestions) are calibrated per
+duplicates, novelty anchors) are calibrated per
 embedding model in `RETRIEVAL_CALIBRATION`, because cosine scales differ between
 models; `app/config.py` explains where each value came from, and using a model
 with no calibration row fails rather than borrowing another model's numbers.
@@ -535,36 +517,35 @@ app/
 ├── topic_query.py          query normalization and public-input validation
 ├── services/
 │   ├── arxiv.py            arXiv Atom API client
-│   ├── summarize.py        OpenAI or Ollama: summaries, ratings, overviews
-│   ├── embed.py            OpenAI or Ollama: paper, chunk and topic embeddings
+│   ├── summarize.py        OpenAI: summaries, ratings, overviews
+│   ├── embed.py            OpenAI: paper embeddings
 │   ├── retrieval.py        pgvector storage + nearest-neighbour queries
-│   ├── fulltext.py         arXiv HTML fetch (rate-gated), parse, chunk
 │   ├── ranking.py          multi-signal paper scoring (pure functions)
 │   ├── scholar.py          author h-index from Semantic Scholar / OpenAlex
 │   └── email.py            digest rendering + SMTP sender
 ├── temporal/
 │   ├── workflows.py        ingest, send prep and send workflows
-│   ├── activities.py       all I/O: DB, arXiv, LLM, embeddings, full text, SMTP
+│   ├── activities.py       all I/O: DB, arXiv, LLM, embeddings, SMTP
 │   ├── schedule.py         idempotent, self-reconciling cron schedules
 │   └── types.py            dependency-free dataclasses passed across the workflow boundary
 ├── worker.py               Temporal worker entrypoint
 ├── backfill_summaries.py   one-off: summarize papers waiting to be emailed
 ├── backfill_embeddings.py  one-off: embed papers ingested before retrieval existed
-└── import_relevance_labels.py  one-off: load reference ratings (few-shot anchors)
+└── import_relevance_labels.py  one-off: load reference ratings (for evals.ranking)
 alembic/versions/           schema migrations
 evals/                      offline evaluation harness (not run in CI)
 ├── rag.py                  ratings + summaries vs reference labels, per variant
 ├── ranking.py              ranking schemes vs reference labels (NDCG, bootstrap)
-├── overviews.py            history-aware overviews: repetition, errors, blind A/B
-├── fulltext.py             full-text summaries: concreteness, faithfulness, blind A/B
+├── embeddings.py           calibrate retrieval thresholds for an embedding model
+├── email_prompts.py        picks-first email prompts on real windows, blind pairs
 ├── metrics.py              pure metric helpers (unit-tested)
 ├── labels.csv              reference labels (47 topic-paper pairs, labeler marked)
 ├── labels_diverse.csv      cross-field reference labels (47 papers from 8 unrelated fields)
 └── results/                every report the decisions in docs/rag-plan.md rest on
-tests/                      530 tests (see Testing)
+tests/                      576 tests (see Testing)
 docs/
 ├── rag-plan.md             the retrieval plan, measurements and decisions
-├── public-launch-plan.md   public launch plan (v2.1); Phase 1 and 2a–2c done
+├── public-launch-plan.md   public launch plan (v3, lean)
 └── superpowers/plans/      one implementation plan per launch phase, with its outcome
 ```
 
@@ -583,33 +564,26 @@ re-ingested for the same topic, so fill in any still waiting to be emailed with:
 docker-compose exec worker python -m app.backfill_summaries
 ```
 
-**Embeddings for retrieval.** Digest runs embed new papers and their topic
-into pgvector. To embed everything missing and recompute every paper's signals:
+**Embeddings for retrieval.** Digest runs embed new papers into pgvector. To embed everything missing and recompute every paper's signals:
 ```bash
 docker-compose exec worker python -m app.backfill_embeddings
 ```
 Switching models goes in two steps, because signals are stored per paper,
 not per model:
-1. Backfill the new model with `--embed-only` (with `-e EMBEDDING_BACKEND=...
-   -e EMBEDDING_MODEL=...`), which touches no signal.
+1. Backfill the new model with `--embed-only` (with `-e EMBEDDING_MODEL=...`),
+   which touches no signal.
 2. Calibrate it with `python -m evals.embeddings` (see `docs/rag-plan.md` §5.9).
 3. Flip the settings, and run the default mode before starting the worker.
 
 **Evaluations.** With the stack up, from the repo root (these call
 the configured summary model, so with `SUMMARY_BACKEND=openai` they cost money):
 ```bash
-venv/bin/python -m evals.rag run --variant baseline     # or rag-related, desc, anchors, ...
+venv/bin/python -m evals.rag run --variant baseline     # or desc
 venv/bin/python -m evals.ranking
-venv/bin/python -m evals.overviews --style avoid_repeats
-venv/bin/python -m evals.fulltext
 ```
 `python -m evals.rag label` hand-labels the sample in the terminal (stored with
 `labeler=human`); `python -m app.import_relevance_labels` loads labels into the
 database as reference ratings.
-
-**Full text** (off by default) is fetched once per paper, at send prep and for
-the top K only, and the outcome is recorded in `papers.fulltext_status`. There is deliberately no bulk backfill:
-arXiv asks that the corpus not be downloaded through its API.
 
 **Reboot resilience on macOS.** Every service has `restart: unless-stopped`; for
 that to survive a reboot, colima itself must start at login:

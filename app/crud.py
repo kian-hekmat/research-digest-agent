@@ -303,22 +303,6 @@ def recent_overviews(
     return latest[-limit:] if limit > 0 else []
 
 
-def similar_earlier_papers(db: Session, paper_ids: list[str]) -> list[tuple[str, str]]:
-    """(paper title, related earlier paper title) for each of `paper_ids`
-    with a paper_related link, in arXiv id order."""
-    if not paper_ids:
-        return []
-    table = models.paper_related_association
-    new, old = models.Paper.__table__.alias("new"), models.Paper.__table__.alias("old")
-    rows = db.execute(
-        select(new.c.title, old.c.title)
-        .select_from(table.join(new, new.c.id == table.c.paper_id).join(old, old.c.id == table.c.related_paper_id))
-        .where(table.c.paper_id.in_(paper_ids))
-        .order_by(new.c.arxiv_id, table.c.similarity.desc())
-    ).all()
-    return [(a, b) for a, b in rows]
-
-
 def get_or_create_subscriber(db: Session, email: str, *, confirmed: bool) -> models.Subscriber:
     """The subscriber for `email`, matched case-insensitively (the same rule
     as the unique index), created if new. With `confirmed`, `confirmed_at` is

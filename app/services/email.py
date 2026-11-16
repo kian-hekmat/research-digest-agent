@@ -42,12 +42,10 @@ class PaperForEmail:
     max_author_h_index: int | None = None
     venue_score: float = 0.0
     prior_similarity: float | None = None
-    # Retrieval (app.services.retrieval): a sentence relating this paper to
-    # earlier ones, and the arXiv id of an earlier paper it near-duplicates.
-    related_note: str | None = None
+    # Retrieval (app.services.retrieval): the arXiv id of an earlier paper
+    # it near-duplicates.
     near_duplicate_of: str | None = None
-    # (arxiv_id, title) of related earlier papers: the note's citations, or
-    # the closest earlier paper when there's no note.
+    # (arxiv_id, title) of the closest earlier paper, if any.
     similar: list[tuple[str, str]] = field(default_factory=list)
     # Near duplicates of this paper in the same section, folded in under it.
     see_also: list["PaperForEmail"] = field(default_factory=list)
@@ -210,15 +208,6 @@ def _fold_near_duplicates(picked: dict[str, tuple[PaperForEmail, DigestForEmail]
         del picked[aid]
 
 
-_ARXIV_ID = re.compile(r"\b\d{4}\.\d{4,5}\b")
-
-
-def _linkify_arxiv_ids(escaped: str) -> str:
-    return _ARXIV_ID.sub(
-        lambda m: f'<a href="https://arxiv.org/abs/{m.group(0)}">{m.group(0)}</a>', escaped
-    )
-
-
 def _plural(n: int, word: str) -> str:
     return f"{n} {word}{'' if n == 1 else 's'}"
 
@@ -274,9 +263,7 @@ def render_digest_email(
                 text_lines.append(f"* {paper.title}")
                 if paper.summary:
                     text_lines.append(f"  {paper.summary}")
-                if paper.related_note:
-                    text_lines.append(f"  Related: {paper.related_note}")
-                elif paper.similar:
+                if paper.similar:
                     sim_id, sim_title = paper.similar[0]
                     text_lines.append(
                         f"  Similar earlier paper: {sim_title} https://arxiv.org/abs/{sim_id}"
@@ -289,11 +276,7 @@ def render_digest_email(
                 html_parts.append(f"<p><strong>{escape(paper.title)}</strong>")
                 if paper.summary:
                     html_parts.append(f"<br>{escape(paper.summary)}")
-                if paper.related_note:
-                    html_parts.append(
-                        f"<br><em>Related:</em> {_linkify_arxiv_ids(escape(paper.related_note))}"
-                    )
-                elif paper.similar:
+                if paper.similar:
                     sim_id, sim_title = paper.similar[0]
                     sim_url = f"https://arxiv.org/abs/{sim_id}"
                     html_parts.append(
