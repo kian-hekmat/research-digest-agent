@@ -9,6 +9,11 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # Temporal's test servers are binaries the SDK downloads on first use.
+      # Keep them in a cached directory and fetch them before the suite, so a
+      # CDN hiccup can't fail whichever test happens to start a server first.
+      TEMPORAL_TEST_SERVER_DIR: /home/runner/.cache/temporal-test-servers
 
     services:
       postgres:
@@ -35,6 +40,18 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
+
+      - name: Cache Temporal test servers
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/.cache/temporal-test-servers
+          # requirements.txt pins temporalio, which pins the server versions.
+          key: temporal-test-servers-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
+      - name: Download Temporal test servers
+        run: |
+          mkdir -p "$TEMPORAL_TEST_SERVER_DIR"
+          python -m tests.temporal_servers
 
       - name: Run tests
         env:

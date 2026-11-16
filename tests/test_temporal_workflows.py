@@ -22,7 +22,6 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
-from temporalio.testing import WorkflowEnvironment
 
 from app import crud, models
 from app.services.summarize import RatedSummary
@@ -38,6 +37,7 @@ from app.temporal.workflows import (
     SendDigestEmailsWorkflow,
 )
 from app.worker import build_workers
+from tests import temporal_servers
 from tests.conftest import EmbedderTextMixin, make_result, make_subscriber, subscribe
 
 TASK_QUEUE = "test-digest-task-queue"
@@ -150,7 +150,7 @@ async def temporal_client(monkeypatch):
     monkeypatch.setattr(temporal_activities, "fetch_max_author_h_index", lambda arxiv_ids: {})
     # The worker process's own wiring (app.worker.build_workers): the main
     # worker, and the arXiv worker that runs one request at a time.
-    async with await WorkflowEnvironment.start_time_skipping() as env:
+    async with await temporal_servers.time_skipping() as env:
         with ThreadPoolExecutor(max_workers=20) as pool, ThreadPoolExecutor(max_workers=1) as arxiv_pool:
             main_worker, arxiv_worker = build_workers(env.client, TASK_QUEUE, pool, arxiv_pool, 20)
             async with main_worker, arxiv_worker:
@@ -1011,7 +1011,7 @@ def test_digest_status_literals_match_the_model_enum():
 async def temporal_env_only():
     # Schedules aren't implemented by the time-skipping test server (only the
     # full dev server) - this fixture is for schedule tests only.
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await temporal_servers.local() as env:
         yield env
 
 
