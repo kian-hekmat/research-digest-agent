@@ -25,6 +25,7 @@ from app.config import get_settings
 
 CONFIRM_MAX_AGE = 48 * 3600
 CSRF_MAX_AGE = 2 * 3600
+RESUBSCRIBE_MAX_AGE = 3600
 
 
 class TokenError(Exception):
@@ -65,6 +66,12 @@ def manage_token(sub: models.Subscriber) -> str:
 
 def unsubscribe_token(subscriber_id: str, topic_id: str | None) -> str:
     return make_token("unsubscribe", {"s": subscriber_id, "t": topic_id})
+
+
+def resubscribe_token(subscriber_id: str, topic_id: str | None) -> str:
+    """Issued only on the "you're unsubscribed" page and good for an hour, so
+    a digest's never-expiring unsubscribe link can't undo an opt-out."""
+    return make_token("resubscribe", {"s": subscriber_id, "t": topic_id})
 
 
 def csrf_token() -> str:

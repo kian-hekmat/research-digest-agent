@@ -8,11 +8,12 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app import account_emails, models, signup, tokens, web
 from app.config import get_settings
 from app.database import SessionLocal, get_db
-from app.ratelimit import allow, email_key, signup_ip_key
+from app.ratelimit import allow, email_key, manage_link_ip_key, signup_ip_key
 from app.temporal.client import get_temporal_client
 
 router = APIRouter(dependencies=[Depends(web.require_secret)], include_in_schema=False)
@@ -22,39 +23,53 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-async def _send_account_email(client, kind: str, sub_id: str, to: str, token: str, now: datetime) -> None:
-    """Count it against the address's daily limit, then start the send."""
+def _email_allowed(to: str, now: datetime) -> bool:
     db = SessionLocal()
     try:
-        ok = allow(db, email_key(to), get_settings().account_emails_per_address_per_day, timedelta(days=1), now)
+        return allow(db, email_key(to), get_settings().account_emails_per_address_per_day, timedelta(days=1), now)
     finally:
         db.close()
-    if ok:
+
+
+async def _send_account_email(client, kind: str, sub_id: str, to: str, token: str, now: datetime) -> None:
+    """Count it against the address's daily limit, then start the send. The
+    database work runs in a thread so it never blocks the event loop."""
+    if await run_in_threadpool(_email_allowed, to, now):
         path = "/confirm" if kind == "confirm" else "/manage"
         await account_emails.start_account_email(client, kind, sub_id, to, tokens.link(path, token), now)
 
 
-async def _after_signup(client, email: str, topics: list[signup.SignupTopic], now: datetime) -> None:
+def _record_signup(email: str, topics: list[signup.SignupTopic], now: datetime):
     db = SessionLocal()
     try:
         kind, sub = signup.record_signup(db, email, topics, now)
         token = tokens.confirm_token(sub) if kind == "confirm" else tokens.manage_token(sub)
-        sub_id, to = sub.id, sub.email
+        return kind, sub.id, sub.email, token
     finally:
         db.close()
+
+
+async def _after_signup(client, email: str, topics: list[signup.SignupTopic], now: datetime) -> None:
+    kind, sub_id, to, token = await run_in_threadpool(_record_signup, email, topics, now)
     await _send_account_email(client, kind, sub_id, to, token, now)
 
 
-async def _after_manage_link(client, email: str, now: datetime) -> None:
+def _manage_link_target(email: str):
     db = SessionLocal()
     try:
         sub = signup.find_subscriber(db, email)
         if sub is None or not signup.is_active(sub):
-            return
-        token, sub_id, to = tokens.manage_token(sub), sub.id, sub.email
+            return None
+        return sub.id, sub.email, tokens.manage_token(sub)
     finally:
         db.close()
-    await _send_account_email(client, "manage", sub_id, to, token, now)
+
+
+async def _after_manage_link(client, email: str, now: datetime) -> None:
+    target = await run_in_threadpool(_manage_link_target, email)
+    if target is not None:
+        sub_id, to, token = target
+        await _send_account_email(client, "manage", sub_id, to, token, now)
 
 
 @router.get("/signup")
@@ -73,25 +88,36 @@ async def signup_submit(
     web.check_form(request, form.get("csrf"))
     ip = web.client_ip(request)
     email, topics, errors = signup.parse_signup(form)
-    if not errors and not web.verify_turnstile(form.get("cf-turnstile-response"), ip):
-        errors["turnstile"] = "Please complete the check below and try again."
     if errors:
         return web.render(request, "signup.html", 422, errors=errors, form=form)
     now = _now()
+    # Counted before Turnstile, so junk tokens can't be tried without limit.
     if not allow(db, signup_ip_key(ip), get_settings().signup_per_ip_per_hour, timedelta(hours=1), now):
         return web.render(request, "rate_limited.html", 429)
+    if not await web.verify_turnstile(form.get("cf-turnstile-response"), ip):
+        errors["turnstile"] = "Please complete the check below and try again."
+        return web.render(request, "signup.html", 422, errors=errors, form=form)
     background.add_task(_after_signup, client, email, topics, now)
     return web.render(request, "check_inbox.html")
 
 
 @router.post("/manage-link")
-async def manage_link_submit(request: Request, background: BackgroundTasks, client=Depends(get_temporal_client)):
+async def manage_link_submit(
+    request: Request,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    client=Depends(get_temporal_client),
+):
     form = dict(await request.form())
     web.check_form(request, form.get("csrf"))
     email = signup.parse_email(form.get("email"))
     if email is None:
         return web.render(request, "check_inbox.html", 422, error="Enter a valid email address.")
-    background.add_task(_after_manage_link, client, email, _now())
+    now = _now()
+    ip = web.client_ip(request)
+    if not allow(db, manage_link_ip_key(ip), get_settings().signup_per_ip_per_hour, timedelta(hours=1), now):
+        return web.render(request, "rate_limited.html", 429)
+    background.add_task(_after_manage_link, client, email, now)
     return web.render(request, "check_inbox.html")
 
 
@@ -182,7 +208,7 @@ async def manage_action(action: str, request: Request, db: Session = Depends(get
     if action == "unsubscribe-all":
         sub.unsubscribed_at = sub.unsubscribed_at or now
         db.commit()
-        return web.render(request, "unsubscribed.html", token=tokens.unsubscribe_token(sub.id, None), topic=None)
+        return web.render(request, "unsubscribed.html", token=tokens.resubscribe_token(sub.id, None), topic=None)
     if action == "delete":
         db.delete(sub)
         db.commit()
@@ -191,9 +217,10 @@ async def manage_action(action: str, request: Request, db: Session = Depends(get
 
 
 # ---------- unsubscribe (RFC 8058 one-click) and re-subscribe ----------
-def _unsubscribe_target(db: Session, token: str):
+def _unsubscribe_target(db: Session, token: str, purpose: str = "unsubscribe"):
     """(payload, subscriber or None, topic or None); TokenError for a bad link."""
-    payload, _ = tokens.read_token("unsubscribe", token, None)
+    max_age = tokens.RESUBSCRIBE_MAX_AGE if purpose == "resubscribe" else None
+    payload, _ = tokens.read_token(purpose, token, max_age)
     sid, tid = payload.get("s"), payload.get("t")
     sub = db.get(models.Subscriber, sid) if isinstance(sid, str) else None
     topic = db.get(models.Topic, tid) if isinstance(tid, str) else None
@@ -222,7 +249,8 @@ async def unsubscribe_submit(request: Request, token: str = "", db: Session = De
     except tokens.TokenError:
         return _expired(request)
     signup.unsubscribe(db, payload, _now())
-    return web.render(request, "unsubscribed.html", token=token, topic=topic)
+    resubscribe = tokens.resubscribe_token(payload.get("s"), payload.get("t")) if isinstance(payload.get("s"), str) else ""
+    return web.render(request, "unsubscribed.html", token=resubscribe, topic=topic)
 
 
 @router.post("/resubscribe")
@@ -231,7 +259,7 @@ async def resubscribe_submit(request: Request, db: Session = Depends(get_db)):
     web.check_form(request, form.get("csrf"))
     token = form.get("token") or ""
     try:
-        payload, sub, topic = _unsubscribe_target(db, token)
+        payload, sub, topic = _unsubscribe_target(db, token, "resubscribe")
     except tokens.TokenError:
         return _expired(request)
     if sub is None:

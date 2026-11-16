@@ -32,6 +32,14 @@ def test_old_rows_are_pruned(db_session):
     assert db_session.query(models.RateLimitEvent).filter_by(key="k").count() == 1
 
 
-def test_email_key_normalizes():
-    assert email_key(" Me@Example.COM ") == "email:me@example.com"
-    assert signup_ip_key("203.0.113.9") == "signup:ip:203.0.113.9"
+def test_keys_normalize_and_hold_no_plaintext():
+    assert email_key(" Me@Example.COM ") == email_key("me@example.com")
+    assert email_key("me@example.com") != email_key("you@example.com")
+    assert "me@example.com" not in email_key("me@example.com") and email_key("me@example.com").startswith("email:")
+    assert "203.0.113.9" not in signup_ip_key("203.0.113.9") and signup_ip_key("203.0.113.9").startswith("signup:ip:")
+
+
+def test_old_rows_of_every_key_are_pruned(db_session):
+    allow(db_session, "gone", 5, HOUR, T)
+    allow(db_session, "other", 5, HOUR, T + timedelta(days=3))
+    assert db_session.query(models.RateLimitEvent).filter_by(key="gone").count() == 0

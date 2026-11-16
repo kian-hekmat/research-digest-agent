@@ -57,18 +57,19 @@ def client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def verify_turnstile(token: str | None, ip: str) -> bool:
+async def verify_turnstile(token: str | None, ip: str) -> bool:
     """Cloudflare's verdict on a Turnstile token; False on an empty secret,
-    an empty token, or any error (fail closed)."""
+    an empty token, or any error (fail closed). Async, so a slow Cloudflare
+    never blocks the event loop."""
     secret = get_settings().turnstile_secret_key
     if not secret or not token:
         return False
     try:
-        resp = httpx.post(
-            TURNSTILE_VERIFY_URL,
-            data={"secret": secret, "response": token, "remoteip": ip},
-            timeout=10,
-        )
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                TURNSTILE_VERIFY_URL,
+                data={"secret": secret, "response": token, "remoteip": ip},
+            )
         return bool(resp.json().get("success"))
     except (httpx.HTTPError, ValueError):
         logger.warning("Turnstile verification failed to complete", exc_info=True)

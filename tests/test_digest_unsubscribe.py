@@ -81,7 +81,10 @@ def test_unsubscribed_between_listing_and_delivery_is_skipped(db_session):
 
 
 async def test_signup_to_digest_to_unsubscribe_exit(anon_client, fake_temporal_client, db_session, temporal_client, monkeypatch):  # noqa: F811
-    monkeypatch.setattr("app.web.verify_turnstile", lambda token, ip: True)
+    async def turnstile_ok(token, ip):
+        return True
+
+    monkeypatch.setattr("app.web.verify_turnstile", turnstile_ok)
     csrf = re.search(r'name="csrf" value="([^"]+)"', anon_client.get("/signup").text).group(1)
     resp = anon_client.post("/signup", data={
         "email": "reader@example.com", "topic_0": "reward modeling", "papers_0": "5",

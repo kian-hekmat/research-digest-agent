@@ -17,7 +17,11 @@ CSRF_FIELD = re.compile(r'name="csrf" value="[^"]*"')
 def turnstile(monkeypatch):
     """Turnstile passes unless a test sets `verdict["ok"] = False`."""
     verdict = {"ok": True}
-    monkeypatch.setattr("app.web.verify_turnstile", lambda token, ip: verdict["ok"])
+
+    async def fake(token, ip):
+        return verdict["ok"]
+
+    monkeypatch.setattr("app.web.verify_turnstile", fake)
     return verdict
 
 
@@ -216,16 +220,33 @@ def test_no_public_page_shows_other_subscribers_email_or_labels(anon_client, db_
 
 
 @respx.mock
-def test_verify_turnstile_posts_secret_and_reads_success(monkeypatch):
+async def test_verify_turnstile_posts_secret_and_reads_success(monkeypatch):
+    import inspect
+
     from app import web
 
+    assert inspect.iscoroutinefunction(web.verify_turnstile)  # never blocks the event loop
     route = respx.post("https://challenges.cloudflare.com/turnstile/v0/siteverify").mock(
         return_value=httpx.Response(200, json={"success": True})
     )
-    assert web.verify_turnstile("tok", "203.0.113.9") is True
+    assert await web.verify_turnstile("tok", "203.0.113.9") is True
     assert b"secret=" in route.calls.last.request.content and b"remoteip=203.0.113.9" in route.calls.last.request.content
     route.mock(return_value=httpx.Response(200, json={"success": False}))
-    assert web.verify_turnstile("tok", "203.0.113.9") is False
-    assert web.verify_turnstile(None, "203.0.113.9") is False
+    assert await web.verify_turnstile("tok", "203.0.113.9") is False
+    assert await web.verify_turnstile(None, "203.0.113.9") is False
     monkeypatch.setattr(get_settings(), "turnstile_secret_key", "")
-    assert web.verify_turnstile("tok", "203.0.113.9") is False
+    assert await web.verify_turnstile("tok", "203.0.113.9") is False
+
+
+# ---------- final-review fixes ----------
+def test_failed_turnstile_counts_toward_the_ip_limit(anon_client, turnstile, sent):
+    turnstile["ok"] = False
+    codes = [anon_client.post("/signup", data=form(anon_client, email=f"u{i}@example.com")).status_code
+             for i in range(6)]
+    assert codes == [422] * 5 + [429]
+
+
+def test_sixth_manage_link_request_from_one_ip_gets_429(anon_client, sent):
+    codes = [anon_client.post("/manage-link", data={"email": f"u{i}@example.com", "csrf": _csrf(anon_client)}).status_code
+             for i in range(6)]
+    assert codes == [200] * 5 + [429]

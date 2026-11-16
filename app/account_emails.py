@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from html import escape
 
+from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from app.config import get_settings
@@ -51,6 +52,9 @@ async def start_account_email(
             AccountEmailInput(kind=kind, to=to, url=url),
             id=f"account-{kind}-{subscriber_id}-{bucket}",
             task_queue=get_settings().temporal_task_queue,
+            # The default (allow duplicate) would start a second send once
+            # the first finished - within a second of the first submit.
+            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
         )
     except WorkflowAlreadyStartedError:
         pass

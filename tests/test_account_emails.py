@@ -60,3 +60,21 @@ def test_same_bucket_starts_once():
     ids = [s[2] for s in client.started]
     assert ids == ["account-confirm-sub-1-20261116T170", "account-manage-sub-1-20261116T170",
                    "account-confirm-sub-1-20261116T171"]
+
+
+# ---------- final-review fixes ----------
+async def test_resubmit_after_first_send_finished_still_sends_once(temporal_client, monkeypatch):  # noqa: F811
+    """Against the real (time-skipping) server, not the fake: the first send
+    finishes before the second start, and the second is still refused."""
+    from app.config import get_settings
+    from tests.test_temporal_workflows import FakeEmailSender
+
+    monkeypatch.setattr(get_settings(), "temporal_task_queue", TASK_QUEUE)
+
+    now = datetime(2026, 11, 16, 17, 3, tzinfo=timezone.utc)
+    await start_account_email(temporal_client, "confirm", "sub-9", "a@example.com", "http://x", now)
+    handle = temporal_client.get_workflow_handle("account-confirm-sub-9-20261116T170")
+    await handle.result()
+    await start_account_email(temporal_client, "confirm", "sub-9", "a@example.com", "http://x", now + timedelta(minutes=2))
+    await asyncio.sleep(0.2)
+    assert len(FakeEmailSender.sent) == 1

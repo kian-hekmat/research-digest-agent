@@ -150,14 +150,18 @@ def test_resume_does_not_restore_unsubscribed_topic(anon_client, db_session):
     assert set(_subs(db_session, me.id)) == {"pinns"}
 
 
+def _resubscribe_token(page):
+    """The short-lived re-subscribe link the unsubscribed page carries."""
+    return re.search(r'action="/resubscribe".*?name="token" value="([^"]+)"', page.text, re.S).group(1)
+
+
 def test_resubscribe_topic_recreates_with_defaults_and_rechecks_caps(anon_client, db_session, monkeypatch):
     me = _active_member(db_session)
     topic_id = _subs(db_session, me.id)["rlhf"].topic_id
-    utoken = tokens.unsubscribe_token(me.id, topic_id)
-    anon_client.post("/unsubscribe?token=" + utoken)
+    page = anon_client.post("/unsubscribe?token=" + tokens.unsubscribe_token(me.id, topic_id))
     _active_member(db_session, "other@example.com", queries=("pinns",))
     monkeypatch.setattr(get_settings(), "max_active_topics", 1)
-    resp = _post(anon_client, "/resubscribe", utoken)
+    resp = _post(anon_client, "/resubscribe", _resubscribe_token(page))
     assert resp.status_code == 200
     s = _subs(db_session, me.id)["rlhf"]
     assert (s.max_papers, s.label) == (5, None) and s.waitlisted_at is not None
@@ -165,11 +169,34 @@ def test_resubscribe_topic_recreates_with_defaults_and_rechecks_caps(anon_client
 
 def test_resubscribe_all_clears_unsubscribed(anon_client, db_session):
     me = _active_member(db_session)
-    utoken = tokens.unsubscribe_token(me.id, None)
-    anon_client.post("/unsubscribe?token=" + utoken)
-    _post(anon_client, "/resubscribe", utoken)
+    page = anon_client.post("/unsubscribe?token=" + tokens.unsubscribe_token(me.id, None))
+    _post(anon_client, "/resubscribe", _resubscribe_token(page))
     db_session.expire_all()
     assert db_session.get(models.Subscriber, me.id).unsubscribed_at is None
+
+
+# ---------- final-review fixes ----------
+def test_old_unsubscribe_link_cannot_resubscribe(anon_client, db_session):
+    """A digest's never-expiring unsubscribe link (forwarded, archived)
+    must not undo the person's opt-out."""
+    me = _active_member(db_session)
+    utoken = tokens.unsubscribe_token(me.id, None)
+    anon_client.post("/unsubscribe?token=" + utoken)
+    resp = _post(anon_client, "/resubscribe", utoken)
+    assert resp.status_code == 400
+    db_session.expire_all()
+    assert db_session.get(models.Subscriber, me.id).unsubscribed_at is not None
+
+
+def test_resubscribe_link_expires_after_an_hour(anon_client, db_session, monkeypatch):
+    import itsdangerous.timed as timed
+
+    me = _active_member(db_session)
+    page = anon_client.post("/unsubscribe?token=" + tokens.unsubscribe_token(me.id, None))
+    rtoken = _resubscribe_token(page)
+    real = timed.time.time()
+    monkeypatch.setattr(timed.time, "time", lambda: real + 3601)
+    assert _post(anon_client, "/resubscribe", rtoken).status_code == 400
 
 
 def test_unsubscribe_all_from_manage_page(anon_client, db_session):
