@@ -1,6 +1,6 @@
 # Phase 2d: Picks-first Email and Prompts — Design
 
-Status: for approval, 2026-11-16. Source: `docs/public-launch-plan.md` v2.2, §"Who it's for", §3.5 step 3, §3.9, and Phase 2's "The new email" item, tests and eval gates.
+Status: approved 2026-11-16. Round 1 is built. Its prompts were tightened after a strict review, and further tuning and the model choice are deferred until after launch (owner's call, 2026-11-16; rag-plan §5.11). Round 2 is still to do. Source: `docs/public-launch-plan.md` v2.2, §"Who it's for", §3.5 step 3, §3.9, and Phase 2's "The new email" item, tests and eval gates.
 
 ## Why
 

@@ -808,10 +808,7 @@ These are the new email prompts from `docs/superpowers/specs/2026-11-16-phase-2d
 
 **How it was run:** `venv/bin/python -m evals.email_prompts`. It rebuilt 17 Monday-to-Monday windows of at least 5 papers each: Numerical Analysis 7, PINNs 9, RLHF 1. All 17 are used, with no padding (owner's call). It also made 20 blind blurb pairs, each comparing today's prep summary (`summarize_and_rate`, re-run on `gpt-5.4-mini`) with the new blurb.
 
-**Files**, in `evals/results/`:
-- `2026-11-16_1222_email_prompts.json`: the report and the blind key.
-- `..._overviews_review.json`: for checking each citation against its abstract.
-- `..._blurbs_blind.json`: the blind pairs.
+**Files:** written to `evals/results/2026-11-16_1222_email_prompts*.json` (the report with the blind key, the overview review file, the blind pairs). They were deleted on 2026-11-16 and are re-created by re-running the command.
 
 **Cost:** $0.148 in total. Overviews were $0.106 for 17, about $0.006 each. Blurbs and summaries were $0.042 for 41 calls, including the probe.
 
@@ -834,10 +831,8 @@ These are the new email prompts from `docs/superpowers/specs/2026-11-16-phase-2d
 **Gate review (2026-11-16): round 1 fails 3 of the 4 gates.**
 
 The owner delegated the review to a fresh `opus` agent, asking for it to be as critical as possible.
-- **How it was set up:** the prompt is in `2026-11-16_1222_email_prompts_review_prompt.md`. The reviewer was blind to the A/B key and to the automatic checks. Abstracts were the only source of truth, and unsure claims counted as unsupported.
-- **What it produced:**
-  - the filled-in sheet, `2026-11-16_1222_email_prompts_review.md`;
-  - an evidence file listing each claim with its verdict and the abstract quote behind it, `..._review_evidence.json`.
+- **How it was set up:** the prompt is now at `evals/email_prompts_review_prompt.md`. The reviewer was blind to the A/B key and to the automatic checks. Abstracts were the only source of truth, and unsure claims counted as unsupported.
+- **What it produced:** a filled-in review sheet and an evidence file listing each claim with its verdict and the abstract quote behind it. Both were deleted on 2026-11-16; the tallies below are the record.
 - **Unblinding:** the pair verdicts were matched against the key afterwards.
 - **Spot-checks:** three of its top findings were checked against the abstracts, and all three held.
 
@@ -856,6 +851,41 @@ The owner delegated the review to a fresh `opus` agent, asking for it to be as c
 - **Comparisons that never happened:** "outperformed … CFD reconstructions" when the method was only applied to CFD data (overview 6).
 - **Mislabelled papers:** a textbook chapter called "a companion line of work".
 - **Overviews run long.**
+
+**Owner's decision (2026-11-16): summary tuning waits until after launch.** The owner is happy with the summaries as they stand, and the launch no longer waits on these gates.
+- **Prompts fixed, not re-evaluated.** Both prompts were tightened against the patterns above:
+  - keep hedges and conditions;
+  - no verdicts on the week unless several abstracts show them;
+  - copy counts exactly;
+  - no credit the abstract doesn't isolate;
+  - overview 70–110 words;
+  - blurb `what` at most 40 words and three numbers.
+
+  There was no re-run and no re-review.
+- **Files.** The run's output files were deleted the same day; re-create them with `venv/bin/python -m evals.email_prompts`. The reviewer prompt is kept at `evals/email_prompts_review_prompt.md`.
+- **Open, after launch:**
+  - Re-run the eval and the strict review.
+  - Add a fact-check pass that removes any sentence its abstracts don't support.
+  - Choose the models.
+- **Model options researched 2026-11-16** (official prices per 1M tokens, input/output; the Vectara HHEM leaderboard of Oct 22, 2026 gives the share of summaries with unsupported content):
+
+  | Model | Price in/out | Unfaithful summaries |
+  |---|---|---|
+  | gpt-6-luna | $0.10 / $0.50 | not rated |
+  | gpt-5.4-nano | $0.20 / $1.25 | 3.1% |
+  | gpt-5.4-mini (current) | $0.75 / $4.50 | 5.5% |
+  | gpt-6.1-terra | $1 / $5 | not rated |
+  | gpt-6-sol | $2 / $10 | 6.5% |
+  | gpt-5.4 | $2.50 / $15 | 7.0% |
+  | gpt-6-astra | $10 / $50 | 8.7% |
+  | gpt-5.5 | $5 / $30 | 9.3% |
+
+  **Combinations to pilot** on the same windows, with the same blind reviewer (monthly cost at 100 topics, weekly sends):
+  - **A:** mini writer + nano checker, about $5.70.
+  - **B:** nano writer + nano checker, about $2.30.
+  - **C:** gpt-6-sol writer + mini checker, about $25.90.
+
+  Larger models score *worse* on that leaderboard. The GPT-5.4 models no longer appear on OpenAI's models page, which is a retirement risk.
 
 **Caveat.** The old summaries overclaim just as often under this standard. The "1 in 25" baseline (§5.6) was judged more leniently, by a different reviewer, on the older model. So this standard is stricter than the one the current prompts passed. **Next:** revise both prompts against these patterns and re-run (round 1b).
 

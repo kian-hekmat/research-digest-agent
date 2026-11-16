@@ -210,6 +210,13 @@ Built inline (executing-plans), with one whole-change review on the most capable
 - The eval hard-codes 25 and 5 instead of `_OVERVIEW_MAX_PAPERS` and `_PICK_POOL`.
 - `previous: list[str] = ()` doesn't match its type hint.
 
+**After the owner's review (2026-11-16):**
+- A strict delegated review failed three of the four gates. Blurbs were preferred 15–5, but the overviews made errors, cited abstracts that didn't support the claim, and overclaimed.
+- The owner deferred summary tuning and the model choice until after launch.
+- Both prompts were tightened against the review's patterns, with no re-run.
+- The eval and review output files were deleted, and the reviewer prompt kept at `evals/email_prompts_review_prompt.md`.
+- See rag-plan §5.11.
+
 **For Round 2 (from the review):**
 - Prep's overview input and pick pool must come from `rank_edition`'s `top` (deduped), not `paper_ids`.
 - The Round 2 linkifier should link only offered IDs.

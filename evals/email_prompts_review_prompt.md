@@ -1,6 +1,6 @@
 # Reviewer prompt: phase 2d round 1 gates
 
-This prompt was given to a fresh reviewer agent (`opus`) on 2026-11-16, standing in for the owner's hand review. The owner asked for the review to be as critical as possible. The reviewer saw only what's below.
+Reusable reviewer prompt for the phase 2d email-prompts eval, first used on 2026-11-16 in place of the owner's hand review. To reuse it, re-run `venv/bin/python -m evals.email_prompts` and replace the `2026-11-16_1222` stamp below with the new run's stamp, and make a fresh fill-in sheet: one table row per overview and per pair, with the columns named below. The reviewer must see only what follows the line.
 
 ---
 

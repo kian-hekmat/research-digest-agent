@@ -532,8 +532,11 @@ deployment migrates with no data loss.
   with past reviews. The eval harness produces about 25 overviews with their
   picks and citations, and about 20 blind summary pairs (old prompt vs new),
   in the existing blind-review file format: roughly an hour of review. If a
-  gate fails, the prompts are revised and reviewed again. **Launch waits for
-  the gates to pass.** There is no fallback to the old email format, because
+  gate fails, the prompts are revised and reviewed again. **Changed on
+  2026-11-16 (owner's call): launch no longer waits for the gates.** Round 1
+  failed three of four under a strict delegated review (rag-plan §5.11). The
+  prompts were tightened and summary tuning moved to after launch, along with
+  the model choice and a fact-check pass. There is no fallback to the old email format, because
   the old prompts can't produce picks or citations. Phases 3 and 4 can be built
   on the new template meanwhile; only the launch is blocked.
 - **Cost and load rehearsal**, run locally with fakes for every external call:
@@ -831,4 +834,4 @@ in emails), Sentry (free).
 | 17 | Email format | Picks first, per topic: up to two "start here" picks with hooks, a short overview citing papers as links, then the rest (decided 2026-11-12, v2.1) |
 | 18 | Signup page | One page (decided 2026-11-12, v2.1) |
 | 19 | Broad topics | Refused at signup above about 25 matching papers a day, with a prompt to narrow the phrase (decided 2026-11-12, v2.1) |
-| 20 | Prompt eval gates | Judged by the owner by hand; launch waits until they pass; no fallback to the old email format (decided 2026-11-12, v2.1) |
+| 20 | Prompt eval gates | Judged by the owner by hand; no fallback to the old email format (decided 2026-11-12, v2.1). **Launch no longer waits for them; summary tuning and the model choice come after launch** (changed 2026-11-16, rag-plan §5.11) |
