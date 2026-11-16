@@ -163,3 +163,26 @@ def test_deleting_a_topic_deletes_its_editions(db_session):
     n = db_session.execute(models.edition_papers.select()).fetchall()
     assert n == []
     assert db_session.query(models.Paper).count() == 1
+
+
+def test_weekly_slots_give_a_full_week_window(db_session):
+    """v2.2: with Monday-only sends, a Monday edition covers the whole week
+    since the last one - including the Wednesday and Thursday night ingests
+    a Thursday edition used to take."""
+    from app import cadence
+
+    et = cadence.SEND_TIME_ZONE
+    topic = _topic(db_session)
+    slot1 = datetime(2026, 11, 16, 8, tzinfo=et)
+    slot2 = cadence.next_slot(slot1)
+    assert slot2 == datetime(2026, 11, 23, 8, tzinfo=et)
+
+    first = _save(db_session, topic, slot1, slot1 - timedelta(days=7), slot1 - cadence.PREP_LEAD)
+    _digest(db_session, topic, datetime(2026, 11, 18, 21, 35, tzinfo=et), ["wed"])
+    _digest(db_session, topic, datetime(2026, 11, 19, 21, 35, tzinfo=et), ["thu"])
+    _digest(db_session, topic, datetime(2026, 11, 22, 21, 35, tzinfo=et), ["sun"])
+
+    end2 = slot2 - cadence.PREP_LEAD
+    start2 = crud.edition_window_start(db_session, topic.id, end2)
+    assert start2 == first.window_end
+    assert {p.arxiv_id for p in crud.window_papers(db_session, topic.id, start2, end2)} == {"wed", "thu", "sun"}

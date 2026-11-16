@@ -4,20 +4,22 @@ Due-ness is anchored to the send *slots* - the scheduled send times - not to
 time elapsed since the last send. A subscription is due when it hasn't been
 sent anything since its cadence's most recent slot:
 
-- twice_weekly: every slot (Mondays and Thursdays)
+- twice_weekly: every send slot. Since v2.2 (2026-11-16) sends are Monday
+                only, so this is the same as weekly. The value is kept
+                because Postgres enum values can't be dropped cleanly.
 - weekly:       Monday slots
 - biweekly:     Monday slots, skipping one in between
 
 Why not "N days since the last send": that rule let any off-schedule send push
-the next one back. A catch-up email sent on a Tuesday (after a Monday missed
-to downtime) made Thursday's run see only ~2 days elapsed - less than the
-twice-weekly interval - and skip, so the next email slipped to the following
-Monday. Anchored to slots, Thursday's slot is after Tuesday's send, so it's
+the next one back. A catch-up email sent late (after a slot was missed to
+downtime) left too few days before the next slot, so that one was skipped as
+well. Anchored to slots, the next slot is after the catch-up send, so it's
 due. It also makes a slot that fires twice (a manual trigger plus the
 schedule, or a retry) send only once.
 
 This module is the single source of truth for the send times: the Temporal
-email schedule's cron is built from the same constants (app.temporal.schedule).
+send and prep schedules' crons are built from the same constants
+(app.temporal.schedule).
 Pure functions, no I/O.
 """
 from __future__ import annotations
@@ -30,8 +32,11 @@ from app.models import SubscriptionCadence
 SEND_TIME_ZONE_NAME = "America/New_York"
 SEND_TIME_ZONE = ZoneInfo(SEND_TIME_ZONE_NAME)
 SEND_HOUR = 8
-SEND_WEEKDAYS = (0, 3)  # datetime.weekday(): Monday, Thursday
+SEND_WEEKDAYS = (0,)  # datetime.weekday(): Monday (v2.2; Monday and Thursday before)
 _WEEKLY_WEEKDAYS = (0,)  # Monday
+
+# Send prep fires at 01:00, seven hours before the 08:00 slot it serves.
+PREP_LEAD = timedelta(hours=7)
 
 
 def latest_slot(now: datetime, weekdays: tuple[int, ...] = SEND_WEEKDAYS) -> datetime:
@@ -58,9 +63,6 @@ def next_slot(now: datetime) -> datetime:
                 return slot
     raise ValueError(f"no send weekday in {SEND_WEEKDAYS}")
 
-
-# Send prep fires at 01:00, seven hours before the 08:00 slot it serves.
-PREP_LEAD = timedelta(hours=7)
 
 
 def prep_slot(fired_at: datetime) -> datetime:
@@ -89,7 +91,17 @@ def is_due(cadence: SubscriptionCadence, last_sent_at: datetime, now: datetime) 
 
 
 def email_cron() -> str:
-    """The Temporal cron for the send slots. Cron weekdays count Sunday=0,
-    so Monday is 1 (datetime.weekday() + 1)."""
-    days = ",".join(str(d + 1) for d in SEND_WEEKDAYS)
-    return f"0 {SEND_HOUR} * * {days}"
+    """The Temporal cron for the send slots."""
+    return f"0 {SEND_HOUR} * * {_cron_weekdays()}"
+
+
+def prep_cron() -> str:
+    """The Temporal cron for send prep: PREP_LEAD before each send slot,
+    on the same days (PREP_LEAD is under SEND_HOUR, so it never crosses
+    midnight)."""
+    return f"0 {SEND_HOUR - PREP_LEAD.seconds // 3600} * * {_cron_weekdays()}"
+
+
+def _cron_weekdays() -> str:
+    # Cron weekdays count Sunday=0, so Monday is 1 (datetime.weekday() + 1).
+    return ",".join(str(d + 1) for d in SEND_WEEKDAYS)

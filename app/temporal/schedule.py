@@ -39,18 +39,20 @@ SCHEDULE_TIME_ZONE = cadence.SEND_TIME_ZONE_NAME
 DAILY_SCHEDULE_ID = "daily-topic-digests"
 INGEST_CRON = "30 21 * * *"  # 21:30 daily
 
-# Send prep: the night before each send, so editions are ready by 08:00.
+# Send prep: early on each send day, so editions are ready by 08:00. Built
+# from app.cadence like the send cron.
 PREP_SCHEDULE_ID = "send-prep"
-PREP_CRON = "0 1 * * 1,4"  # 01:00 Mondays and Thursdays
+PREP_CRON = cadence.prep_cron()  # "0 1 * * 1": 01:00 Mondays
 
-# The id predates the move to twice-weekly sends; it's kept so existing
-# deployments update their schedule in place instead of gaining a second one.
+# The id predates the twice-weekly sends of v2.1 (and v2.2's return to
+# Monday only); it's kept so existing deployments update their schedule in
+# place instead of gaining a second one.
 EMAIL_SCHEDULE_ID = "weekly-digest-emails"
 # SendDigestEmailsWorkflow judges each subscription against its own cadence
 # and assembles emails from the editions prep stored. Built from app.cadence,
 # which also decides who is due at each fire - one definition of the send
 # slots, so the two can't drift apart.
-EMAIL_CRON = cadence.email_cron()  # "0 8 * * 1,4": Mondays and Thursdays 08:00
+EMAIL_CRON = cadence.email_cron()  # "0 8 * * 1": Mondays 08:00
 
 EnsureResult = Literal["created", "updated", "unchanged"]
 

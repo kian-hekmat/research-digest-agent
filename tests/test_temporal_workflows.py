@@ -968,18 +968,20 @@ def _edt(day, hour=8, minute=0, second=0):
 @pytest.mark.parametrize(
     "cadence, last_sent, now, due",
     [
-        # Regression, 2026-10-08: a catch-up email sent Tue Oct 6 (after
-        # Monday's slot was missed to downtime) made Thursday's run skip,
-        # because only ~2 days had elapsed. Thursday's slot is after Tuesday's
-        # send, so it's due.
-        ("twice_weekly", _edt(6, 8, 4, 27), _edt(8, 8, 0, 3), True),
-        # Normal rhythm: Mon send -> due at Thu slot, not before it.
-        ("twice_weekly", _edt(5, 8, 0, 5), _edt(8, 8, 0, 3), True),
-        ("twice_weekly", _edt(5, 8, 0, 5), _edt(8, 7, 59, 59), False),
+        # twice_weekly means every send slot: Monday only since v2.2, so
+        # Thursday never counts.
+        ("twice_weekly", _edt(5, 8, 0, 5), _edt(8, 8, 0, 3), False),
+        ("twice_weekly", _edt(5, 8, 0, 5), _edt(8, 13, 0), False),
+        # Normal rhythm: Mon send -> due at the next Monday's slot, not before it.
+        ("twice_weekly", _edt(5, 8, 0, 5), _edt(12, 8, 0, 3), True),
+        ("twice_weekly", _edt(5, 8, 0, 5), _edt(12, 7, 59, 59), False),
+        # Regression, 2026-10-08: a catch-up send after a missed slot mustn't
+        # push the next one back. Sent Tue Oct 6, due at Mon Oct 12's slot.
+        ("twice_weekly", _edt(6, 8, 4, 27), _edt(12, 8, 0, 3), True),
         # The same slot firing twice (manual trigger + schedule) sends once.
-        ("twice_weekly", _edt(8, 8, 0, 5), _edt(8, 8, 30), False),
+        ("twice_weekly", _edt(12, 8, 0, 5), _edt(12, 8, 30), False),
         # A late catch-up fire (laptop woke at 13:00) still counts for its slot.
-        ("twice_weekly", _edt(5, 8, 0, 5), _edt(8, 13, 0), True),
+        ("twice_weekly", _edt(5, 8, 0, 5), _edt(12, 13, 0), True),
         # Weekly: Monday slots only - Thursday doesn't count.
         ("weekly", _edt(5, 8, 0, 5), _edt(8, 8, 0, 3), False),
         ("weekly", _edt(5, 8, 0, 5), _edt(12, 8, 0, 3), True),
@@ -1039,7 +1041,7 @@ async def test_ensure_prep_schedule_is_idempotent(temporal_env_only):
     desc = await client.get_schedule_handle(PREP_SCHEDULE_ID).describe()
     [calendar] = desc.schedule.spec.calendars
     assert calendar.hour[0].start == 1
-    assert _days_of_week(calendar) == {1, 4}
+    assert _days_of_week(calendar) == {1}  # Monday
     assert desc.schedule.spec.time_zone_name == "America/New_York"
     assert desc.schedule.action.workflow == "PrepEditionsWorkflow"
 
@@ -1078,7 +1080,7 @@ def _days_of_week(calendar) -> set[int]:
     }
 
 
-async def test_ensure_email_schedule_fires_monday_and_thursday(temporal_env_only):
+async def test_ensure_email_schedule_fires_monday(temporal_env_only):
     from app.temporal.schedule import EMAIL_SCHEDULE_ID, ensure_email_schedule
 
     client = temporal_env_only.client
@@ -1088,15 +1090,16 @@ async def test_ensure_email_schedule_fires_monday_and_thursday(temporal_env_only
     desc = await client.get_schedule_handle(EMAIL_SCHEDULE_ID).describe()
     [calendar] = desc.schedule.spec.calendars
     assert calendar.hour[0].start == 8
-    assert _days_of_week(calendar) == {1, 4}  # Monday, Thursday
+    assert _days_of_week(calendar) == {1}  # Monday
     assert desc.schedule.spec.time_zone_name == "America/New_York"
     assert desc.schedule.action.workflow == "SendDigestEmailsWorkflow"
 
 
 async def test_ensure_email_schedule_updates_an_existing_schedule_in_place(temporal_env_only):
-    """Temporal state persists across restarts now, so the schedule created
-    back when sends were Monday-only still exists. A create-if-missing check
-    alone would leave it Monday-only forever - it must be updated in place."""
+    """Temporal state persists across restarts, so the live schedule created
+    back when sends were Monday and Thursday (v2.1) still exists. A
+    create-if-missing check alone would leave it firing on Thursdays forever -
+    it must be updated in place to Monday only (v2.2)."""
     from temporalio.client import (
         Schedule,
         ScheduleActionStartWorkflow,
@@ -1106,14 +1109,14 @@ async def test_ensure_email_schedule_updates_an_existing_schedule_in_place(tempo
     from app.temporal.schedule import EMAIL_SCHEDULE_ID, ensure_email_schedule
 
     client = temporal_env_only.client
-    # Exactly how the old code created it: Mondays only, no note.
+    # The v2.1 schedule: Mondays and Thursdays, no matching note.
     await client.create_schedule(
         EMAIL_SCHEDULE_ID,
         Schedule(
             action=ScheduleActionStartWorkflow(
                 SendDigestEmailsWorkflow.run, id="scheduled-digest-emails", task_queue=TASK_QUEUE
             ),
-            spec=ScheduleSpec(cron_expressions=["0 8 * * 1"]),
+            spec=ScheduleSpec(cron_expressions=["0 8 * * 1,4"]),
         ),
     )
 
@@ -1122,7 +1125,7 @@ async def test_ensure_email_schedule_updates_an_existing_schedule_in_place(tempo
 
     desc = await client.get_schedule_handle(EMAIL_SCHEDULE_ID).describe()
     [calendar] = desc.schedule.spec.calendars
-    assert _days_of_week(calendar) == {1, 4}
+    assert _days_of_week(calendar) == {1}
     assert desc.schedule.action.workflow == "SendDigestEmailsWorkflow"  # action untouched
 
 
