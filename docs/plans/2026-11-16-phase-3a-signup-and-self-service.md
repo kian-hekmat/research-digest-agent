@@ -1,7 +1,5 @@
 # Phase 3a: Signup and Self-service Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** A stranger can sign up, confirm, manage, unsubscribe and delete their data through plain server-rendered pages, safely and within the caps, with no admin API call.
 
 **Architecture:**
@@ -16,7 +14,7 @@
 
 **Tech Stack:** FastAPI, Jinja2, python-multipart, itsdangerous, SQLAlchemy/Alembic (Postgres), Temporal, httpx and respx (Turnstile fake).
 
-**Spec:** `docs/superpowers/specs/2026-11-16-phase-3a-signup-and-self-service-design.md`. Background: `docs/public-launch-plan.md` Phase 3, and the Phase 1 plan's "Carried forward" section.
+**Spec:** `docs/plans/2026-11-16-phase-3a-signup-and-self-service-design.md`. Background: `docs/public-launch-plan.md` Phase 3, and the Phase 1 plan's "Carried forward" section.
 
 ## Global Constraints
 

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A research alerting service: FastAPI + Postgres/pgvector + Temporal. The end goal is to fetch new papers per topic from arXiv, rates them with OpenAI (`gpt-5.4-mini`), embeds them (`text-embedding-3-small`, 768 dims), and emails weekly per-topic digests (Monday mornings). It's being turned into a small public service for 5–10 invited readers first, per `docs/public-launch-plan.md` (v3, lean: a checklist of what's left, and what was cut or deferred). Each phase has an implementation plan in `docs/superpowers/plans/`, and each plan ends with an "Outcome / Carried forward" section. Read the latest one before starting new work. `docs/rag-plan.md` records every retrieval and prompt measurement and the decision it led to.
+A research alerting service: FastAPI + Postgres/pgvector + Temporal. The end goal is to fetch new papers per topic from arXiv, rates them with OpenAI (`gpt-5.4-mini`), embeds them (`text-embedding-3-small`, 768 dims), and emails weekly per-topic digests (Monday mornings). It's being turned into a small public service for 5–10 invited readers first, per `docs/public-launch-plan.md` (v3, lean: a checklist of what's left, and what was cut or deferred). Each phase has an implementation plan in `docs/plans/`, and each plan ends with an "Outcome / Carried forward" section. Read the latest one before starting new work. `docs/rag-plan.md` records every retrieval and prompt measurement and the decision it led to.
 
 ## Commands
 
@@ -91,3 +91,4 @@ There is no linter or formatter configured. CI (`.github/workflows/ci.yml`) runs
 - **Abstracts only.** Full-text fetching was removed on 2026-11-16 (arXiv's terms; it's in git history), and there's no bulk arXiv download.
 - Never falsify tests, if a test fails, always report as such to the user, propose fixes, and get their approval before implementing. Never try to circumvent failing tests by rewriting them.  
 - Prioritize test-driven development. Every chunk of features that's added should be driven by a test suite and should be reported to the features along with its results after it's done being implemented. 
+- Never use superpowers skills unless explicitly prompted to do so by user (i.e. "use test-driven-development superpowers skills). Never assume superpowers skills should be used. Every time you use a superpower skill, the user must then be explicitly told which skill you are using and the specific way that they requested it. 

@@ -1,7 +1,5 @@
 # Phase 2b: OpenAI Embeddings — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Move embeddings off the owner's Mac to OpenAI's `text-embedding-3-small` without changing the vector column. Recalibrate every similarity threshold for the new model. Add topic-query embeddings with a similar-topic lookup for Phase 3's signup. Switch over with no moment where live ranking uses one model's similarities with another model's thresholds.
 
 **Architecture:**

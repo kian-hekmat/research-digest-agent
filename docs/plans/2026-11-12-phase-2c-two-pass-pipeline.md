@@ -1,7 +1,5 @@
 # Phase 2c: Two-Pass Pipeline — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Restructure the pipeline into three passes on Eastern time:
 1. a cheap daily **ingest** (fetch, embed, rate);
 2. a twice-weekly **send prep** that summarizes only each topic's top K papers and writes one overview per topic, stored as an *edition*;

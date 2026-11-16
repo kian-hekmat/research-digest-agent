@@ -50,7 +50,7 @@ history.
 - **2d Round 1:** blurb and overview-and-picks prompts plus their eval script. Not wired in; that's Round 2, after launch.
 - **3a:** signup, confirmation, manage page, one-click unsubscribe, delete my data, rate limits, Turnstile, a hand-admitted waitlist, and unsubscribe headers and links in digests. Signup fails closed until real Turnstile keys are set.
 
-Each built phase's plan and outcome is in `docs/superpowers/plans/`.
+Each built phase's plan and outcome is in `docs/plans/`.
 
 ---
 

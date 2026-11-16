@@ -36,7 +36,7 @@ built; they go public once the service is on its production host.
 | After launch | Picks-first email and prompt tuning (2d) | Deferred |
 
 Each phase's implementation plan, with its outcome, is in
-[`docs/superpowers/plans/`](docs/superpowers/plans/).
+[`docs/plans/`](docs/plans/).
 
 ---
 
@@ -546,7 +546,7 @@ tests/                      576 tests (see Testing)
 docs/
 ├── rag-plan.md             the retrieval plan, measurements and decisions
 ├── public-launch-plan.md   public launch plan (v3, lean)
-└── superpowers/plans/      one implementation plan per launch phase, with its outcome
+└── plans/                 each built phase's plan and design, with its outcome
 ```
 
 <details>

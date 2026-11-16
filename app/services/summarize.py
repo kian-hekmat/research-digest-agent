@@ -156,7 +156,7 @@ def parse_relevance(text: str) -> int | None:
 
 # ---------- phase 2d: the paper blurb ----------
 # One per paper, shared by every topic that includes it, so it never names a
-# topic and carries no rating (ingest rates). docs/superpowers/specs/
+# topic and carries no rating (ingest rates). docs/plans/
 # 2026-11-16-phase-2d-picks-first-email-design.md
 _BLURB_SYSTEM = (
     "You write the entry for one academic paper in a research digest read by "

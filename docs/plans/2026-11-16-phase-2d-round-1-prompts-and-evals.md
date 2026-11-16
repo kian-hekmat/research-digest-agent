@@ -1,7 +1,5 @@
 # Phase 2d Round 1: Prompts and Evals Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Write the new paper-blurb and overview-and-picks prompts with structured, validated output, plus an eval script that produces the owner's review files.
 
 **Architecture:**
@@ -11,7 +9,7 @@
 
 **Tech Stack:** Python, httpx and respx (tests), SQLAlchemy, OpenAI `/chat/completions` (`gpt-5.4-mini`).
 
-**Spec:** `docs/superpowers/specs/2026-11-16-phase-2d-picks-first-email-design.md` (Round 1). Background: `docs/public-launch-plan.md` §3.9 and `docs/rag-plan.md` §5.6.
+**Spec:** `docs/plans/2026-11-16-phase-2d-picks-first-email-design.md` (Round 1). Background: `docs/public-launch-plan.md` §3.9 and `docs/rag-plan.md` §5.6.
 
 ## Global Constraints
 

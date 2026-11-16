@@ -1,7 +1,5 @@
 # Phase 2a: Spend Tracking and the Spend Guard — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Record every OpenAI call's tokens and cost, enforce the $20/month cap in the app (alert at 80%, stop AI text at 100%), treat OpenAI's own hard spend limit as "budget exhausted", and give the owner a per-topic cost view to measure from.
 
 **Architecture:** A DB-free module (`app/services/spend.py`) owns prices, cost arithmetic, the `SpendLedger` protocol and the `BudgetExhausted` signal. `Summarizer` takes an optional ledger and a `topic_id`; before each OpenAI call it asks the ledger whether the budget allows it, and after each call it records usage. A DB-backed ledger (`app/spend_ledger.py`) writes `llm_usage` rows in its own session (so spend is recorded even if the activity later fails), computes month-to-date spend in UTC, and fires deduplicated alerts (`app/alerts.py`). An admin endpoint reports the month by purpose and by topic.

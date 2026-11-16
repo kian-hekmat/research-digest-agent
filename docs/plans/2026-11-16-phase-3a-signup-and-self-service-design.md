@@ -1,6 +1,6 @@
 # Phase 3a: Signup, Confirmation and Self-service — Design
 
-Status: for approval, 2026-11-16 (builder-checked). Source: `docs/public-launch-plan.md` v2.2 Phase 3, plus the "Carried forward" notes in `docs/superpowers/plans/2026-11-12-phase-1-multi-user-data-model.md`.
+Status: for approval, 2026-11-16 (builder-checked). Source: `docs/public-launch-plan.md` v2.2 Phase 3, plus the "Carried forward" notes in `docs/plans/2026-11-12-phase-1-multi-user-data-model.md`.
 
 ## Why
 

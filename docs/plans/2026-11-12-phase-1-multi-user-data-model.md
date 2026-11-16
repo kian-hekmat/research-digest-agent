@@ -1,7 +1,5 @@
 # Phase 1: Multi-user Data Model and Lockdown — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Replace "a subscription is an email string" with real subscribers, make topics shared and deduplicated by normalized query, fetch and email only for confirmed subscribers, and lock the existing JSON API behind an admin token, without losing any of the live data.
 
 **Architecture:** A new `subscribers` table owns the email and its lifecycle timestamps; `subscriptions` point at it. Topics gain a unique `normalized_query` computed by one pure module (`app/topic_query.py`) that later phases reuse for public input. One SQL filter (`crud.active_subscriptions_query`) defines "active" for fetching, sending and backfills. Every existing router gets an `X-Admin-Token` dependency that fails closed.
