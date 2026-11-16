@@ -287,6 +287,18 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = False
     smtp_from_address: str = "digest@example.com"
 
+    # --- public signup and self-service (phase 3a) ---
+    # Signs confirm/manage/unsubscribe/csrf links (app.tokens). Public routes
+    # return 503 while it's empty: fail closed.
+    secret_key: str = ""
+    # Base of every link put in an email.
+    public_base_url: str = "http://localhost:8000"
+    # Cloudflare Turnstile on signup. An empty secret fails every check.
+    turnstile_site_key: str = ""
+    turnstile_secret_key: str = ""
+    signup_per_ip_per_hour: int = 5
+    account_emails_per_address_per_day: int = 3
+
     # --- public limits (app.topic_query, public signup) ---
     # Caps that keep a small public service within its budget: arXiv and
     # OpenAI cost scale with active topics, so both people and topics are bounded.

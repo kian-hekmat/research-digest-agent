@@ -25,6 +25,9 @@ os.environ["RETRIEVAL_CALIBRATION"] = (
 # before Settings is first built; `client` sends it, `anon_client` does not.
 os.environ["ADMIN_TOKEN"] = "test-admin-token"
 ADMIN_HEADERS = {"X-Admin-Token": "test-admin-token"}
+# Public routes sign links with SECRET_KEY and fail closed without one.
+os.environ["SECRET_KEY"] = "test-secret-key-not-for-production"
+os.environ["PUBLIC_BASE_URL"] = "http://testserver"
 
 import pytest  # noqa: E402
 from alembic import command  # noqa: E402
