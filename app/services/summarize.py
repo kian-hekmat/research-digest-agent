@@ -37,6 +37,7 @@ neither checked nor recorded.
 from __future__ import annotations
 
 import dataclasses
+import json
 import re
 from dataclasses import dataclass
 
@@ -303,6 +304,63 @@ def parse_relevance(text: str) -> int | None:
     return _valid_relevance(match.group(1)) if match else None
 
 
+# ---------- phase 2d: the paper blurb ----------
+# One per paper, shared by every topic that includes it, so it never names a
+# topic and carries no rating (ingest rates). docs/superpowers/specs/
+# 2026-11-16-phase-2d-picks-first-email-design.md
+_BLURB_SYSTEM = (
+    "You write the entry for one academic paper in a research digest read by "
+    "people who work in the paper's field. Reply in JSON with two fields. "
+    "`hook`: one line, at most 20 words, on why this paper is worth a "
+    "researcher's time - the specific result, method or claim that makes it "
+    "stand out. `what`: one or two sentences on what the paper did and what "
+    "it found, concretely, with the numbers the abstract gives. Sell through "
+    "specifics, not adjectives: no 'novel', 'groundbreaking' or 'promising'. "
+    "Never state more than the abstract supports: no results, comparisons or "
+    "implications it does not give. Do not open with 'The paper', 'This "
+    "paper', 'This work' or 'The authors'. No LaTeX, no markdown, no preamble."
+)
+_BLURB_SCHEMA = {
+    "type": "object",
+    "properties": {"hook": {"type": "string"}, "what": {"type": "string"}},
+    "required": ["hook", "what"],
+    "additionalProperties": False,
+}
+
+
+@dataclass(frozen=True)
+class PaperBlurb:
+    hook: str
+    what: str
+
+
+_FENCE = re.compile(r"^\s*```(?:json)?\s*(.*?)\s*```\s*$", re.DOTALL)
+_SPACES = re.compile(r"\s+")
+
+
+def _load_json_object(text: str) -> dict | None:
+    """The JSON object in a structured reply, tolerating a ```json fence;
+    None for anything else."""
+    fenced = _FENCE.match(text or "")
+    try:
+        data = json.loads(fenced.group(1) if fenced else text)
+    except (TypeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _clean(value) -> str:
+    return _SPACES.sub(" ", value).strip() if isinstance(value, str) else ""
+
+
+def parse_paper_blurb(text: str) -> PaperBlurb | None:
+    data = _load_json_object(text)
+    if data is None:
+        return None
+    hook, what = _clean(data.get("hook")), _clean(data.get("what"))
+    return PaperBlurb(hook, what) if hook and what else None
+
+
 def _topic_line(topic_name: str, topic_query: str) -> str:
     # The query adds real information when it's a category (`cat:math.NA`) or
     # differs from the name; when it's the name again it's just noise.
@@ -499,6 +557,20 @@ class Summarizer:
             max_tokens=500,
             purpose="overview",
         )
+
+    def write_blurb(self, title: str, abstract: str) -> PaperBlurb | None:
+        """The phase 2d blurb (hook + what) for one paper, or None when the
+        backend isn't OpenAI, the budget stopped it, or the reply didn't parse."""
+        if not self._settings.summaries_enabled:
+            return None
+        text = self._complete(
+            system=_BLURB_SYSTEM,
+            user=f"Title: {title}\n\nAbstract: {abstract}",
+            max_tokens=300,
+            purpose="summary",
+            response_format=_JSON_FORMAT("paper_blurb", _BLURB_SCHEMA),
+        )
+        return parse_paper_blurb(text) if text is not None else None
 
     def _complete(
         self, *, system: str, user: str, max_tokens: int, purpose: str,
