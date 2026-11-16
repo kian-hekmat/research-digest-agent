@@ -545,6 +545,21 @@ class PrepEditionsWorkflow:
 
 
 @workflow.defn
+class SendAccountEmailWorkflow:
+    """One confirmation or manage-link email (phase 3a), retried like a
+    digest send. Started by the public pages' background task."""
+
+    @workflow.run
+    async def run(self, input: types.AccountEmailInput) -> None:
+        await workflow.execute_activity(
+            activities.send_account_email,
+            input,
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=_EMAIL_RETRY,
+        )
+
+
+@workflow.defn
 class SendDigestEmailsWorkflow:
     """Scheduled entrypoint for email delivery (see app.temporal.schedule).
 

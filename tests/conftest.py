@@ -114,6 +114,11 @@ class FakeTemporalClient:
         self.started: list[tuple] = []  # (workflow_fn, arg, id, task_queue)
 
     async def start_workflow(self, workflow, arg, *, id, task_queue, **kwargs):
+        # Like the server: a second start with a running/used id is refused.
+        if any(s[2] == id for s in self.started):
+            from temporalio.exceptions import WorkflowAlreadyStartedError
+
+            raise WorkflowAlreadyStartedError(id, str(workflow))
         self.started.append((workflow, arg, id, task_queue))
         return FakeWorkflowHandle(id, arg)
 

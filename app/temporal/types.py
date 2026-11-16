@@ -271,3 +271,13 @@ class SendEmailInput:
 class MarkSentInput:
     subscription_id: str
     sent_at: datetime
+
+
+@dataclass
+class AccountEmailInput:
+    """A confirmation or manage-link email (phase 3a). `kind` is "confirm"
+    or "manage"; `url` is the signed link it carries."""
+
+    kind: str
+    to: str
+    url: str

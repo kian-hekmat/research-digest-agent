@@ -31,6 +31,7 @@ from app.temporal.workflows import (
     PrepEditionsWorkflow,
     PrepTopicEditionWorkflow,
     RunAllTopicDigestsWorkflow,
+    SendAccountEmailWorkflow,
     SendDigestEmailsWorkflow,
     arxiv_queue,
 )
@@ -43,6 +44,7 @@ WORKFLOWS = [
     PrepEditionsWorkflow,
     PrepTopicEditionWorkflow,
     SendDigestEmailsWorkflow,
+    SendAccountEmailWorkflow,
 ]
 
 ACTIVITIES = [
@@ -67,6 +69,7 @@ ACTIVITIES = [
     activities.ensure_edition,
     activities.gather_digest_content,
     activities.send_digest_email,
+    activities.send_account_email,
     activities.mark_subscription_sent,
 ]
 

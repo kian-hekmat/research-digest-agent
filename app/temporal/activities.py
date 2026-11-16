@@ -73,6 +73,7 @@ from app.temporal.types import (
     PipelineAlertInput,
     PipelineLimits,
     PlanEditionInput,
+    AccountEmailInput,
     SendEmailInput,
     StoreEditionInput,
     SummarizePaperInput,
@@ -754,6 +755,13 @@ def store_edition(input: StoreEditionInput) -> str:
         return edition.id
     finally:
         db.close()
+
+
+@activity.defn
+def send_account_email(input: AccountEmailInput) -> None:
+    from app.account_emails import render_account_email
+
+    EmailSender().send(input.to, render_account_email(input.kind, input.url))
 
 
 @activity.defn
