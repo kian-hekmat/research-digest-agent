@@ -329,6 +329,43 @@
 
 ---
 
-## Outcome
+## Outcome (2026-11-16)
 
-_To be filled in after Task 8._
+Built inline (executing-plans), with one whole-change security review on the most capable model. Commits `08217ed` (links), `2477bab` (rate limits), `20546e5` (account emails), `d07be47` (signup), `91add38` (confirm and waitlist), `83bacf7` (manage, unsubscribe, delete), `34fef2c` (digest headers and the exit test), `99d83f3` (review fixes). 553 → 641 tests, and the signup-to-unsubscribe exit test passes.
+
+**Live since 2026-11-16 17:23 ET:**
+- **Database:** backed up to `~/research-digest-backups/digest_db_20261116_142300_pre-3a.sql`, then migrated to `f0a1b2c3d4e5`.
+- **Settings:** `SECRET_KEY` was generated into `.env` and never printed, with `PUBLIC_BASE_URL=http://localhost:8000` for now.
+- **Images:** rebuilt with `jinja2`, `python-multipart` and `itsdangerous`.
+- **Schedules:** paused 16:50–17:23 ET, so no runs were skipped.
+- **Smoke test:** `/signup` returns 200 with its form, a junk manage link gives 400, and admin without a token gives 401.
+- **Owner to do:**
+  - add the real Turnstile keys; signup refuses everyone until then;
+  - set `PUBLIC_BASE_URL` to the real domain at deploy. Until then, the links in the owner's own digests point at `localhost:8000`.
+
+**Rulings:**
+- Worked on `main`.
+- `start_account_email` names its workflow rather than importing it, to avoid an import cycle.
+- Manage POSTs share one route, `/manage/{action}`.
+- Re-subscribing refuses beyond 5 topics, and for a topic that no longer exists.
+- Links and `List-Unsubscribe` are added only when `SECRET_KEY` is set.
+- The exit test backdates `last_sent_at` to stand in for waiting until Monday.
+- The final review ran before the deploy, so its fixes shipped in the same deploy.
+
+**Review fixes** (each test failed first, then passed; full suite 641 passed):
+- **One account email per 10-minute bucket on the real server** (`REJECT_DUPLICATE`). The fake had hidden this.
+- **Async Turnstile,** with the per-IP limit counted before it. Background database work now runs in a thread.
+- **A per-IP limit on `/manage-link`.**
+- **Re-subscribing works only from a one-hour link** issued on the unsubscribed page, so an old digest link can't undo an opt-out.
+- **Rate-limit keys are HMAC'd, and rows older than 2 days are pruned for every key.** "Delete my data" leaves no plaintext address behind.
+
+**Deferred minors (from the review):**
+- A re-signup doesn't bump `token_version`, and the confirm page doesn't list the topics.
+- Background-task errors are only logged by the server.
+- A concurrent double-submit for one pending address can raise in one background task.
+- Add-topic or resume can waitlist an already-active subscriber when the count is already over the cap.
+- Count-then-insert races can overshoot a cap by one.
+- CSRF failures render JSON, not a page.
+- A multipart file part in a form gives a 500.
+- There's no `Referrer-Policy` or `Cache-Control: no-store` on pages carrying tokens.
+- Live manage URLs stay in Temporal history.

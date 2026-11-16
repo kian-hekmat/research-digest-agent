@@ -553,6 +553,8 @@ been applied until it does; the cap is set.
 
 ### Phase 3: Signup, confirmation and self-service (backend)
 
+> **Status (2026-11-16): 3a built and live** (`docs/superpowers/plans/2026-11-16-phase-3a-signup-and-self-service.md`). That covers signup, confirmation, manage, one-click unsubscribe, delete my data, rate limits, the email headers and footer, and a **simple waitlist admitted by hand** (owner's call: no daily auto-admit job and no "you're in" email until after launch). **3b is still to do:** the topic preview, the refusal of phrases matching more than about 25 papers a day, and similar-topic suggestions. Public signup fails closed until the real Turnstile keys are in `.env`.
+
 **Build**
 - Tokens: `SECRET_KEY` setting, `itsdangerous` (or stdlib HMAC). Purposes:
   - `confirm`: expires in 48h.

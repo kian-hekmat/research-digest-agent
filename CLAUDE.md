@@ -60,6 +60,15 @@ There is no linter or formatter configured. CI (`.github/workflows/ci.yml`) runs
 - The monthly budget is $50 (`openai_monthly_budget_usd`). At 80% the owner gets an email alert; at 100% chat calls return None (not an error) while embeddings continue.
 - Owner alerts go through `app.alerts.send_alert`, deduped by a dated key in `sent_alerts`.
 
+**Public pages** (Phase 3a, `app/routers/public.py`). Plain server-rendered Jinja forms, styled in Phase 4.
+- **Routes:** `/signup`, `/confirm` (GET shows a button; POST confirms), `/manage`, `/manage/{action}`, `/unsubscribe` (RFC 8058 one-click POST, no CSRF), `/resubscribe` and `/manage-link`. They're listed in `app.auth.PUBLIC_PATHS`.
+- **Signed links** (`app/tokens.py`) use `SECRET_KEY`, salted by purpose. The public routes return 503 while it's empty.
+- **No leaking who's signed up:** work that depends on the address runs in a `BackgroundTask`.
+- **Rate limits** (`app/ratelimit.py`) are rows in `rate_limit_events` with HMAC'd keys.
+- **Cap check:** `app/waitlist.apply_waitlist` is the one place it happens. People are admitted by hand: `GET /admin/waitlist`, then `POST /admin/subscribers/{id}/admit` or `POST /admin/subscriptions/{id}/admit`.
+- **Account emails** go through `SendAccountEmailWorkflow`. Digests carry `List-Unsubscribe` and footer links once `SECRET_KEY` is set.
+- **New settings:** `SECRET_KEY`, `PUBLIC_BASE_URL`, `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY`. With an empty Turnstile secret, every signup is refused.
+
 **Ranking** (`app/services/ranking.py`, used through `app/services/email.py`): 0.6 × relevance + 0.3 × log h-index + 0.1 × novelty, plus up to 0.08 for venue. Missing signals take the batch median. Novelty anchors and every retrieval threshold are per embedding model, in `Settings.retrieval_calibration`. The worker refuses to start without a calibration row for the active model.
 
 **Prompts** (`app/services/summarize.py`).
