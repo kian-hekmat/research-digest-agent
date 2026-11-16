@@ -57,7 +57,7 @@ There is no linter or formatter configured. CI (`.github/workflows/ci.yml`) runs
 
 **Spend guard** (`app/services/spend.py`, `app/spend_ledger.py`).
 - Every OpenAI call goes through `Summarizer._complete` or `Embedder` with a `DbLedger`, which writes `llm_usage` rows.
-- The monthly budget is $20. At 80% the owner gets an alert; at 100% chat calls return None (not an error) while embeddings continue.
+- The monthly budget is $20 in code (`openai_monthly_budget_usd`); launch plan v2.2 raises it to $50. At 80% the owner gets an email alert; at 100% chat calls return None (not an error) while embeddings continue.
 - Owner alerts go through `app.alerts.send_alert`, deduped by a dated key in `sent_alerts`.
 
 **Ranking** (`app/services/ranking.py`, used through `app/services/email.py`): 0.6 × relevance + 0.3 × log h-index + 0.1 × novelty, plus up to 0.08 for venue. Missing signals take the batch median. Novelty anchors and every retrieval threshold are per embedding model, in `Settings.retrieval_calibration`. The worker refuses to start without a calibration row for the active model.
@@ -69,7 +69,7 @@ There is no linter or formatter configured. CI (`.github/workflows/ci.yml`) runs
 
 ## Working in this repo
 
-- **Git.** Commit straight to `main` and push, as the repo's git user, with no Claude or AI attribution anywhere. No branches, no PRs. Commit messages are lowercase past-tense sentences ("added send prep: one edition per topic, ...").
+- **Git.** Commit straight to `main` and push. No branches, no pull requests. Commit and push as the repo's git user, with no Claude or AI attribution anywhere: no `Co-Authored-By`, no "Generated with" lines and no "authored by Claude", in commits, comments or docs. Commit messages are lowercase past-tense sentences ("added send prep: one edition per topic, ...").
 - **The live stack runs this working tree.** `worker` and `api` mount `.:/code`, the API runs `--reload`, and Temporal's sandbox re-reads workflow modules for each workflow run. Before a multi-commit change to workflows or models:
   1. confirm nothing is running;
   2. pause `daily-topic-digests`, `send-prep` and `weekly-digest-emails` with `temporal schedule toggle --pause`;
@@ -80,3 +80,5 @@ There is no linter or formatter configured. CI (`.github/workflows/ci.yml`) runs
 - **Never read or print `.env` secrets** (`OPENAI_API_KEY`, `ADMIN_TOKEN`, `OPENALEX_API_KEY`). Ask the owner before OpenAI spend beyond what a plan calls for, such as summary backfills.
 - **Never put the owner's email or other personal details in requests to external services.** That includes OpenAlex's `mailto`.
 - **Full text stays off** (`RAG_FULLTEXT=false`) until arXiv allows it, and there's no bulk arXiv download, per arXiv's terms.
+- Never falsify tests, if a test fails, always report as such to the user, propose fixes, and get their approval before implementing. Never try to circumvent failing tests by rewriting them.  
+- Prioritize test-driven development. Every chunk of features that's added should be driven by a test suite and should be reported to the features along with its results after it's done being implemented. 

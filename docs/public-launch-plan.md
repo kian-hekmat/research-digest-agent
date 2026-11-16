@@ -2,11 +2,13 @@
 
 Turning the research digest agent into a small public service for US users:
 anyone visits the site, enters their email, up to five topics and how many
-papers they want per topic, confirms by email, and gets a twice-weekly digest.
+papers they want per topic, confirms by email, and gets a weekly digest.
 Built on the existing pipeline (FastAPI, Postgres, Temporal, the arXiv → LLM
 rating/summary → ranked email flow), not a rewrite.
 
-Status: v2.1, 2026-11-12. v2.1 folds in an audit of v2 against the code,
+Status: v2.2, 2026-11-13: a $50/month budget and weekly sends (changes
+listed in §0.2; not the withdrawn OpenAlex draft that also carried that
+number). v2.1 (2026-11-12) folded in an audit of v2 against the code,
 the live data and current vendor terms (changes listed in §0.1). v2 replaced
 the 2026-10-06 draft, which assumed summaries ran on local Gemma on the
 owner's Mac. Both are in git history.
@@ -83,28 +85,40 @@ abstract supports. The eval harness checks both (Phase 2).
 | Send windows | Per-subscriber `last_sent_at`; "the send window is the same for everyone" | Windows are defined by send slots: each send covers papers ingested since the previous slot. `last_sent_at` is set at confirmation, not at signup | Per-subscriber watermarks made windows differ (new, paused or failed-send subscribers), which breaks one shared overview per topic |
 | Images | `temporalio/admin-tools:latest`, `axllent/mailpit:latest` | Pinned versions in production | Reproducible deploys and rollbacks |
 
+### 0.2 What changed from v2.1 to v2.2 (owner's calls, 2026-11-13)
+
+| Area | v2.1 | v2.2 | Why |
+|---|---|---|---|
+| Budget | $20/month hard cap | **$50/month hard cap**; OpenAI project limit a little above it (about $55) | Owner is comfortable with that spend |
+| Cost visibility | Every OpenAI call logged | **A reliable month-to-date total is the requirement**, plus the 80% and 100% alerts emailed to the owner (`ALERT_EMAIL`). Per-call logging is how it's done today (`llm_usage`, built in 2a) and stays, but per-call coverage isn't a goal in itself | The point is knowing how close spend is to the cap |
+| Cadence | Twice-weekly, Mon and Thu 08:00 ET | **Weekly, Monday 08:00 ET**; prep Monday 01:00 ET | Owner's call. Halves sends, prep calls and email volume. Monday matches the existing weekly cadence (`_WEEKLY_WEEKDAYS`) |
+| Workflow | Commits straight to `main` | Unchanged: commits straight to `main`, authored as the owner, with no AI attribution. Pull requests were tried from 2026-11-13 and dropped 2026-11-16 | Owner's call |
+
+The live pipeline still runs v2.1's twice-weekly schedule and $20 budget
+until the v2.2 switch-over (Phase 2) lands.
+
 ---
 
 ## 1. Constraints everything else derives from
 
 | Constraint | Value | Where it comes from |
 |---|---|---|
-| OpenAI spend | $20/month, hard | Owner's budget |
+| OpenAI spend | $50/month, hard | Owner's budget (§0.2) |
 | Subscribers | 200 maximum; a waitlist after that | Brevo's free 300/day: 200 digests on a send day leaves about 100 for confirmation and manage-link emails |
 | Topics per subscriber | 5 | v1 default, kept |
 | Papers per topic per email | 5–10, default 5 | Owner's call. Today it's uncapped; a bounded number bounds summary cost. The minimum of 5 guarantees every reader gets a topic's picks (§3.9) |
 | Global active topics | Set from measured cost (below); placeholder 100 | Budget |
 | Topic queries (public) | Phrases only; field-prefixed queries (`cat:`, `ti:`, ...) admin-only | §0.1 |
-| Cadence | Twice-weekly: Mon and Thu 08:00 `America/New_York` | §0 |
+| Cadence | Weekly: Monday 08:00 `America/New_York` | §0.2 |
 | Audience | US residents, age 13 or older | Terms |
 | Host | One Hetzner CX23 (2 vCPU / 4 GB) in the EU, about €6/month | §3.8 |
 | arXiv content | Metadata and abstracts only at launch; no full-text fetching until arXiv says it's allowed | §0.1 |
 
-**Cost model.** Sends happen 2 × 52 / 12 ≈ 8.7 times a month.
+**Cost model.** Sends happen 52 / 12 ≈ 4.3 times a month.
 
 ```
 monthly OpenAI ≈ active_topics × (30 × ingest_cost_per_topic_day
-                                  + 8.7 × prep_cost_per_topic_send)
+                                  + 4.3 × prep_cost_per_topic_send)
                  + signup costs (query embeddings for previews; negligible)
 ```
 
@@ -118,13 +132,14 @@ input tokens and a few output tokens: about $0.0003 per paper. A phrase topic
 gets about 3–5 new papers a day: about $0.04 a month. An abstract-only summary
 is about 500 input and 170 output tokens: about $0.0011. An overview reading up
 to 25 abstracts is about 9,000 input and 300 output tokens: about $0.008. At
-K = 5 that is about $0.014 per send, or about $0.12 a month. Total: roughly
-**$0.15–0.20 per topic per month** at K = 5, nearer $0.25 at K = 10. That would
-put the cap around 65–100 topics. Retries, previews and rate-only calls aren't
-in this estimate.
+K = 5 that is about $0.014 per send, or about $0.06 a month weekly. Total:
+roughly **$0.10–0.15 per topic per month** at K = 5, nearer $0.18 at K = 10.
+At $50 that would put the budget cap in the hundreds of topics, so arXiv load
+and the placeholder (100) bind first. Retries, previews and rate-only calls
+aren't in this estimate.
 
 Both are measured in Phase 2 and again in the beta. The global topic cap is then
-`floor(0.8 × $20 / measured monthly cost per topic)`, which leaves 20% headroom
+`floor(0.8 × $50 / measured monthly cost per topic)`, which leaves 20% headroom
 for previews, retries and variance. If that number comes out below about 50, revisit
 the levers in §5 before launch rather than after.
 
@@ -245,7 +260,7 @@ Browser ──HTTPS──▶ Caddy (TLS) ──▶ FastAPI ──▶ Postgres (+
      it's used only to skip a subscriber who was already sent this slot. A
      subscriber who misses a slot (failed send, paused) gets the current
      slot's content next time, not a backlog.
-   - **Send prep (Mon and Thu 01:00 ET).** For each topic with active
+   - **Send prep (Monday 01:00 ET).** For each topic with active
      subscribers:
      1. Look up author h-indices for the window's papers (moved here from send
         time) and rank them with the existing ranking.
@@ -258,7 +273,7 @@ Browser ──HTTPS──▶ Caddy (TLS) ──▶ FastAPI ──▶ Postgres (+
         specific paper's finding, and up to two picks from the top 5 with a
         one-line hook each.
      4. Store all of it, keyed to the topic and the slot.
-   - **Send (Mon and Thu 08:00 ET).** Assemble each subscriber's email from
+   - **Send (Monday 08:00 ET).** Assemble each subscriber's email from
      stored content, with no LLM, arXiv or h-index calls at send time. A topic
      whose prep failed is sent with whatever was stored (ranked papers without
      AI text in the worst case), never held back.
@@ -275,13 +290,15 @@ Browser ──HTTPS──▶ Caddy (TLS) ──▶ FastAPI ──▶ Postgres (+
      app runs several processes, so an in-memory cache wouldn't be shared).
 
 6. **Cost control.**
-   - **Usage log.** Every OpenAI call writes an `llm_usage` row: model, purpose
-     (rating / summary / overview / embedding / preview), topic, input and
-     output tokens, and computed cost. Per-model prices are settings, not code
-     constants.
+   - **Spend tracking.** What's required is a reliable month-to-date total
+     (v2.2). Today every OpenAI call writes an `llm_usage` row (model,
+     purpose, topic, tokens, computed cost), which `/admin/usage` sums; that
+     stays, but new call paths needn't be itemized beyond what keeps the
+     total right. Per-model prices are settings, not code constants.
    - **Spend guard**, on month-to-date cost:
      - At **80%** of the cap, new topics go to a waitlist. Signups that only use
-       existing topics still go through. You get an alert.
+       existing topics still go through. You get an alert by email
+       (`ALERT_EMAIL`).
      - At **100%**, chat-model calls (ratings, summaries, overviews and picks)
        stop. Embeddings keep running: they cost about a thousandth as much, and
        ranking, previews and similar-topic suggestions depend on them. Signups
@@ -294,7 +311,7 @@ Browser ──HTTPS──▶ Caddy (TLS) ──▶ FastAPI ──▶ Postgres (+
      - Raising the cap is a single setting.
    - **OpenAI backstop.** A dedicated production project and key with an
      enforced hard monthly spend limit a little above the app's cap (for
-     example $22). When it trips, OpenAI returns 429
+     example $55). When it trips, OpenAI returns 429
      `project_spend_limit_exceeded`; the app treats that as "budget exhausted"
      (the 100% behaviour), marks it non-retryable, and alerts. The guard in the
      app is still the real stop.
@@ -361,7 +378,7 @@ Browser ──HTTPS──▶ Caddy (TLS) ──▶ FastAPI ──▶ Postgres (+
     up to 5 topics, each with its live preview, similar-topic suggestion,
     label and papers per email (5–10, default 5); the residency checkbox with
     links to the terms and privacy policy; one submit button; "Digests arrive
-    Monday and Thursday mornings."
+    Monday mornings."
 
 ---
 
@@ -379,7 +396,7 @@ These have lead times, so start them now:
   DKIM), and publish DMARC at `p=none` with reports. The beta doubles as the
   domain's warm-up: about 20 recipients, then a gradual ramp at launch.
 - **OpenAI.** A production project with its own key and an enforced hard
-  monthly spend limit a little above $20 (§3.6).
+  monthly spend limit a little above $50 (§3.6).
 - **Hetzner.** Create the account and confirm in the console that a CX23 can be
   ordered in Nuremberg or Helsinki (fallback: the EU ARM plan, §3.8).
 - **Cloudflare.** A Turnstile site key for the domain.
@@ -478,9 +495,15 @@ deployment migrates with no data loss.
   queue time.
 - **Bounded fan-out** ✅ 2c. `RunAllTopicDigestsWorkflow` and prep run their children
   in batches rather than all at once.
+- **v2.2 switch-over** (not built yet): `openai_monthly_budget_usd` 20 → 50;
+  `send-prep` and `weekly-digest-emails` fire Monday only; every
+  subscription's cadence becomes `weekly`; a slot-window test covers a full
+  week. Weekly sends mean the 3-week beta yields 3 send days of cost data,
+  not 6.
 
 **Tests**
-- Usage log: every OpenAI call path, faked with `respx`, writes exactly one
+- Usage log (built in 2a; v2.2 requires only a correct month-to-date
+  total): every OpenAI call path, faked with `respx`, writes exactly one
   usage row with the right purpose and tokens.
 - Spend guard (time-skipping):
   - at 80%, a new topic is waitlisted and an existing one still runs;
@@ -557,7 +580,7 @@ been applied until it does; the cap is set.
     - The response and the confirmation page say plainly what was waitlisted
       and why.
 - `GET /confirm?token=`: activates the subscriber and sets `last_sent_at` to
-  the confirmation time. The first digest arrives at the next Mon/Thu 08:00 ET
+  the confirmation time. The first digest arrives at the next Monday 08:00 ET
   send and covers that slot's whole window (§3.5).
 - Manage page (`/manage?token=`): edit topics, labels and papers per topic;
   pause; "delete my data", which cascades to the subscriber's subscriptions
@@ -623,7 +646,7 @@ touching the admin API.
   - Signup, all on one page (§3.10): email; up to 5 topics, each with a live
     preview, similar-topic suggestions and a label; papers per topic (5–10);
     the residency checkbox; links to the terms and privacy policy. No cadence
-    picker: "Digests arrive Monday and Thursday mornings".
+    picker: "Digests arrive Monday mornings".
   - "Check your inbox", waitlisted, confirmed, manage, unsubscribed, privacy,
     terms.
 - Plain semantic HTML, a classless CSS base, works without JavaScript except
@@ -790,13 +813,13 @@ in emails), Sentry (free).
 | # | Decision | Status |
 |---|---|---|
 | 1 | Goal | A small real service: public, deliberately capped, lean ops (decided 2026-11-12) |
-| 2 | Budget | $20/month hard cap on OpenAI; spend guard closes new topics at 80% and drops AI text at 100% (decided 2026-11-12) |
+| 2 | Budget | $50/month hard cap on OpenAI; spend guard closes new topics and emails the owner at 80%, drops AI text at 100%; a month-to-date total is the tracking requirement (decided 2026-11-12, raised from $20 2026-11-13) |
 | 3 | LLM | OpenAI `gpt-5.4-mini` for ratings, summaries and overviews (decided 2026-11-05) |
 | 4 | Embeddings | `text-embedding-3-small` at 768 dimensions; every EmbeddingGemma-tuned threshold recalibrated by eval (decided 2026-11-12) |
 | 5 | Full text | Off at launch; abstract-only summaries. The owner asks arXiv; if allowed, full text for the top K only (decided 2026-11-12, v2.1) |
 | 6 | Topics | Phrase topics with live preview, similar-topic suggestions by embedding, limits. Field-prefixed queries (`cat:` etc.) admin-only (decided 2026-11-12, v2.1) |
-| 7 | Cadence | Twice-weekly for everyone at launch; per-subscriber cadence deferred (decided 2026-11-12) |
-| 8 | Send time | Mon and Thu 08:00 Eastern, one slot for everyone (decided 2026-11-12) |
+| 7 | Cadence | Weekly for everyone at launch; per-subscriber cadence deferred (decided 2026-11-12, changed from twice-weekly 2026-11-13) |
+| 8 | Send time | Monday 08:00 Eastern, one slot for everyone (decided 2026-11-12, Thursday dropped 2026-11-13) |
 | 9 | Audience | US residents only, through the terms plus a signup checkbox; no IP geo-blocking (decided 2026-11-12) |
 | 10 | Legal | No postal address or virtual mailbox; CalOPPA-compliant privacy policy; CAN-SPAM practices followed voluntarily (decided 2026-11-12; not legal advice) |
 | 11 | Email | Brevo free tier over SMTP, 200-subscriber cap with a waitlist; SES if outgrown |
