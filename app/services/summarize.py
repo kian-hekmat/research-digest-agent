@@ -361,6 +361,117 @@ def parse_paper_blurb(text: str) -> PaperBlurb | None:
     return PaperBlurb(hook, what) if hook and what else None
 
 
+# ---------- phase 2d: overview and picks ----------
+_OVERVIEW_AND_PICKS_SYSTEM = (
+    "You write one topic's section opener in a weekly research digest read by "
+    "people who work in the field. You are given this period's papers, best "
+    "first, each with its arXiv id in square brackets, its title and its "
+    "abstract, and a pick pool of up to five ids. Reply in JSON with two "
+    "fields. `overview`: 80-120 words on what this period's research found - "
+    "concrete findings, methods and numbers, the threads that connect papers "
+    "and any results that pull against each other. Whenever you state a "
+    "specific paper's finding, cite it right after with its id in square "
+    "brackets, e.g. [2611.01234]; cite only ids you were given, and only for "
+    "what that paper's abstract says. Do not walk through the papers one by "
+    "one and do not refer to them by number. `picks`: zero to two papers from "
+    "the pick pool that a researcher in this field should start with, each "
+    "with `arxiv_id` and a one-line `hook` saying why it is worth reading "
+    "first; a pick need not be the first in the list. Sell through specifics, "
+    "not adjectives, and never state more than the abstracts support. No "
+    "LaTeX, no markdown, no preamble. You may also be shown how this topic's "
+    "previous digests opened. The reader has already read those, so do not "
+    "repeat their general points; say what is specific to this period. Do not "
+    "mention the previous digests or how this period compares with them."
+)
+_OVERVIEW_AND_PICKS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "overview": {"type": "string"},
+        "picks": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"arxiv_id": {"type": "string"}, "hook": {"type": "string"}},
+                "required": ["arxiv_id", "hook"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["overview", "picks"],
+    "additionalProperties": False,
+}
+_OVERVIEW_MAX_PAPERS = 25
+_PICK_POOL = 5
+_MAX_PICKS = 2
+_OVERVIEW_ABSTRACT_CHARS = 1500
+# An arXiv id, bracketed or bare, with any version suffix.
+_CITATION = re.compile(r"\[?\b(\d{4}\.\d{4,5})(?:v\d+)?\b\]?")
+_SPACE_BEFORE_PUNCT = re.compile(r"\s+([,.;:!?])")
+
+
+@dataclass(frozen=True)
+class OverviewPaper:
+    arxiv_id: str
+    title: str
+    abstract: str
+
+
+@dataclass(frozen=True)
+class Pick:
+    arxiv_id: str
+    hook: str
+
+
+@dataclass
+class OverviewAndPicks:
+    overview: str
+    picks: list[Pick]
+    dropped_citations: list[str]  # ids the model cited that it wasn't given
+    dropped_picks: list[str]  # picks outside the pick pool
+
+
+def _check_citations(text: str, offered: set[str]) -> tuple[str, list[str]]:
+    """Keep citations of offered papers (normalized to `[id]` when bracketed),
+    remove any other arXiv id, then tidy the gaps removal left."""
+    dropped: list[str] = []
+
+    def keep_or_drop(m: re.Match) -> str:
+        arxiv_id = m.group(1)
+        if arxiv_id in offered:
+            return f"[{arxiv_id}]" if m.group(0).startswith("[") else arxiv_id
+        if arxiv_id not in dropped:
+            dropped.append(arxiv_id)
+        return ""
+
+    text = _CITATION.sub(keep_or_drop, text).replace("[]", "")
+    text = _SPACE_BEFORE_PUNCT.sub(r"\1", _SPACES.sub(" ", text)).strip()
+    return text, dropped
+
+
+def parse_overview_and_picks(
+    text: str, offered_ids: list[str], top_ids: list[str]
+) -> OverviewAndPicks | None:
+    data = _load_json_object(text)
+    if data is None or not _clean(data.get("overview")):
+        return None
+    overview, dropped_citations = _check_citations(_clean(data["overview"]), set(offered_ids))
+    if not overview:
+        return None
+    pool = set(top_ids)
+    picks: list[Pick] = []
+    dropped_picks: list[str] = []
+    for item in data.get("picks") or []:
+        if not isinstance(item, dict):
+            continue
+        m = _CITATION.fullmatch(_clean(item.get("arxiv_id")))
+        arxiv_id, hook = (m.group(1) if m else _clean(item.get("arxiv_id"))), _clean(item.get("hook"))
+        if arxiv_id not in pool:
+            dropped_picks.append(arxiv_id)
+        elif hook and len(picks) < _MAX_PICKS and all(p.arxiv_id != arxiv_id for p in picks):
+            picks.append(Pick(arxiv_id, hook))
+    return OverviewAndPicks(overview, picks, dropped_citations, dropped_picks)
+
+
 def _topic_line(topic_name: str, topic_query: str) -> str:
     # The query adds real information when it's a category (`cat:math.NA`) or
     # differs from the name; when it's the name again it's just noise.
@@ -557,6 +668,39 @@ class Summarizer:
             max_tokens=500,
             purpose="overview",
         )
+
+    def write_overview_and_picks(
+        self, topic_name: str, papers: list[OverviewPaper], previous: list[str] = ()
+    ) -> OverviewAndPicks | None:
+        """The phase 2d overview and picks for one topic's period. `papers`
+        is best first: the first 25 are offered and the first 5 are the pick
+        pool. `previous` (earlier overviews) is shown only so they aren't
+        repeated. None when the backend isn't OpenAI, the budget stopped it,
+        or the reply didn't parse."""
+        if not self._settings.summaries_enabled or not papers:
+            return None
+        offered = list(papers)[:_OVERVIEW_MAX_PAPERS]
+        pool = [p.arxiv_id for p in offered[:_PICK_POOL]]
+        parts = [f"Topic: {topic_name}"]
+        if previous:
+            said = "\n".join(f"- {_clip(t, _HISTORY_OVERVIEW_CHARS)}" for t in previous)
+            parts.append(f"What previous digests already said (do not repeat):\n{said}")
+        listing = "\n\n".join(
+            f"[{p.arxiv_id}] {p.title}\n{_clip(p.abstract, _OVERVIEW_ABSTRACT_CHARS)}".rstrip()
+            for p in offered
+        )
+        parts.append(f"Papers this period, best first:\n{listing}")
+        parts.append(f"Pick pool (choose picks only from these): {', '.join(pool)}")
+        text = self._complete(
+            system=_OVERVIEW_AND_PICKS_SYSTEM,
+            user="\n\n".join(parts),
+            max_tokens=700,
+            purpose="overview",
+            response_format=_JSON_FORMAT("overview_and_picks", _OVERVIEW_AND_PICKS_SCHEMA),
+        )
+        if text is None:
+            return None
+        return parse_overview_and_picks(text, [p.arxiv_id for p in offered], pool)
 
     def write_blurb(self, title: str, abstract: str) -> PaperBlurb | None:
         """The phase 2d blurb (hook + what) for one paper, or None when the
