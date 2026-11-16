@@ -189,3 +189,105 @@ def confirm_subscriber(
     reasons = apply_waitlist(db, sub, list(sub.subscriptions), now)
     db.commit()
     return reasons
+
+
+# ---------- self-service (manage page, unsubscribe, re-subscribe) ----------
+def subscription_for(sub: models.Subscriber, topic_id: str | None) -> models.Subscription | None:
+    return next((s for s in sub.subscriptions if s.topic_id == topic_id), None)
+
+
+def add_topic(
+    db: Session, sub: models.Subscriber, raw_topic: str, raw_label: str | None, raw_papers: str | None, now: datetime
+) -> tuple[list[str], str | None]:
+    """(waitlist reasons, error) for adding one topic from the manage page.
+    Same rules as signup, at most five topics, then the cap check. Commits."""
+    from app.waitlist import apply_waitlist
+
+    if len(sub.subscriptions) >= MAX_TOPIC_ROWS:
+        return [], f"You can follow at most {MAX_TOPIC_ROWS} topics; remove one first."
+    try:
+        query = parse_topic((raw_topic or "").strip())
+    except ValueError as exc:
+        return [], str(exc)
+    label, error = parse_label(raw_label)
+    papers, papers_error = parse_papers(raw_papers)
+    if error or papers_error:
+        return [], error or papers_error
+    topic = topic_for(db, query)
+    if subscription_for(sub, topic.id) is not None:
+        db.rollback()
+        return [], "You already follow this topic."
+    new = models.Subscription(
+        topic_id=topic.id, subscriber_id=sub.id, max_papers=papers, label=label, active=True, last_sent_at=now
+    )
+    db.add(new)
+    db.flush()
+    reasons = apply_waitlist(db, sub, [new], now)
+    db.commit()
+    return reasons, None
+
+
+def update_topic(db: Session, sub: models.Subscriber, topic_id: str, raw_label: str | None, raw_papers: str | None) -> str | None:
+    """Edit one topic's label and papers per email; an error message or None. Commits."""
+    s = subscription_for(sub, topic_id)
+    if s is None:
+        return "That topic isn't in your list."
+    label, error = parse_label(raw_label)
+    papers, papers_error = parse_papers(raw_papers)
+    if error or papers_error:
+        return error or papers_error
+    s.label, s.max_papers = label, papers
+    db.commit()
+    return None
+
+
+def set_paused(db: Session, sub: models.Subscriber, paused: bool, now: datetime) -> list[str]:
+    """Pause or resume every topic (Subscription.active only). Resuming goes
+    through the cap check. Commits."""
+    from app.waitlist import apply_waitlist
+
+    for s in sub.subscriptions:
+        s.active = not paused
+    reasons = [] if paused else apply_waitlist(db, sub, list(sub.subscriptions), now)
+    db.commit()
+    return reasons
+
+
+def unsubscribe(db: Session, payload: dict, now: datetime) -> None:
+    """One-click unsubscribe: a topic link deletes that subscription, an
+    "all" link sets unsubscribed_at. A link whose target is gone is a no-op.
+    Commits."""
+    sub = db.get(models.Subscriber, payload.get("s")) if isinstance(payload.get("s"), str) else None
+    if sub is None:
+        return
+    if payload.get("t"):
+        s = subscription_for(sub, payload["t"])
+        if s is not None:
+            db.delete(s)
+    elif sub.unsubscribed_at is None:
+        sub.unsubscribed_at = now
+    db.commit()
+
+
+def resubscribe(db: Session, sub: models.Subscriber, topic_id: str | None, now: datetime) -> tuple[list[str], str | None]:
+    """Undo an unsubscribe link: recreate the topic's subscription with the
+    defaults, or clear unsubscribed_at; then the cap check. Commits."""
+    from app.waitlist import apply_waitlist
+
+    if topic_id:
+        if subscription_for(sub, topic_id) is None:
+            if db.get(models.Topic, topic_id) is None:
+                return [], "That topic no longer exists."
+            if len(sub.subscriptions) >= MAX_TOPIC_ROWS:
+                return [], f"You can follow at most {MAX_TOPIC_ROWS} topics; remove one first."
+            db.add(models.Subscription(
+                topic_id=topic_id, subscriber_id=sub.id,
+                max_papers=get_settings().public_papers_per_topic_default, active=True, last_sent_at=now,
+            ))
+            db.flush()
+            db.refresh(sub)
+    else:
+        sub.unsubscribed_at = None
+    reasons = apply_waitlist(db, sub, list(sub.subscriptions), now)
+    db.commit()
+    return reasons, None

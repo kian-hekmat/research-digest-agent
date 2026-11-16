@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Manage your topics{% endblock %}
+{% block content %}
+<h1>Manage your topics</h1>
+{% for line in notice %}<p role="status">{{ line }}</p>{% endfor %}
+{% if error %}<p role="alert"><em>{{ error }}</em></p>{% endif %}
+{% for s in subs %}
+<section>
+  <h2>{{ s.topic.name }}</h2>
+  {% if s.waitlisted_at %}<p>On the waitlist: you'll get this topic once there's room.</p>{% endif %}
+  {% if not s.active %}<p>Paused.</p>{% endif %}
+  <form method="post" action="/manage/update">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="token" value="{{ token }}">
+    <input type="hidden" name="topic_id" value="{{ s.topic_id }}">
+    <label>Label <input name="label" value="{{ s.label or '' }}" maxlength="200"></label>
+    <label>Papers per email <input type="number" name="papers" min="5" max="10" value="{{ s.max_papers or 5 }}"></label>
+    <button type="submit">Save</button>
+  </form>
+  <form method="post" action="/manage/remove">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="token" value="{{ token }}">
+    <input type="hidden" name="topic_id" value="{{ s.topic_id }}">
+    <button type="submit">Remove this topic</button>
+  </form>
+</section>
+{% else %}
+<p>You don't follow any topics.</p>
+{% endfor %}
+<h2>Add a topic</h2>
+<form method="post" action="/manage/add">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="token" value="{{ token }}">
+  <label>Phrase <input name="topic" maxlength="200" required></label>
+  <label>Label (optional) <input name="label" maxlength="200"></label>
+  <label>Papers per email <input type="number" name="papers" min="5" max="10" value="5"></label>
+  <button type="submit">Add</button>
+</form>
+<h2>Pause, unsubscribe or delete</h2>
+{% for action, text in [("pause", "Pause all topics"), ("resume", "Resume all topics"), ("unsubscribe-all", "Unsubscribe from everything"), ("delete", "Delete my data")] %}
+<form method="post" action="/manage/{{ action }}">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="token" value="{{ token }}">
+  <button type="submit">{{ text }}</button>
+</form>
+{% endfor %}
+{% endblock %}

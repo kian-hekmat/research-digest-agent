@@ -8,7 +8,10 @@ from app.config import get_settings
 # routers' dependencies; Phase 3 adds its public signup routes here, and a test
 # checks that nothing listed here returns emails, descriptions or cadence, or
 # accepts a cadence or description.
-PUBLIC_PATHS = {"/health", "/signup", "/manage-link", "/terms", "/privacy", "/confirm"}
+PUBLIC_PATHS = {
+    "/health", "/signup", "/manage-link", "/terms", "/privacy", "/confirm",
+    "/manage", "/manage/{action}", "/unsubscribe", "/resubscribe",
+}
 
 
 def require_admin(x_admin_token: str | None = Header(default=None)) -> None:

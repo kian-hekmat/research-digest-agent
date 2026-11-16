@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from sqlalchemy.orm import Session
 
-from app import account_emails, signup, tokens, web
+from app import account_emails, models, signup, tokens, web
 from app.config import get_settings
 from app.database import SessionLocal, get_db
 from app.ratelimit import allow, email_key, signup_ip_key
@@ -130,3 +130,111 @@ async def confirm_submit(request: Request, db: Session = Depends(get_db)):
     if reasons is None:
         return _expired(request)
     return web.render(request, "confirmed.html", reasons=reasons)
+
+
+# ---------- manage page ----------
+def _manage_page(request: Request, sub, token: str, status: int = 200, notice: list[str] | None = None, error: str | None = None):
+    rows = sorted(sub.subscriptions, key=lambda s: s.topic.name)
+    return web.render(request, "manage.html", status, token=token, subs=rows, notice=notice or [], error=error)
+
+
+async def _manage_form(request: Request, db: Session):
+    """(form, subscriber) for a manage POST; TokenError for a bad link."""
+    form = dict(await request.form())
+    web.check_form(request, form.get("csrf"))
+    sub, _ = tokens.subscriber_for(db, "manage", form.get("token") or "")
+    return form, sub
+
+
+@router.get("/manage")
+def manage_page(request: Request, token: str = "", db: Session = Depends(get_db)):
+    try:
+        sub, _ = tokens.subscriber_for(db, "manage", token)
+    except tokens.TokenError:
+        return _expired(request)
+    return _manage_page(request, sub, token)
+
+
+@router.post("/manage/{action}")
+async def manage_action(action: str, request: Request, db: Session = Depends(get_db)):
+    try:
+        form, sub = await _manage_form(request, db)
+    except tokens.TokenError:
+        return _expired(request)
+    token, now = form["token"], _now()
+    if action == "update":
+        error = signup.update_topic(db, sub, form.get("topic_id", ""), form.get("label"), form.get("papers"))
+        return _manage_page(request, sub, token, 422 if error else 200, ["Saved."] if not error else [], error)
+    if action == "remove":
+        s = signup.subscription_for(sub, form.get("topic_id"))
+        if s is not None:
+            db.delete(s)
+            db.commit()
+            db.refresh(sub)
+        return _manage_page(request, sub, token, notice=["Removed."])
+    if action == "add":
+        reasons, error = signup.add_topic(db, sub, form.get("topic", ""), form.get("label"), form.get("papers"), now)
+        db.refresh(sub)
+        return _manage_page(request, sub, token, 422 if error else 200, reasons or (["Added."] if not error else []), error)
+    if action in ("pause", "resume"):
+        reasons = signup.set_paused(db, sub, action == "pause", now)
+        return _manage_page(request, sub, token, notice=reasons or [f"{action.capitalize()}d."])
+    if action == "unsubscribe-all":
+        sub.unsubscribed_at = sub.unsubscribed_at or now
+        db.commit()
+        return web.render(request, "unsubscribed.html", token=tokens.unsubscribe_token(sub.id, None), topic=None)
+    if action == "delete":
+        db.delete(sub)
+        db.commit()
+        return web.render(request, "goodbye.html")
+    return _expired(request)
+
+
+# ---------- unsubscribe (RFC 8058 one-click) and re-subscribe ----------
+def _unsubscribe_target(db: Session, token: str):
+    """(payload, subscriber or None, topic or None); TokenError for a bad link."""
+    payload, _ = tokens.read_token("unsubscribe", token, None)
+    sid, tid = payload.get("s"), payload.get("t")
+    sub = db.get(models.Subscriber, sid) if isinstance(sid, str) else None
+    topic = db.get(models.Topic, tid) if isinstance(tid, str) else None
+    return payload, sub, topic
+
+
+@router.get("/unsubscribe")
+def unsubscribe_page(request: Request, token: str = "", db: Session = Depends(get_db)):
+    try:
+        _, sub, topic = _unsubscribe_target(db, token)
+    except tokens.TokenError:
+        return _expired(request)
+    if sub is None:
+        return _expired(request)
+    return web.render(request, "unsubscribe.html", token=token, topic=topic)
+
+
+@router.post("/unsubscribe")
+async def unsubscribe_submit(request: Request, token: str = "", db: Session = Depends(get_db)):
+    """One-click: no CSRF and no cookies (mail clients post
+    `List-Unsubscribe=One-Click` with the link's own token)."""
+    if not token:
+        token = (await request.form()).get("token") or ""
+    try:
+        payload, _, topic = _unsubscribe_target(db, token)
+    except tokens.TokenError:
+        return _expired(request)
+    signup.unsubscribe(db, payload, _now())
+    return web.render(request, "unsubscribed.html", token=token, topic=topic)
+
+
+@router.post("/resubscribe")
+async def resubscribe_submit(request: Request, db: Session = Depends(get_db)):
+    form = dict(await request.form())
+    web.check_form(request, form.get("csrf"))
+    token = form.get("token") or ""
+    try:
+        payload, sub, topic = _unsubscribe_target(db, token)
+    except tokens.TokenError:
+        return _expired(request)
+    if sub is None:
+        return _expired(request)
+    reasons, error = signup.resubscribe(db, sub, payload.get("t"), _now())
+    return web.render(request, "resubscribed.html", 422 if error else 200, reasons=reasons, error=error, topic=topic)
