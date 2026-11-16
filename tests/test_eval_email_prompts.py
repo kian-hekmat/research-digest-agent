@@ -66,3 +66,23 @@ def test_blind_pairs_is_seeded_and_keyed():
         new_side = "A" if key[str(i)] == "A=new" else "B"
         assert b[new_side] == f"n{i}"
         assert b["paper"] == f"p{i}"
+
+
+def test_window_ranking_leaves_near_duplicates_out_like_production(db_session, monkeypatch):
+    """Production's top K is `_rank_window`'s second value (near duplicates
+    folded away), so the eval's offered list and pick pool are too."""
+    import evals.email_prompts as ep
+
+    topic = models.Topic(name="PINNs", query="pinns", normalized_query="pinns")
+    db_session.add(topic)
+    db_session.commit()
+    ids = [f"2611.0001{i}" for i in range(6)]
+    _digest(db_session, topic, datetime(2026, 11, 3, 21, 35, tzinfo=ET), ids)
+    papers = {p.arxiv_id: p for p in db_session.query(models.Paper)}
+    dup = papers[ids[1]]
+    kept = [papers[i] for i in ids if i != ids[1]]
+    monkeypatch.setattr(ep, "_rank_window", lambda db, tid, ps, as_of: ([kept[0].id, dup.id, *[p.id for p in kept[1:]]], kept))
+
+    [w] = ep.weekly_windows(db_session)
+
+    assert w.paper_ids == [p.id for p in kept]

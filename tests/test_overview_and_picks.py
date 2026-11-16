@@ -105,3 +105,25 @@ def test_write_overview_and_picks_none_when_blocked_or_not_openai():
     assert _summarizer(FakeLedger(allow=False)).write_overview_and_picks("T", _papers(5)) is None
     assert _summarizer(FakeLedger(), summary_backend="ollama").write_overview_and_picks("T", _papers(5)) is None
     assert not respx.calls
+
+
+# ---------- final-review fixes ----------
+def test_multi_id_bracket_keeps_offered_drops_unknown():
+    assert _parse(f"X [{A}, {B}].").overview == f"X [{A}, {B}]."
+    r = _parse(f"Y [{A}; 2611.99999].")
+    assert r.overview == f"Y [{A}]." and r.dropped_citations == ["2611.99999"]
+    r = _parse("Gains [2611.99998, 2611.99999].")
+    assert r.overview == "Gains." and r.dropped_citations == ["2611.99998", "2611.99999"]
+
+
+def test_parenthesized_and_prefixed_unknown_ids_leave_no_debris():
+    assert _parse("Y (2611.99999).").overview == "Y."
+    assert _parse("Z [arXiv:2611.99999].").overview == "Z."
+    assert _parse("see arXiv:2611.99999.").overview == "see."
+    assert _parse(f"W [arXiv:{A}].").overview == f"W [{A}]."
+
+
+def test_numbers_that_cannot_be_arxiv_ids_are_left_alone():
+    r = _parse("It ran 1024.5000 iterations to 1234.56789 accuracy.")
+    assert r.overview == "It ran 1024.5000 iterations to 1234.56789 accuracy."
+    assert r.dropped_citations == []

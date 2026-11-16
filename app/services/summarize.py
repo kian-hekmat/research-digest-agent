@@ -404,9 +404,25 @@ _OVERVIEW_MAX_PAPERS = 25
 _PICK_POOL = 5
 _MAX_PICKS = 2
 _OVERVIEW_ABSTRACT_CHARS = 1500
-# An arXiv id, bracketed or bare, with any version suffix.
-_CITATION = re.compile(r"\[?\b(\d{4}\.\d{4,5})(?:v\d+)?\b\]?")
-_SPACE_BEFORE_PUNCT = re.compile(r"\s+([,.;:!?])")
+# An arXiv id with an optional `arXiv:` prefix and version suffix.
+_ID = r"(?:arXiv:\s*)?(\d{4}\.\d{4,5})(?:v\d+)?"
+_CITATION = re.compile(rf"\b{_ID}\b", re.IGNORECASE)
+_ID_ONLY = re.compile(rf"\s*{_ID}\s*", re.IGNORECASE)
+# A bracket or parenthesis group of ids: "[A]", "[A, B]", "(arXiv:A; B)".
+_ID_GROUP = re.compile(r"[\[(]([^\[\]()]*)[\])]")
+_SPACE_BEFORE_PUNCT = re.compile(r"\s+([,.;:!?)\]])")
+_EMPTY_GROUP = re.compile(r"[\[(]\s*[\])]")
+
+
+def _plausible_arxiv_id(arxiv_id: str) -> bool:
+    """New-style arXiv ids: YYMM with a real month from 0704 on, four digits
+    after the dot until 1412 and five from 1501. Rules out prose numbers
+    like 1024.5000 that only look like ids."""
+    yymm, number = arxiv_id.split(".")
+    month = int(yymm[2:])
+    if not (1 <= month <= 12 and yymm >= "0704"):
+        return False
+    return len(number) == (5 if yymm >= "1501" else 4)
 
 
 @dataclass(frozen=True)
@@ -431,19 +447,45 @@ class OverviewAndPicks:
 
 
 def _check_citations(text: str, offered: set[str]) -> tuple[str, list[str]]:
-    """Keep citations of offered papers (normalized to `[id]` when bracketed),
-    remove any other arXiv id, then tidy the gaps removal left."""
+    """Keep citations of offered papers and remove any other arXiv id.
+
+    A bracket or parenthesis group made only of ids ("[A, B]", "(arXiv:C)")
+    is rebuilt as "[offered ids]" or removed when none were offered. A bare
+    id counts as a citation only if it has an arXiv id's shape (see
+    `_plausible_arxiv_id`): offered ones stay, others are removed. Then the
+    gaps removal left are tidied."""
     dropped: list[str] = []
 
-    def keep_or_drop(m: re.Match) -> str:
-        arxiv_id = m.group(1)
-        if arxiv_id in offered:
-            return f"[{arxiv_id}]" if m.group(0).startswith("[") else arxiv_id
+    def drop(arxiv_id: str) -> None:
         if arxiv_id not in dropped:
             dropped.append(arxiv_id)
+
+    def group(m: re.Match) -> str:
+        parts = re.split(r"[,;]", m.group(1))
+        ids = [_ID_ONLY.fullmatch(part) for part in parts]
+        if not parts or not all(ids):
+            return m.group(0)  # not a citation group: leave it to the bare pass
+        kept = []
+        for arxiv_id in (i.group(1) for i in ids):
+            if arxiv_id in offered:
+                if arxiv_id not in kept:
+                    kept.append(arxiv_id)
+            else:
+                drop(arxiv_id)
+        return f"[{', '.join(kept)}]" if kept else ""
+
+    def bare(m: re.Match) -> str:
+        arxiv_id = m.group(1)
+        if arxiv_id in offered:
+            return arxiv_id
+        if not _plausible_arxiv_id(arxiv_id):
+            return m.group(0)
+        drop(arxiv_id)
         return ""
 
-    text = _CITATION.sub(keep_or_drop, text).replace("[]", "")
+    # Rebuilt groups hold only offered ids, which the bare pass leaves as is.
+    text = _CITATION.sub(bare, _ID_GROUP.sub(group, text))
+    text = _EMPTY_GROUP.sub("", text)
     text = _SPACE_BEFORE_PUNCT.sub(r"\1", _SPACES.sub(" ", text)).strip()
     return text, dropped
 
@@ -463,7 +505,7 @@ def parse_overview_and_picks(
     for item in data.get("picks") or []:
         if not isinstance(item, dict):
             continue
-        m = _CITATION.fullmatch(_clean(item.get("arxiv_id")))
+        m = _ID_ONLY.fullmatch(_clean(item.get("arxiv_id")).strip("[]"))
         arxiv_id, hook = (m.group(1) if m else _clean(item.get("arxiv_id"))), _clean(item.get("hook"))
         if arxiv_id not in pool:
             dropped_picks.append(arxiv_id)

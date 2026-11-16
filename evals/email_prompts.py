@@ -49,7 +49,7 @@ class EvalWindow:
     topic_query: str
     start: datetime
     end: datetime
-    paper_ids: list[str]  # ranked, best first
+    paper_ids: list[str]  # ranked best first, near duplicates left out
 
 
 def _boundary_at_or_before(t: datetime) -> datetime:
@@ -82,8 +82,10 @@ def weekly_windows(db, min_papers: int = MIN_PAPERS) -> list[EvalWindow]:
         while (end := _next_boundary(start)) <= now:
             papers = crud.window_papers(db, topic.id, start, end)
             if len(papers) >= min_papers:
-                ordered, _ = _rank_window(db, topic.id, papers, end)
-                windows.append(EvalWindow(topic.id, topic.name, topic.query, start, end, ordered))
+                # The second value, as prep's rank_edition takes its top K:
+                # near duplicates folded away, never in the top 5.
+                _, ranked = _rank_window(db, topic.id, papers, end)
+                windows.append(EvalWindow(topic.id, topic.name, topic.query, start, end, [p.id for p in ranked]))
             start = end
     return windows
 

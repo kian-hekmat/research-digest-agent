@@ -184,6 +184,33 @@
 
 ---
 
-## Outcome
+## Outcome (2026-11-16)
 
-_To be filled in after Task 5 and the owner's review._
+Built inline (executing-plans), with one whole-change review on the most capable model. Commits `1203b06` (structured output), `6d58f6e` (blurb), `377c8f1` (overview and picks), `63e0a43` (eval), `db49e7a` (eval run and rag-plan §5.11), plus the review fixes. 528 → 553 tests.
+
+- **Probe:** `gpt-5.4-mini` accepts strict `json_schema` on `/chat/completions`, at a cost of $0.00008.
+- **Eval run:** 17 overviews and 20 blind blurb pairs, $0.148. The automatic checks are in `docs/rag-plan.md` §5.11. **The owner's review of the four gates is pending.**
+
+**Rulings:**
+- Worked on `main`, per the owner's standing instruction.
+- The JSON probe ran after Task 1's code: it needs `response_format` to go through the ledger.
+- Corrected one new test's own expectation before it ever passed. `_clip` cuts at a word boundary, so the history line ends `Last week:…`.
+
+**Review fixes** (each test failed first, then passed; full suite 553 passed):
+- **Bracket groups** (`[A, B]`, `[A; unknown]`, `(unknown)`, `[arXiv:…]`) are now rebuilt from their offered IDs or removed cleanly. Before, `[A, B]` came out as `[A], B`, and unknown groups left `,.` or `()` debris.
+- **Bare numbers** count as citations only when they have an arXiv ID's shape: a valid YYMM from 0704 on, with 4 or 5 digits. Prose like `1024.5000` is no longer deleted.
+- **Eval windows** now use `_rank_window`'s second value (near-duplicates folded away), as prep does. A check showed none of the 17 windows' top 25 changed, so this run's review files stand.
+
+**Deferred minors (from the review):**
+- `parse_overview_and_picks` raises on a non-list `picks`. Strict schema prevents this.
+- A non-string pick ID is recorded as `""`.
+- Pick hooks aren't run through the citation check. They must be before Round 2 turns IDs into links.
+- The old side of the blurb pairs runs without `rating_context`, a small bias against it. Production passes the topic description.
+- The eval's avoid-repeats history only includes windows with at least 5 papers, whereas production sees every earlier edition.
+- The eval hard-codes 25 and 5 instead of `_OVERVIEW_MAX_PAPERS` and `_PICK_POOL`.
+- `previous: list[str] = ()` doesn't match its type hint.
+
+**For Round 2 (from the review):**
+- Prep's overview input and pick pool must come from `rank_edition`'s `top` (deduped), not `paper_ids`.
+- The Round 2 linkifier should link only offered IDs.
+- Old-style IDs (`hep-th/…`) aren't validated.
