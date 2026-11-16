@@ -28,6 +28,9 @@ ADMIN_HEADERS = {"X-Admin-Token": "test-admin-token"}
 # Public routes sign links with SECRET_KEY and fail closed without one.
 os.environ["SECRET_KEY"] = "test-secret-key-not-for-production"
 os.environ["PUBLIC_BASE_URL"] = "http://testserver"
+# Cloudflare's published always-pass Turnstile test keys; verification is faked.
+os.environ["TURNSTILE_SITE_KEY"] = "1x00000000000000000000AA"
+os.environ["TURNSTILE_SECRET_KEY"] = "1x0000000000000000000000000000000AA"
 
 import pytest  # noqa: E402
 from alembic import command  # noqa: E402

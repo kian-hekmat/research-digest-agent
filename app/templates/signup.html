@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Sign up{% endblock %}
+{% block head %}<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>{% endblock %}
+{% block content %}
+<h1>Sign up for weekly research digests</h1>
+<p>Digests arrive Monday mornings.</p>
+{% if errors %}<p role="alert">Please fix the highlighted fields.</p>{% endif %}
+<form method="post" action="/signup">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <p><label>Email <input type="email" name="email" value="{{ form.get('email', '') }}" required></label>
+  {% if errors.email %}<br><em>{{ errors.email }}</em>{% endif %}</p>
+  {% if errors.topics %}<p><em>{{ errors.topics }}</em></p>{% endif %}
+  {% for i in range(5) %}
+  <fieldset>
+    <legend>Topic {{ i + 1 }}</legend>
+    <label>Phrase <input name="topic_{{ i }}" value="{{ form.get('topic_' ~ i, '') }}" maxlength="200"></label>
+    {% if errors['topic_' ~ i] %}<br><em>{{ errors['topic_' ~ i] }}</em>{% endif %}
+    <label>Label (optional) <input name="label_{{ i }}" value="{{ form.get('label_' ~ i, '') }}" maxlength="200"></label>
+    {% if errors['label_' ~ i] %}<br><em>{{ errors['label_' ~ i] }}</em>{% endif %}
+    <label>Papers per email <input type="number" name="papers_{{ i }}" min="5" max="10" value="{{ form.get('papers_' ~ i, '5') }}"></label>
+    {% if errors['papers_' ~ i] %}<br><em>{{ errors['papers_' ~ i] }}</em>{% endif %}
+  </fieldset>
+  {% endfor %}
+  <p><label><input type="checkbox" name="us_resident" {% if form.get('us_resident') %}checked{% endif %}>
+  I live in the United States and am 13 or older. I agree to the <a href="/terms">terms</a> and the <a href="/privacy">privacy policy</a>.</label>
+  {% if errors.us_resident %}<br><em>{{ errors.us_resident }}</em>{% endif %}</p>
+  <div class="cf-turnstile" data-sitekey="{{ site_key }}"></div>
+  {% if errors.turnstile %}<p><em>{{ errors.turnstile }}</em></p>{% endif %}
+  <p><button type="submit">Sign up</button></p>
+</form>
+{% endblock %}
