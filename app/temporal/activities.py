@@ -40,6 +40,7 @@ from app.spend_ledger import DbLedger
 from app.services.embed import Embedder
 from app.services.email import (
     DigestForEmail,
+    EmailLinks,
     EmailSender,
     PaperForEmail,
     TopicSection,
@@ -504,6 +505,23 @@ def list_due_subscriptions() -> list[DueSubscription]:
         db.close()
 
 
+def _email_links(db, subscriber_id: str | None, topic_ids: list[str]) -> EmailLinks | None:
+    """The recipient's manage and unsubscribe links; None (no links, no
+    List-Unsubscribe) until SECRET_KEY is set."""
+    from app import tokens
+
+    sub = db.get(models.Subscriber, subscriber_id) if subscriber_id else None
+    if sub is None or not get_settings().secret_key:
+        return None
+    return EmailLinks(
+        manage_url=tokens.link("/manage", tokens.manage_token(sub)),
+        unsubscribe_all_url=tokens.link("/unsubscribe", tokens.unsubscribe_token(sub.id, None)),
+        topic_unsubscribe_urls={
+            t: tokens.link("/unsubscribe", tokens.unsubscribe_token(sub.id, t)) for t in topic_ids
+        },
+    )
+
+
 @activity.defn
 def gather_digest_content(input: GatherContentInput) -> GatheredContent | None:
     """Render one email from each topic's stored edition, cut to the
@@ -520,7 +538,18 @@ def gather_digest_content(input: GatherContentInput) -> GatheredContent | None:
     try:
         sections: list[TopicSection] = []
         included: list[str] = []
+        subscriber_id: str | None = None
         for window in input.topics:
+            # Re-checked at send time: an unsubscribe, pause or waitlist
+            # between listing and delivery is honoured (phase 3a).
+            current = (
+                crud.active_subscriptions_query(db)
+                .filter(models.Subscription.id == window.subscription_id)
+                .one_or_none()
+            )
+            if current is None:
+                continue
+            subscriber_id = current.subscriber_id
             edition = db.get(models.TopicEdition, window.edition_id)
             if edition is None or not edition.papers:
                 continue
@@ -536,12 +565,15 @@ def gather_digest_content(input: GatherContentInput) -> GatheredContent | None:
                 novelty=_novelty(), order=[p.arxiv_id for p in edition.papers],
             )
             if section is not None:
+                section.topic_id = edition.topic_id
                 sections.append(section)
                 included.append(window.subscription_id)
         if not sections:
             return None
         content = render_digest_email(
-            sections, summaries_enabled=get_settings().summaries_enabled
+            sections,
+            summaries_enabled=get_settings().summaries_enabled,
+            links=_email_links(db, subscriber_id, [s.topic_id for s in sections]),
         )
         return GatheredContent(content=content, as_of=as_of, subscription_ids=included)
     finally:

@@ -72,6 +72,21 @@ class TopicSection:
     papers: list[PaperForEmail]
     overviews: list[str]
     omitted: int = 0
+    topic_id: str | None = None  # for the per-topic unsubscribe link
+
+
+@dataclass
+class EmailLinks:
+    """A recipient's self-service links (phase 3a): the List-Unsubscribe
+    target (all topics), the manage page, and one unsubscribe per topic id."""
+
+    manage_url: str
+    unsubscribe_all_url: str
+    topic_unsubscribe_urls: dict[str, str] = field(default_factory=dict)
+
+
+_ARXIV_THANKS = "Thank you to arXiv for use of its open access interoperability."
+_AI_NOTE = "Summaries are written by AI and can be wrong; read the paper before relying on them."
 
 
 def build_topic_section(
@@ -218,7 +233,7 @@ def _format_day(d: date) -> str:
 
 
 def render_digest_email(
-    sections: list[TopicSection], *, summaries_enabled: bool = True
+    sections: list[TopicSection], *, summaries_enabled: bool = True, links: EmailLinks | None = None
 ) -> DigestEmailContent:
     """Render one email covering every section (one per subscribed topic).
     Callers drop empty sections before calling - see `build_topic_section`."""
@@ -305,10 +320,34 @@ def render_digest_email(
             text_lines += [more, ""]
             html_parts.append(f"<p><em>{escape(more)}</em></p>")
 
+        unsubscribe = links.topic_unsubscribe_urls.get(section.topic_id or "") if links else None
+        if unsubscribe:
+            text_lines += [f"Unsubscribe from {section.topic_name}: {unsubscribe}", ""]
+            html_parts.append(
+                f'<p><a href="{escape(unsubscribe, quote=True)}">Unsubscribe from '
+                f"{escape(section.topic_name)}</a></p>"
+            )
+
+    headers: dict[str, str] = {}
+    if links:
+        text_lines += ["--", f"Manage your topics: {links.manage_url}",
+                       f"Unsubscribe from everything: {links.unsubscribe_all_url}", _ARXIV_THANKS, _AI_NOTE]
+        html_parts.append(
+            "<hr><p>"
+            f'<a href="{escape(links.manage_url, quote=True)}">Manage your topics</a> · '
+            f'<a href="{escape(links.unsubscribe_all_url, quote=True)}">Unsubscribe from everything</a>'
+            f"</p><p><small>{escape(_ARXIV_THANKS)} {escape(_AI_NOTE)}</small></p>"
+        )
+        headers = {
+            "List-Unsubscribe": f"<{links.unsubscribe_all_url}>",
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        }
+
     return DigestEmailContent(
         subject=subject,
         text_body="\n".join(text_lines).rstrip() + "\n",
         html_body="\n".join(html_parts),
+        headers=headers,
     )
 
 
@@ -329,6 +368,8 @@ class EmailSender:
         msg["Subject"] = content.subject
         msg["From"] = self._settings.smtp_from_address
         msg["To"] = to
+        for name, value in (content.headers or {}).items():
+            msg[name] = value
         msg.attach(MIMEText(content.text_body, "plain"))
         msg.attach(MIMEText(content.html_body, "html"))
 

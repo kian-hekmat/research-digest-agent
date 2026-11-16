@@ -249,6 +249,8 @@ class DigestEmailContent:
     subject: str
     text_body: str
     html_body: str
+    # Extra message headers, e.g. List-Unsubscribe (phase 3a).
+    headers: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
