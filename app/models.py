@@ -518,6 +518,18 @@ class Subscription(Base):
 LLM_USAGE_PURPOSES = ("rating", "summary", "overview", "embedding", "preview")
 
 
+class RateLimitEvent(Base):
+    """One counted request for a public-page rate limit (app.ratelimit).
+    Rows older than their key's window are pruned when the key is checked."""
+
+    __tablename__ = "rate_limit_events"
+    __table_args__ = (Index("ix_rate_limit_events_key_created_at", "key", "created_at"),)
+
+    id = Column(BigInteger, Identity(), primary_key=True)
+    key = Column(String(320), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class LlmUsage(Base):
     """One OpenAI call: what it was for, which topic, its tokens and cost.
     Written by app.spend_ledger.DbLedger as soon as the call is paid for; the
