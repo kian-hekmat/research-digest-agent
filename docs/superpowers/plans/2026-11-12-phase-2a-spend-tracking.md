@@ -313,7 +313,18 @@ Built inline (executing-plans), one whole-plan review (verdict: ready to merge; 
 
 **Still to do from Task 5:**
 - ~~Set `ALERT_EMAIL`~~ Done 2026-11-12 19:52 PT: set in `.env`, worker recreated. Verified without sending: the worker sees the address, and the SMTP relay accepts a TLS login.
-- After the next daily run, check that `/admin/usage` shows rating, summary and overview rows with non-zero cost per topic, and record the first day's cost here.
+- ~~After the next daily run, check usage rows and record the first day's cost~~ Done 2026-11-16, after the first two-pass cycle (2c). The figures below are from the `llm_usage` rows that `/admin/usage` sums, for 2026-11-13 20:26 ET → 2026-11-16, one ingest-to-send cycle. Every row has non-zero cost and none is estimated.
+
+  | Topic | Ratings | Summaries | Overview | Total |
+  |---|---|---|---|---|
+  | Numerical Analysis (`cat:math.NA`) | 35, $0.0139 | 5, $0.0048 | 1, $0.0020 | $0.0207 |
+  | PINNs | 5, $0.0020 | 5, $0.0046 | 1, $0.0018 | $0.0084 |
+  | RLHF | 0 | 0 | 0 | $0 |
+  | Embeddings (no topic) | | | | 3 calls, $0.0002 |
+
+  - Per unit: a rating costs about $0.0004 (about 490 input and 6 output tokens), a summary about $0.00094 (500 / 125), and an overview about $0.0019 (1.2k / 220).
+  - Prep comes to about $0.0066 per topic per send at K = 5. At weekly sends (v2.2) that's about $0.03 a month per topic. Ratings depend on volume: about $0.0004 per paper.
+  - Month to date (November): $0.35 of the $20 cap.
 
 **Carried forward**
 - Phase 3: `spend_state` doesn't see OpenAI's own hard limit or out-of-credits. Signup reads it to waitlist new topics, so it needs a marker that works even without `ALERT_EMAIL`.

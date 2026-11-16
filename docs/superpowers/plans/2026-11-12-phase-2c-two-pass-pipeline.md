@@ -390,8 +390,15 @@ Built: Tasks 1–2 subagent-driven with a review per task; Tasks 3–6 inline (t
     - Ratings: 4 ×3, 6 ×2, 7 ×8, 8 ×10, 9 ×3, 10 ×3. That's 10% at 10, against about half under the old prompt.
     - 28 new `paper_embeddings`, all `text-embedding-3-small`, which closes the 2b check. No alerts, and no editions yet.
     - Numerical Analysis returned exactly 25, arXiv's per-fetch cap again. It's an admin `cat:` topic, so it's outside the public broad-topic rule, but it does drop papers.
-  - **After Monday 01:00 ET prep:** each topic has a `ready` edition, `llm_usage` has `summary` and `overview` rows, and the first per-topic costs from `/admin/usage` go into the 2a plan.
-  - **At Monday 08:00 ET:** one email with each topic's edition.
+  - ✅ **Prep, verified 2026-11-16** (`scheduled-send-prep-2026-11-16T06:00:00Z` fired on time at 01:00 ET, slot 2026-11-16 13:00Z):
+    - PINNs and Numerical Analysis each got a `ready` edition, window `(2026-11-12 16:00Z, 2026-11-16 06:00Z]`. That window starts at the topics' last send, as designed. Both have K = 5, 5 summaries and an overview. Every paper in the window is ranked into `edition_papers` (PINNs 5 = 4 + 0 + 1 from the three ingests; Numerical Analysis 35 = 25 + 10), and only the top K is summarized.
+    - RLHF had no papers in its window, so prep returned `empty` and stored nothing. That's correct: arXiv's own newest result for the phrase is the Nov 10 paper already stored, and all six ingests since Nov 12 returned 0. Most papers write "RLHF", not the full phrase. The query is the owner's to change.
+    - `llm_usage` gained 10 `summary` rows ($0.0094) and 2 `overview` rows ($0.0038), and no `rating` rows: nothing was left unrated for the re-rating step.
+  - ✅ **Send, verified 2026-11-16, but late:** `scheduled-digest-emails-2026-11-16T13:00:00Z` returned 1, one recipient delivered over Gmail SMTP. Numerical Analysis and PINNs were marked sent; RLHF wasn't, since it had nothing to send.
+    - **It started at 08:36 ET, not 08:00.** The Mac was asleep and the schedule caught up during a 2-second dark wake (`pmset` log, 05:35:51 PT). The slot still came from the fire time, so it was the right one.
+    - **`send_digest_email` took 20 minutes in one attempt** (13:36 → 13:55Z). The host went back to sleep mid-send, and the SMTP call finished at the next dark wake (05:55:45 PT). This is host sleep, not code; the always-on host in Phase 5 removes it.
+    - **RLHF went through the send's prep path:** no edition, so the send ran its prep under the same prep id (`empty` again, no LLM call), then `ensure_edition` wrote a 0-paper `fallback` edition (K = 10, an uncapped subscription). That's harmless, and the next RLHF edition chains from it. A possible tidy-up: have prep store an empty `ready` edition so the send doesn't redo it.
+  - **Per-topic costs** are recorded in the 2a plan's outcome. Prep costs about $0.0066 per topic per send at K = 5, half the cost model's $0.014, because the overview reads only the top K (about 1.2k input tokens, not 9k).
 - **Deferred minors from the final review:**
   - **First-edition window:** a topic's first edition starts at the earliest active `last_sent_at`, so one long-failed subscriber replays weeks of papers. Clamp it to the previous slot.
   - **Overview scope:** the overview covers the top K, so a smaller-cap reader can see it mention papers they don't get (2d's overview redesign).
