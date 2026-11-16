@@ -134,3 +134,22 @@ class UsageReport(BaseModel):
     state: Optional[Literal["ok", "soft", "hard"]] = None
     by_purpose: dict[str, PurposeUsage]
     by_topic: list[TopicUsage]  # most expensive first
+
+
+# ---------- waitlist (admin, phase 3a) ----------
+class WaitlistedSubscriber(BaseModel):
+    id: str
+    email: str
+    waitlisted_at: datetime
+
+
+class WaitlistedSubscription(BaseModel):
+    id: str
+    subscriber_email: str
+    topic: str
+    waitlisted_at: datetime
+
+
+class WaitlistReport(BaseModel):
+    subscribers: list[WaitlistedSubscriber]
+    subscriptions: list[WaitlistedSubscription]

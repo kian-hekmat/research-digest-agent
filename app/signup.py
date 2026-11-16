@@ -166,3 +166,26 @@ def record_signup(
     db.commit()
     db.refresh(sub)
     return "confirm", sub
+
+
+def confirm_subscriber(
+    db: Session, sub: models.Subscriber, signed_at: datetime, now: datetime
+) -> list[str] | None:
+    """Confirm from a link signed at `signed_at`. None: the link predates the
+    person's latest unsubscribe (treat as expired). []: already active, so
+    nothing changes - a repeat can't push back their next digest. Otherwise
+    activate, start every subscription's window now, apply the caps, and
+    return the waitlist reasons. Commits."""
+    from app.waitlist import apply_waitlist
+
+    if sub.unsubscribed_at is not None and signed_at < sub.unsubscribed_at:
+        return None
+    if is_active(sub):
+        return []
+    sub.confirmed_at = now
+    sub.unsubscribed_at = None
+    for s in sub.subscriptions:
+        s.last_sent_at = now
+    reasons = apply_waitlist(db, sub, list(sub.subscriptions), now)
+    db.commit()
+    return reasons

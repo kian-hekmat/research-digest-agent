@@ -103,3 +103,30 @@ def terms(request: Request):
 @router.get("/privacy")
 def privacy(request: Request):
     return web.render(request, "legal.html", title="Privacy policy")
+
+
+def _expired(request: Request):
+    return web.render(request, "expired.html", 400)
+
+
+@router.get("/confirm")
+def confirm_page(request: Request, token: str = "", db: Session = Depends(get_db)):
+    try:
+        tokens.subscriber_for(db, "confirm", token)
+    except tokens.TokenError:
+        return _expired(request)
+    return web.render(request, "confirm.html", token=token)
+
+
+@router.post("/confirm")
+async def confirm_submit(request: Request, db: Session = Depends(get_db)):
+    form = dict(await request.form())
+    web.check_form(request, form.get("csrf"))
+    try:
+        sub, signed_at = tokens.subscriber_for(db, "confirm", form.get("token") or "")
+    except tokens.TokenError:
+        return _expired(request)
+    reasons = signup.confirm_subscriber(db, sub, signed_at, _now())
+    if reasons is None:
+        return _expired(request)
+    return web.render(request, "confirmed.html", reasons=reasons)

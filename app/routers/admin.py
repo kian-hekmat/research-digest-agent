@@ -6,11 +6,11 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app import models, schemas
+from app import crud, models, schemas
 from app.auth import require_admin
 from app.config import get_settings
 from app.database import get_db
@@ -83,3 +83,55 @@ def usage(
         by_purpose=by_purpose,
         by_topic=by_topic,
     )
+
+
+# ---------- waitlist (phase 3a: admitted by hand) ----------
+@router.get("/waitlist", response_model=schemas.WaitlistReport)
+def waitlist(db: Session = Depends(get_db)):
+    """Waitlisted subscribers, and waitlisted subscriptions of subscribers
+    who aren't themselves waitlisted, oldest first."""
+    subscribers = (
+        db.query(models.Subscriber)
+        .filter(models.Subscriber.waitlisted_at.is_not(None))
+        .order_by(models.Subscriber.waitlisted_at)
+        .all()
+    )
+    subscriptions = (
+        db.query(models.Subscription)
+        .join(models.Subscription.subscriber)
+        .filter(models.Subscription.waitlisted_at.is_not(None), models.Subscriber.waitlisted_at.is_(None))
+        .order_by(models.Subscription.waitlisted_at)
+        .all()
+    )
+    return schemas.WaitlistReport(
+        subscribers=[
+            schemas.WaitlistedSubscriber(id=s.id, email=s.email, waitlisted_at=s.waitlisted_at)
+            for s in subscribers
+        ],
+        subscriptions=[
+            schemas.WaitlistedSubscription(
+                id=s.id, subscriber_email=s.subscriber.email, topic=s.topic.name, waitlisted_at=s.waitlisted_at
+            )
+            for s in subscriptions
+        ],
+    )
+
+
+def _admit(db: Session, model, row_id: str) -> Response:
+    row = db.get(model, row_id) if crud._is_valid_uuid(row_id) else None
+    if row is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    row.waitlisted_at = None
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.post("/subscribers/{subscriber_id}/admit", status_code=204)
+def admit_subscriber(subscriber_id: str, db: Session = Depends(get_db)):
+    """Let a waitlisted person in. The caps aren't re-checked: the owner's call."""
+    return _admit(db, models.Subscriber, subscriber_id)
+
+
+@router.post("/subscriptions/{subscription_id}/admit", status_code=204)
+def admit_subscription(subscription_id: str, db: Session = Depends(get_db)):
+    return _admit(db, models.Subscription, subscription_id)
