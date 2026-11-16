@@ -99,7 +99,9 @@ def test_upgrade_merges_and_preserves(alembic_at_head_from_seed):
     assert db.execute(text("select count(*) from subscriptions where topic_id=:a"), {"a": a}).scalar() == 2  # me (once) + other
     assert db.execute(text("select count(*) from topic_paper where topic_id=:a"), {"a": a}).scalar() == 2  # P once, Q
     assert db.execute(text("select count(*) from digests where topic_id=:a"), {"a": a}).scalar() == 1
-    assert {r[0] for r in db.execute(text("select distinct cadence from subscriptions"))} == {"twice_weekly"}
+    # The seed's twice_weekly rows are weekly at head: the upgrade runs
+    # through the v2.2 cadence migration (e5f6a7b8c9db) too.
+    assert {r[0] for r in db.execute(text("select distinct cadence from subscriptions"))} == {"weekly"}
     assert db.execute(text("select count(*) from subscriptions where max_papers is null")).scalar() == 0
     assert db.execute(text("select count(*) from papers")).scalar() == 2
 

@@ -81,7 +81,7 @@ class DigestOut(BaseModel):
 # ---------- Subscription ----------
 class SubscriptionCreate(BaseModel):
     email: EmailStr
-    cadence: SubscriptionCadence = SubscriptionCadence.twice_weekly
+    cadence: SubscriptionCadence = SubscriptionCadence.weekly
     max_papers: Optional[int] = Field(
         None, ge=1, description="Most papers from this topic per email (newest first); omit for no cap"
     )

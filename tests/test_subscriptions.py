@@ -15,7 +15,7 @@ def test_create_subscription(client):
     assert "last_sent_at" in body
 
 
-def test_create_subscription_defaults_to_twice_weekly_with_no_cap(client):
+def test_create_subscription_defaults_to_weekly_with_no_cap(client):
     topic = client.post("/topics", json={"name": "RLHF", "query": "rlhf"}).json()
 
     resp = client.post(
@@ -23,7 +23,7 @@ def test_create_subscription_defaults_to_twice_weekly_with_no_cap(client):
     )
 
     assert resp.status_code == 201
-    assert resp.json()["cadence"] == "twice_weekly"
+    assert resp.json()["cadence"] == "weekly"
     assert resp.json()["max_papers"] is None
 
 

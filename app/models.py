@@ -481,7 +481,7 @@ class Subscription(Base):
     cadence = Column(
         Enum(SubscriptionCadence, name="subscription_cadence"),
         nullable=False,
-        server_default=SubscriptionCadence.twice_weekly.value,
+        server_default=SubscriptionCadence.weekly.value,
     )
     active = Column(Boolean, nullable=False, server_default="true")
     # Cap on papers per topic in one email (highest-ranked kept, see
