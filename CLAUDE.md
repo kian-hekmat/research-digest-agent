@@ -114,7 +114,7 @@ There is no linter or formatter configured. CI (`.github/workflows/ci.yml`) runs
 - Production sends as `Papers Weekly <digest@papersweekly.com>` through Resend SMTP: `smtp.resend.com:587` with STARTTLS, username `resend`, and an API key as the password.
 - `SMTP_FROM_NAME` sets the display name; the SMTP envelope stays the bare address.
 - The domain's SPF, DKIM and DMARC records are in Cloudflare DNS.
-- Replies to `digest@` aren't received.
+- Replies to `digest@` aren't received; the privacy page gives the owner's email as the contact.
 - The Mac's `.env` still uses Gmail SMTP for development.
 
 **Ranking** (`app/services/ranking.py`, used through `app/services/email.py`): 0.6 × relevance + 0.3 × log h-index + 0.1 × novelty, plus up to 0.08 for venue. Missing signals take the batch median. Novelty anchors and every retrieval threshold are per embedding model, in `Settings.retrieval_calibration`. The worker refuses to start without a calibration row for the active model.

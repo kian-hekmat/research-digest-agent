@@ -46,3 +46,11 @@ def test_privacy_policy_says_what_is_stored_and_who_processes_it(anon_client):
         "manage page", "delete",  # how to delete
     ):
         assert phrase in text, phrase
+
+
+def test_privacy_policy_lists_a_contact_address_not_replies(anon_client):
+    """Replies to digest@ aren't received, so the policy gives the owner's
+    address instead (owner's call, 2026-11-17)."""
+    text = anon_client.get("/privacy").text
+    assert "reply to any digest" not in text
+    assert 'href="mailto:kianhekmatnejad@gmail.com"' in text

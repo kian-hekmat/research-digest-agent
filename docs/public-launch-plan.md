@@ -78,6 +78,7 @@ Each built phase's plan and outcome is in `docs/plans/`.
   - **Who processes data:** Hetzner, Resend (sends the email), OpenAI (topics and abstracts only, never addresses) and Cloudflare.
   - **Where data is stored:** in the EU.
   - **Deleting data:** done from the manage page.
+  - **Contact:** the owner's email address, since replies to `digest@` aren't received (2026-11-17).
 - [x] Tests for each change (`tests/test_launch_pages.py`, `tests/test_ingestion.py`); full suite 585 passed. Still to do by hand: a look on a real phone.
 
 ### 3. Production host
@@ -93,10 +94,10 @@ The commands are in `docs/deploy.md`.
   - The API runs uvicorn with `--proxy-headers`, so rate limits see the visitor's IP rather than Caddy's.
   - Covered by `tests/test_prod_config.py`.
 - [x] `Caddyfile`: `papersweekly.com` is served by the API, `/` redirects to `/signup`, and `www` redirects to the bare domain.
-- [x] `.env.production.example`: every value the server's `.env` needs (fresh secrets, Gmail SMTP, Turnstile, `PUBLIC_BASE_URL=https://papersweekly.com`, `ALERT_EMAIL`).
+- [x] `.env.production.example`: every value the server's `.env` needs (fresh secrets, Resend SMTP as Papers Weekly, Turnstile, `PUBLIC_BASE_URL=https://papersweekly.com`, `ALERT_EMAIL`).
 - [x] `scripts/backup.sh`: a nightly `pg_dump -Fc` with 14 days kept on the server. Hetzner Backups are off to save money; the owner copies a dump to the Mac now and then.
 - [x] Prepare the server (2026-11-17): packages updated and rebooted, Docker 29.1, Compose 2.40 and git installed, the repo cloned to `/opt/papersweekly`, and `.env` created (mode 600) with the database password, `SECRET_KEY` and `ADMIN_TOKEN` generated on the server.
-- [x] Fill in the owner's values in the server's `.env` (2026-11-17): OpenAI key, alert email, Gmail username, app password and From address, and the Turnstile keys.
+- [x] Fill in the owner's values in the server's `.env` (2026-11-17): OpenAI key, alert email, the SMTP password and the Turnstile keys. That password was first a Gmail app password; since 2026-11-17 it's the Resend API key.
 - [x] Move the Mac's database by dump and restore (done 2026-11-17). An 8.2 MB dump restored with identical row counts at migration `f0a1b2c3d4e5`. The stack is live at https://papersweekly.com with a Let's Encrypt certificate, and the worker recreated the three schedules. Caddy runs on the host network so IPv6 visitors keep their real address for rate limits. A fresh start would lose:
   - this month's `llm_usage`, so the budget guard would undercount spend;
   - the topic watermarks, so every topic would refetch and re-rate a week of papers;
