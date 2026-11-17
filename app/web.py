@@ -53,7 +53,8 @@ def check_form(request: Request, csrf: str | None) -> None:
 
 
 def client_ip(request: Request) -> str:
-    # Phase 5 adds the trusted proxy (X-Forwarded-For behind Caddy).
+    # In production uvicorn runs with --proxy-headers, so behind Caddy this is
+    # the visitor's address from X-Forwarded-For (docker-compose.prod.yml).
     return request.client.host if request.client else "unknown"
 
 

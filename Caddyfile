@@ -1,0 +1,14 @@
+# Caddy in front of the API (docker-compose.prod.yml). Caddy gets and renews
+# the Let's Encrypt certificates itself; the DNS records must point straight at
+# the server (Cloudflare proxy off, "DNS only") for that to work.
+
+papersweekly.com {
+	encode zstd gzip
+	# The signup page is the home page.
+	redir / /signup
+	reverse_proxy api:8000
+}
+
+www.papersweekly.com {
+	redir https://papersweekly.com{uri} permanent
+}

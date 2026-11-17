@@ -60,11 +60,11 @@ Each built phase's plan and outcome is in `docs/plans/`.
 ### 1. Owner actions (no code)
 
 - [x] Pick a name: **Papers Weekly**, `papersweekly.com` (chosen 2026-11-16). Nothing in the name may imply arXiv endorsement.
-- [ ] Register `papersweekly.com` (Cloudflare Registrar, about $10.50/year at cost).
+- [x] Register `papersweekly.com` (Cloudflare Registrar; done 2026-11-17).
 - [x] Email: stay on Gmail SMTP (no Brevo, no DNS mail records).
 - [x] Cloudflare Turnstile: keys are in `.env` and the running API has loaded them (2026-11-16). Make sure the widget's hostname list includes `papersweekly.com`.
-- [ ] OpenAI: set the project's hard monthly limit to about $55.
-- [ ] Hetzner: create the account and a CX23 in Nuremberg or Helsinki (fallback: the EU ARM plan).
+- [x] OpenAI: set the project's hard monthly limit to about $55 (done 2026-11-17).
+- [ ] Hetzner: create the account and a CX23 in Nuremberg or Helsinki (fallback: the EU ARM plan), with Backups on and a firewall allowing only 22, 80 and 443. Then add the DNS records and the Turnstile hostname. The steps are in `docs/deploy.md` §1.
 
 ### 2. Small code changes (one sitting)
 
@@ -81,36 +81,29 @@ Each built phase's plan and outcome is in `docs/plans/`.
 
 ### 3. Production host
 
-- [ ] `docker-compose.prod.yml`:
+The commands are in `docs/deploy.md`.
+
+- [x] `docker-compose.prod.yml` (2026-11-17):
   - Caddy terminates TLS; only 80/443 are published.
-  - Postgres, Temporal and its UI stay internal; reach the UI over an SSH tunnel.
+  - Postgres and Temporal stay internal; the Temporal UI is reachable only over an SSH tunnel.
   - No `--reload` and no source mounts.
-  - Images are pinned (no `:latest`).
+  - Images are pinned.
   - Exactly one worker.
-- [ ] The server's `.env` holds the real secrets:
-  - fresh `SECRET_KEY`, `ADMIN_TOKEN` and DB password;
-  - the OpenAI key;
-  - the Gmail SMTP settings (`smtp.gmail.com`, port 587, TLS, an app password) with `SMTP_FROM_ADDRESS` set to that Gmail address, since Gmail rewrites any other From;
-  - the Turnstile keys;
-  - `PUBLIC_BASE_URL` set to the domain;
-  - `ALERT_EMAIL`.
-- [ ] Move the data by dump and restore (decided 2026-11-16), not a fresh start. A fresh database would lose:
+  - The API runs uvicorn with `--proxy-headers`, so rate limits see the visitor's IP rather than Caddy's.
+  - Covered by `tests/test_prod_config.py`.
+- [x] `Caddyfile`: `papersweekly.com` is served by the API, `/` redirects to `/signup`, and `www` redirects to the bare domain.
+- [x] `.env.production.example`: every value the server's `.env` needs (fresh secrets, Gmail SMTP, Turnstile, `PUBLIC_BASE_URL=https://papersweekly.com`, `ALERT_EMAIL`).
+- [x] `scripts/backup.sh`: a nightly `pg_dump -Fc` with 14 days kept. Hetzner's server backups carry the dumps off the box.
+- [ ] Prepare the server, then move the Mac's database by dump and restore (decided 2026-11-16). A fresh start would lose:
   - this month's `llm_usage`, so the budget guard would undercount spend;
   - the topic watermarks, so every topic would refetch and re-rate a week of papers;
   - the edition chain and earlier overviews that prep reads;
   - the 90-day novelty history;
   - the owner's own subscription.
 
-  The restore also proves the backups actually work. Steps:
-  1. Pause the schedules and stop the Mac worker.
-  2. Back up with `pg_dump`.
-  3. Optionally delete the dead full-text chunk rows (`paper_embeddings` where `kind = 'chunk'`), about 200 MB of the 222 MB database. This is permanent, so ask the owner first.
-  4. Run `pg_dump -Fc` and restore it on the server.
-  5. Run `alembic upgrade head`.
-  6. Start the worker on a fresh Temporal; it recreates the schedules.
-- [ ] Nightly `pg_dump` cron, copied off the box and kept for 14 days.
-- [ ] Deploys: `git pull && docker-compose -f docker-compose.prod.yml up -d --build`, then migrations. Stop the worker first when a deploy changes a workflow.
-- [ ] Stop the Mac stack once the server is live, so two workers never send.
+  Optionally, delete the dead full-text chunk rows first (`paper_embeddings` where `kind = 'chunk'`, about 200 MB of the 222 MB). This is permanent, so ask the owner first.
+- [ ] Install the backup cron and run it once by hand.
+- [ ] Stop the Mac worker for good once the server is live, so two workers never send.
 
 ### 4. Smoke test and invite
 

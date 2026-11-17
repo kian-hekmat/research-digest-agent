@@ -1,0 +1,103 @@
+# Production stack for papersweekly.com (launch plan v3, section 3).
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Only Caddy is reachable from the internet (80/443). Postgres, Temporal and
+# the API sit on the compose network; the Temporal UI is published on the
+# server's loopback only, for an SSH tunnel (docs/deploy.md). Secrets come
+# from the server's .env (template: .env.production.example), never this file.
+# Images are pinned; the app image is built from this checkout.
+
+services:
+  db:
+    restart: unless-stopped
+    image: pgvector/pgvector:0.8.1-pg16-trixie
+    environment:
+      POSTGRES_USER: digest_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: digest_db
+    volumes:
+      - digest_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U digest_user -d digest_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  temporal:
+    restart: unless-stopped
+    # temporal CLI 1.9.0 (Server 1.32.0, UI 2.54.1): the build the local
+    # stack runs, pinned by digest.
+    image: temporalio/admin-tools@sha256:a9f84fb9a374b2374fe2e67c8efc0468ff3f1c66c8a0b14597ec86e349e62bca
+    # --db-filename keeps schedules and their missed-run bookkeeping on the
+    # temporal_data volume across restarts (see docker-compose.yml).
+    command: >
+      temporal server start-dev
+      --ip 0.0.0.0
+      --port 7233
+      --ui-port 8233
+      --db-filename /home/temporal/temporal.db
+    ports:
+      - "127.0.0.1:8233:8233"   # UI, over an SSH tunnel only
+    volumes:
+      - temporal_data:/home/temporal
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "localhost:7233"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  api:
+    restart: unless-stopped
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://digest_user:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/digest_db
+      TEMPORAL_ADDRESS: temporal:7233
+    # --proxy-headers: the client IP (rate limits) and https scheme come from
+    # Caddy's X-Forwarded-* headers. Trusting any peer is safe because the api
+    # publishes no port: only containers on this network, i.e. Caddy, reach it.
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+      --proxy-headers --forwarded-allow-ips *
+
+  worker:
+    restart: unless-stopped
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://digest_user:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/digest_db
+      TEMPORAL_ADDRESS: temporal:7233
+    # Exactly one worker: arXiv's one-request-at-a-time gate is per process.
+    command: python -m app.worker
+
+  caddy:
+    restart: unless-stopped
+    image: caddy:2.8.4-alpine
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data     # TLS certificates
+      - caddy_config:/config
+
+volumes:
+  digest_pg_data:
+  temporal_data:
+  caddy_data:
+  caddy_config:
