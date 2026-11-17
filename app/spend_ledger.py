@@ -81,8 +81,8 @@ class DbLedger:
         self._alert = alert
 
     def allow(self, purpose: str) -> bool:
-        """Embeddings always run (they cost a fraction of a cent and ranking,
-        previews and suggestions depend on them); chat calls stop at 100%."""
+        """Embeddings always run (they cost a fraction of a cent and ranking
+        depends on them); chat calls stop at 100%."""
         if purpose == "embedding":
             return True
         db = SessionLocal()

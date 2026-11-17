@@ -229,9 +229,6 @@ class Paper(Base):
     # looked up yet, or not indexed yet (fresh papers lag a day or so).
     max_author_h_index = Column(Integer, nullable=True)
     # --- retrieval (app.services.retrieval) ---
-    # Unused since 2026-11-16 (LLM related-work notes were removed: 5 of 19
-    # misdescribed the cited paper). Kept so no migration is needed.
-    related_note = Column(Text, nullable=True)
     # Highest cosine similarity to an earlier-published, topic-linked paper
     # within the novelty window - low = novel. NULL = not computed, or nothing
     # earlier to compare with.
@@ -241,10 +238,6 @@ class Paper(Base):
     near_duplicate_of_id = Column(
         UUID(as_uuid=False), ForeignKey("papers.id", ondelete="SET NULL"), nullable=True
     )
-    # Unused since 2026-11-16: full-text fetching was removed (arXiv's terms;
-    # the code is in git history). Kept so no migration is needed.
-    fulltext_status = Column(String(16), nullable=True)
-    fulltext_checked_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -272,27 +265,6 @@ class Paper(Base):
 
 
 EMBEDDING_DIM = 768  # vector(N) width; app.config.Settings.embedding_dim must match
-
-
-class TopicEmbedding(Base):
-    """A topic's normalized query, embedded. Unused since 2026-11-16: it was
-    for "join the existing topic?" suggestions, cut from the launch plan
-    (no calibrated threshold for text-embedding-3-small). The table stays so
-    no migration is needed."""
-
-    __tablename__ = "topic_embeddings"
-
-    topic_id = Column(
-        UUID(as_uuid=False),
-        ForeignKey("topics.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-    model = Column(String, primary_key=True)
-    content = Column(Text, nullable=False)  # exactly the text that was embedded
-    embedding = Column(Vector(EMBEDDING_DIM), nullable=False)
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
 
 
 class PaperEmbedding(Base):
@@ -512,7 +484,7 @@ class Subscription(Base):
 
 # Purposes an OpenAI call can be recorded under (app.services.spend.PURPOSES;
 # duplicated here so the check constraint doesn't import the service layer).
-LLM_USAGE_PURPOSES = ("rating", "summary", "overview", "embedding", "preview")
+LLM_USAGE_PURPOSES = ("rating", "summary", "overview", "embedding")
 
 
 class RateLimitEvent(Base):

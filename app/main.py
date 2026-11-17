@@ -1,21 +1,34 @@
 from fastapi import FastAPI
 
+from app.config import Settings, get_settings
 from app.routers import admin, topics, papers, digests, subscriptions, public
 
-app = FastAPI(
-    title="Research Digest & Alert Agent",
-    description="Tracks arXiv topics, summarizes new papers, and generates digests on a schedule.",
-    version="0.1.0",
-)
 
-app.include_router(topics.router)
-app.include_router(papers.router)
-app.include_router(digests.router)
-app.include_router(subscriptions.router)
-app.include_router(admin.router)
-app.include_router(public.router)
+def create_app(settings: Settings | None = None) -> FastAPI:
+    """The API: the public pages plus the token-protected admin JSON API.
+    With API_DOCS=false (production) there is no /docs, /redoc or
+    /openapi.json."""
+    settings = settings or get_settings()
+    docs = settings.api_docs
+    app = FastAPI(
+        title="Papers Weekly",
+        description="Public signup pages and the admin API for papersweekly.com.",
+        docs_url="/docs" if docs else None,
+        redoc_url="/redoc" if docs else None,
+        openapi_url="/openapi.json" if docs else None,
+    )
+    app.include_router(topics.router)
+    app.include_router(papers.router)
+    app.include_router(digests.router)
+    app.include_router(subscriptions.router)
+    app.include_router(admin.router)
+    app.include_router(public.router)
+
+    @app.get("/health")
+    def health():
+        return {"status": "ok"}
+
+    return app
 
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+app = create_app()

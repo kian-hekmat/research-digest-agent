@@ -17,7 +17,7 @@ from typing import Protocol
 
 import httpx
 
-PURPOSES = ("rating", "summary", "overview", "embedding", "preview")
+PURPOSES = ("rating", "summary", "overview", "embedding")
 
 # 429 error codes meaning OpenAI won't take more paid calls: a project's or
 # organization's hard monthly spend limit is reached, or the account is out

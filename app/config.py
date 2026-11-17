@@ -224,6 +224,10 @@ class Settings(BaseSettings):
     # sends the bare address.
     smtp_from_name: str = ""
 
+    # Interactive API docs (/docs, /redoc, /openapi.json). Off in production:
+    # they show the admin API's shape.
+    api_docs: bool = True
+
     # --- public signup and self-service ---
     # Signs confirm/manage/unsubscribe/csrf links (app.tokens). Public routes
     # return 503 while it's empty: fail closed.

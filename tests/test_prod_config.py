@@ -106,6 +106,7 @@ def test_env_template_lists_every_secret_without_values():
     ):
         assert keys.get(key, None) == "", key
     assert keys["PUBLIC_BASE_URL"] == "https://papersweekly.com"
+    assert keys["API_DOCS"] == "false"  # no public /docs in production
     # Mail goes out through Resend as Papers Weekly <digest@papersweekly.com>
     # (owner's call, 2026-11-17; the API key is the SMTP password).
     assert keys["SMTP_HOST"] == "smtp.resend.com"
