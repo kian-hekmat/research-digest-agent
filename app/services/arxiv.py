@@ -1,8 +1,8 @@
 """arXiv Atom API client.
 
 One function, `search_arxiv`, returning the most recently submitted papers for a
-query. No DB or framework imports, so Phase 3 can call it straight from a
-Temporal Activity.
+query. No DB or framework imports, so a Temporal activity can call it
+directly.
 """
 from __future__ import annotations
 

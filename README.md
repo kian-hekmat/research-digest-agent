@@ -191,5 +191,4 @@ venv/bin/python -m pytest -q       # 595 tests; needs the local Postgres
 
 - [`docs/public-launch-plan.md`](docs/public-launch-plan.md): the launch plan. It covers what's done, what was cut to launch lean, and what's deferred.
 - [`docs/rag-plan.md`](docs/rag-plan.md): the retrieval work, every measurement and the decision it led to.
-- [`docs/plans/`](docs/plans/): each built phase's plan and design, with its outcome.
 - [`docs/deploy.md`](docs/deploy.md): the production runbook.

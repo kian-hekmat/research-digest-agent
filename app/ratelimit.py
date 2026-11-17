@@ -1,5 +1,5 @@
 """Rate limits for the public pages, stored in Postgres so they survive
-restarts and hold across app workers (phase 3a). A limit is "at most N rows
+restarts and hold across app workers. A limit is "at most N rows
 for this key inside the window"; each allowed request adds a row."""
 from __future__ import annotations
 

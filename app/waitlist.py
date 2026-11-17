@@ -1,5 +1,5 @@
-"""The one cap check for public subscribers (phase 3a; owner's call: a
-simple, hand-admitted waitlist). Called at confirmation, when a topic is
+"""The one cap check for public subscribers: a simple, hand-admitted
+waitlist. Called at confirmation, when a topic is
 added, on resume and on re-subscribe, so leaving and coming back can't get
 around a cap. Admitting is by hand (admin API); nothing auto-admits."""
 from __future__ import annotations

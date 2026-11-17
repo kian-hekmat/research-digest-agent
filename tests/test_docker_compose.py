@@ -57,7 +57,7 @@ def test_every_service_restarts_with_docker():
 
 
 def test_worker_receives_the_summarization_settings():
-    """The worker is what runs summarize_paper. Settings it isn't passed fall
+    """The worker is what calls OpenAI. Settings it isn't passed fall
     back to their defaults silently - summaries just stay off."""
     block = _service_block(COMPOSE_PATH.read_text(), "worker")
     code_only = "\n".join(line for line in block.splitlines() if not line.strip().startswith("#"))

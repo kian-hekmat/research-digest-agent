@@ -256,24 +256,6 @@ def list_digests(db: Session, skip: int = 0, limit: int = 50) -> list[models.Dig
     return db.query(models.Digest).offset(skip).limit(limit).all()
 
 
-def list_completed_digests_since(
-    db: Session, topic_id: str, since: datetime
-) -> list[models.Digest]:
-    """Digests for a topic that *completed* after `since`, oldest first - the
-    window an email delivery covers. Keyed on completed_at, not generated_at,
-    so a digest still running during one send goes out with the next."""
-    return (
-        db.query(models.Digest)
-        .filter(
-            models.Digest.topic_id == topic_id,
-            models.Digest.status == models.DigestStatus.completed,
-            models.Digest.completed_at > since,
-        )
-        .order_by(models.Digest.completed_at)
-        .all()
-    )
-
-
 def recent_overviews(
     db: Session, topic_id: str, *, exclude_digest_id: str | None, limit: int
 ) -> list[tuple[datetime, str]]:

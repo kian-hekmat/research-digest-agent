@@ -1,0 +1,77 @@
+<h2>The signup page: one page or two steps?</h2>
+<p class="subtitle">The plan has one public site, plain and fast (server-rendered, works on a phone, light and dark). Signup is the page that matters most. Here are two ways to lay it out, using real papers from your PINNs topic. Click the one that feels closer.</p>
+
+<div class="split">
+
+  <div class="mockup">
+    <div class="mockup-header">A · Everything on one page</div>
+    <div class="mockup-body" style="font-size:14px;line-height:1.45">
+      <div style="font-weight:700;font-size:18px">[Name TBD]</div>
+      <div style="opacity:.8;margin-bottom:12px">A twice-weekly email on new research in the topics you follow: where the field went, and the papers worth reading. Free. For US residents.</div>
+
+      <div class="label">Your email</div>
+      <input class="mock-input" placeholder="you@example.com" style="width:100%;margin-bottom:10px">
+
+      <div class="label">Topics (up to 5)</div>
+      <div style="border:1px solid rgba(128,128,128,.4);border-radius:6px;padding:8px;margin-bottom:6px">
+        <input class="mock-input" value="physics-informed neural networks" style="width:100%">
+        <div style="font-size:12px;margin-top:6px;opacity:.85">Papers per email: <b>5</b> ▾ &nbsp;·&nbsp; Your label: <i>PINNs</i></div>
+        <div style="font-size:12px;margin-top:6px;padding:6px;background:rgba(128,128,128,.12);border-radius:4px">
+          <b>Recent matches</b> (about 25 in the last week)<br>
+          · On the Global Convergence of Stochastic Adam for PINNs<br>
+          · PINNs in the small-data regime: a controlled comparison…<br>
+          · Block-Sparse Gauss-Newton Optimization of Finite Basis PINNs
+        </div>
+      </div>
+      <div style="border:1px dashed rgba(128,128,128,.5);border-radius:6px;padding:8px;margin-bottom:10px">
+        <input class="mock-input" value="human feedback reward models" style="width:100%">
+        <div style="font-size:12px;margin-top:6px;padding:6px;background:rgba(255,200,0,.15);border-radius:4px">
+          Someone already follows a similar topic: <b>reinforcement learning from human feedback</b>. <u>Join it</u> · keep mine
+        </div>
+      </div>
+      <div style="font-size:12px;margin-bottom:8px">+ Add another topic</div>
+      <div style="font-size:12px;margin-bottom:10px">☐ I live in the US and agree to the <u>terms</u> and <u>privacy policy</u></div>
+      <button class="mock-button">Send me a confirmation email</button>
+      <div style="font-size:12px;opacity:.7;margin-top:8px">Digests arrive Monday and Thursday mornings.</div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">B · Topics first, then email</div>
+    <div class="mockup-body" style="font-size:14px;line-height:1.45">
+      <div style="font-size:12px;opacity:.7">Step 1 of 2</div>
+      <div style="font-weight:700;font-size:18px;margin-bottom:8px">What do you want to follow?</div>
+      <input class="mock-input" value="physics-informed neural networks" style="width:100%">
+      <div style="font-size:12px;margin-top:8px;padding:8px;background:rgba(128,128,128,.12);border-radius:4px">
+        <b>What you'd get this week</b> — about 25 papers, the best 5 in each email:<br>
+        · On the Global Convergence of Stochastic Adam for PINNs<br>
+        · PINNs in the small-data regime: a controlled comparison…<br>
+        · Block-Sparse Gauss-Newton Optimization of Finite Basis PINNs<br>
+        · Residual-Corrected PINN KKL Observers…
+      </div>
+      <div style="font-size:12px;margin:8px 0">Papers per email: <b>5</b> ▾</div>
+      <div style="font-size:12px;opacity:.8;margin-bottom:10px">Added: <span style="border:1px solid rgba(128,128,128,.5);border-radius:10px;padding:1px 8px">PINNs ✕</span> &nbsp; + add another (up to 5)</div>
+      <button class="mock-button">Next</button>
+      <hr style="margin:14px 0;opacity:.3">
+      <div style="font-size:12px;opacity:.7">Step 2 of 2</div>
+      <div style="font-weight:700;margin-bottom:6px">Where should we send it?</div>
+      <input class="mock-input" placeholder="you@example.com" style="width:100%;margin-bottom:8px">
+      <div style="font-size:12px;margin-bottom:8px">☐ I live in the US and agree to the terms and privacy policy</div>
+      <button class="mock-button">Send me a confirmation email</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="options" style="margin-top:16px">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content"><h3>One page</h3><p>Fastest for someone who already knows what they want. Busier, especially with several topics and their previews.</p></div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content"><h3>Two steps</h3><p>Leads with the interesting part: "here's what you'd get". Asks for the email only once they're hooked. One extra click.</p></div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:16px">Other pages in the plan, all simple text pages: landing (what it is, a sample digest, how papers are ranked), "check your inbox", confirmed, waitlisted, manage (edit topics and paper counts, pause, delete my data), unsubscribed, terms, privacy. The email itself is the next screen.</p>

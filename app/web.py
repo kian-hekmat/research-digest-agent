@@ -1,4 +1,4 @@
-"""Shared plumbing for the public pages (phase 3a): templates, CSRF and
+"""Shared plumbing for the public pages: templates, CSRF and
 Origin checks, fail-closed on a missing secret, and Turnstile."""
 from __future__ import annotations
 

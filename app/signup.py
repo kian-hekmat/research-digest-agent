@@ -1,4 +1,4 @@
-"""Public signup and self-service state changes (phase 3a). The routes in
+"""Public signup and self-service state changes. The routes in
 app.routers.public parse forms and render; everything that touches the
 database for a subscriber lives here."""
 from __future__ import annotations

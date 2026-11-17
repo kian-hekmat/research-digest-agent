@@ -1,4 +1,4 @@
-"""Signed links for the public pages (phase 3a).
+"""Signed links for the public pages.
 
 Every link is an itsdangerous URL-safe timed token signed with
 `settings.secret_key`, salted with its purpose so one kind can't stand in

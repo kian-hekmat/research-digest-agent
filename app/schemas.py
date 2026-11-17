@@ -136,7 +136,7 @@ class UsageReport(BaseModel):
     by_topic: list[TopicUsage]  # most expensive first
 
 
-# ---------- waitlist (admin, phase 3a) ----------
+# ---------- waitlist (admin) ----------
 class WaitlistedSubscriber(BaseModel):
     id: str
     email: str

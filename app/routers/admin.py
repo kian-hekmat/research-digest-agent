@@ -85,7 +85,7 @@ def usage(
     )
 
 
-# ---------- waitlist (phase 3a: admitted by hand) ----------
+# ---------- waitlist (admitted by hand) ----------
 @router.get("/waitlist", response_model=schemas.WaitlistReport)
 def waitlist(db: Session = Depends(get_db)):
     """Waitlisted subscribers, and waitlisted subscriptions of subscribers

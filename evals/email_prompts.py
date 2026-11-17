@@ -1,5 +1,5 @@
-"""Eval of the phase 2d email prompts (docs/plans/
-2026-11-16-phase-2d-picks-first-email-design.md, Round 1).
+"""Eval of the picks-first email prompts (blurb, overview and picks; not wired
+into production yet; docs/rag-plan.md §5.11).
 
     venv/bin/python -m evals.email_prompts [--pairs 20] [--seed 1]
 

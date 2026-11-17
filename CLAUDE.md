@@ -27,9 +27,8 @@ It's a small public service for 5–10 invited readers first.
   - from the plan: 3b (topic preview and suggestions) and 2e (load rehearsal);
   - from the code, and still in git history: full text, LLM related-work notes, rating anchors, the "compare" overview style and the Ollama backends.
 - **Docs:**
-  - `docs/public-launch-plan.md` (v3, lean): the launch checklist, plus what was cut or deferred and why. Read it before starting new work.
+  - `docs/public-launch-plan.md` (v3, lean): the launch checklist, what was cut or deferred and why, and the notes for the picks-first email (2d Round 2). Read it before starting new work. Per-phase plans were deleted on 2026-11-17; they're in git history.
   - `docs/deploy.md`: the server runbook.
-  - `docs/plans/`: each built phase's plan and design, each ending with an "Outcome / Carried forward" section.
   - `docs/rag-plan.md`: every retrieval and prompt measurement and the decision it led to.
 
 ## Commands

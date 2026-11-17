@@ -527,7 +527,7 @@ class PrepEditionsWorkflow:
 
 @workflow.defn
 class SendAccountEmailWorkflow:
-    """One confirmation or manage-link email (phase 3a), retried like a
+    """One confirmation or manage-link email, retried like a
     digest send. Started by the public pages' background task."""
 
     @workflow.run

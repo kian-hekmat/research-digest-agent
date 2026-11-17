@@ -3,8 +3,7 @@
     venv/bin/python -m evals.ranking [--report evals/results/<run>.json]
 
 For each topic, scores its reference-labeled papers the way an email would
-(one batch, signals imputed from the batch median) under several relevance
-schemes. It then measures how well each ordering puts the papers the
+(one batch, signals imputed from the batch median) under a few schemes. It then measures how well each ordering puts the papers the
 reference labels call central first. No model calls: relevance comes from a
 saved `evals.rag run` report (by default the combined summarize+rate call,
 which is what production uses for new papers), and the other signals
@@ -31,13 +30,13 @@ from sqlalchemy import text
 
 from app.database import SessionLocal
 from app.services.email import PaperForEmail
-from app.services.ranking import GATED, GRADED, score_papers, venue_score
+from app.services.ranking import score_papers, venue_score
 from evals import metrics
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 OFF_TOPIC_MAX = 3  # reference label <= this is off topic
 KS = (5, 10)
-SCHEMES = ("graded", "gated", "signals only", "relevance only")
+SCHEMES = ("graded", "signals only", "relevance only")
 
 
 def _latest_report() -> Path:
@@ -78,11 +77,9 @@ def load(report: Path, source: str) -> dict[str, list[tuple[PaperForEmail, int]]
 def order(items: list[tuple[PaperForEmail, int]], scheme: str) -> list[tuple[PaperForEmail, int]]:
     papers = [p for p, _ in items]
     if scheme == "graded":
-        scores = score_papers(papers, GRADED)
-    elif scheme == "gated":
-        scores = score_papers(papers, GATED)
+        scores = score_papers(papers)
     elif scheme == "signals only":  # no relevance at all
-        scores = score_papers([replace(p, relevance=None) for p in papers], GRADED)
+        scores = score_papers([replace(p, relevance=None) for p in papers])
     elif scheme == "relevance only":
         scores = [float(p.relevance) if p.relevance is not None else 0.0 for p in papers]
     else:
@@ -134,7 +131,7 @@ def main(argv=None) -> None:
             "n": len(items),
             "on_topic": sum(r > OFF_TOPIC_MAX for _, r in items),
             "schemes": {s: evaluate(items, s) for s in SCHEMES},
-            "gated_minus_graded_ndcg@10_95ci": bootstrap_diff(items, "graded", "gated", "ndcg@10"),
+            "graded_minus_relevance_only_ndcg@10_95ci": bootstrap_diff(items, "relevance only", "graded", "ndcg@10"),
         }
     means = {}
     for s in SCHEMES:
@@ -150,7 +147,7 @@ def main(argv=None) -> None:
         for s in SCHEMES:
             v = t["schemes"][s]
             print(f"  {s:<16}" + "".join(f"{(round(x, 3) if isinstance(x, float) else x):>19}" for x in v.values()))
-        print(f"  gated - graded NDCG@10, 95% bootstrap interval: {t['gated_minus_graded_ndcg@10_95ci']}\n")
+        print(f"  graded - relevance only NDCG@10, 95% bootstrap interval: {t['graded_minus_relevance_only_ndcg@10_95ci']}\n")
     print("Mean over topics")
     print("  " + header)
     for s in SCHEMES:

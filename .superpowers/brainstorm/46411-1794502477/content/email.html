@@ -1,0 +1,89 @@
+<h2>The email: how should it sell the papers?</h2>
+<p class="subtitle">On the left is the email today: a real PINNs overview and summaries from your database. On the right are two directions for the redesign. Their wording is my illustrative rewrite of the same papers' abstracts, not model output yet. Click the direction that feels closer, or tell me what to mix.</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Today (for reference)</div>
+    <div class="mockup-body" style="font-size:13px;line-height:1.45">
+      <div style="font-weight:700;font-size:16px">PINNs - 4 new papers</div>
+      <p style="font-style:italic;opacity:.9">This batch pushes PINNs into regimes where the main challenge is not just solving a PDE, but extracting a trustworthy solution, a stable decomposition, or even an interpretable law from sparse or indirect information. One striking thread is the move toward hybrid pipelines that pair neural residual minimization with more classical machinery: staged Fourier projection and Newton polishing to reach near-roundoff accuracy, projection-based inner iterations for coupled flow variables, and symbolic regression… <span style="opacity:.6">(+ 5 more sentences)</span></p>
+      <div style="font-weight:600">Nov 6</div>
+      <p><b>Rigorously Certified Neural-Network Computation of Nonlinear Water Waves at Near-Machine Precision</b><br>
+      The paper tackles strongly nonlinear periodic gravity-capillary traveling water waves and uses physics-informed neural networks as a search mechanism to discover candidate solutions directly from the governing equations without training data. A staged training, Fourier projection, and Newton polishing procedure drives… <span style="opacity:.6">(+ 2 more sentences)</span><br>
+      <u>arxiv.org/abs/2611.07395</u></p>
+      <p><b>Projection-based segregated, iterative, and multi-stage physics-informed neural network for incompressible Navier-stokes equations</b><br>
+      The paper addresses the difficulty of training standard monolithic physics-informed neural networks… <span style="opacity:.6">(+ 3 more sentences)</span></p>
+      <p style="opacity:.6">No unsubscribe or manage links.</p>
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-header">What's different in both new directions</div>
+    <div class="mockup-body" style="font-size:13px;line-height:1.5">
+      <ul style="margin:0;padding-left:18px">
+        <li><b>The overview is shorter</b> (about 80–120 words, not 200+) and states concrete findings.</li>
+        <li><b>Every finding cites its paper</b> as a link, even a paper outside this reader's top 5.</li>
+        <li><b>Each paper leads with why it's worth reading</b> in one line, then two sentences on what it did. No more "The paper addresses…" openers.</li>
+        <li><b>Footer</b>: manage topics · unsubscribe · arXiv thanks.</li>
+        <li>Summaries are written from abstracts only at launch, so findings are limited to what the abstract states.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="split" style="margin-top:16px">
+
+  <div class="mockup">
+    <div class="mockup-header">1 · Overview first, then the papers</div>
+    <div class="mockup-body" style="font-size:13px;line-height:1.5">
+      <div style="font-weight:700;font-size:16px">PINNs · Nov 10–13</div>
+      <div style="font-size:12px;opacity:.7;margin-bottom:6px">18 new papers this period · your top 5 below</div>
+      <p>PINNs are increasingly one step in a pipeline rather than the whole solver. The sharpest example finds nonlinear water waves with a PINN, polishes them with Newton's method, then certifies the result with interval arithmetic and checks the proof in Lean (<u>2611.07395</u>). Others add classical structure to get past training failures: separate velocity and pressure networks for Navier–Stokes (<u>2611.07387</u>), and an architecture built around a domain's holes, where a standard PINN fails outright (<u>2611.05276</u>).</p>
+      <hr style="opacity:.3">
+      <p><b>1. Rigorously Certified Neural-Network Computation of Nonlinear Water Waves…</b><br>
+      <span style="color:#2a7">Why read it: a neural network's answer, rigorously certified and machine-checked, which is rare in this field.</span><br>
+      Finds Stokes waves, Crapper waves and Wilton ripples from the equations alone, with residuals driven to near round-off. The final solution is certified with interval arithmetic and the verification formalized in Lean.<br>
+      <u>arxiv.org/abs/2611.07395</u></p>
+      <p><b>2. Projection-based segregated… PINN for incompressible Navier–Stokes</b><br>
+      <span style="color:#2a7">Why read it: a practical fix if your PINNs stall on pressure–velocity coupling.</span><br>
+      Splits momentum and pressure correction into separate networks joined by projection steps, and trains in stages. Converges better than standard PINNs on lid-driven cavity flow and Kolmogorov flow.<br>
+      <u>arxiv.org/abs/2611.07387</u></p>
+      <p style="opacity:.6">3–5 …</p>
+      <div style="font-size:11px;opacity:.65;border-top:1px solid rgba(128,128,128,.3);padding-top:6px">Manage your topics · Unsubscribe · Thank you to arXiv for use of its open access interoperability.</div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">2 · "Start here" picks, then overview, then the rest</div>
+    <div class="mockup-body" style="font-size:13px;line-height:1.5">
+      <div style="font-weight:700;font-size:16px">PINNs · Nov 10–13</div>
+      <div style="padding:8px;border-radius:6px;background:rgba(42,170,119,.12);margin:6px 0 10px">
+        <div class="label">Start here</div>
+        <b>Rigorously Certified Neural-Network Computation of Nonlinear Water Waves…</b><br>
+        A PINN's solution, certified with interval arithmetic and checked in Lean. <u>Read</u><br><br>
+        <b>De Rham cohomological architectures for PINNs…</b><br>
+        Where a standard PINN fails on domains with holes, a topology-aware one succeeds. <u>Read</u>
+      </div>
+      <div class="label">The period in brief</div>
+      <p>PINNs are increasingly one step in a pipeline rather than the whole solver… (<u>2611.07395</u>) … (<u>2611.07387</u>) … (<u>2611.05276</u>).</p>
+      <hr style="opacity:.3">
+      <div class="label">Also new</div>
+      <p><b>Projection-based segregated… PINN for incompressible Navier–Stokes</b><br>
+      Separate velocity and pressure networks; better convergence than standard PINNs. <u>arXiv</u></p>
+      <p><b>Solving the Nonlinear Westervelt Equation… Using PINNs</b><br>
+      Ultrasound propagation in 1D; residuals reach 10⁻⁶. <u>arXiv</u></p>
+      <div style="font-size:11px;opacity:.65;border-top:1px solid rgba(128,128,128,.3);padding-top:6px">Manage your topics · Unsubscribe · Thank you to arXiv for use of its open access interoperability.</div>
+    </div>
+  </div>
+
+</div>
+
+<div class="options" style="margin-top:16px">
+  <div class="option" data-choice="1" onclick="toggleSelect(this)">
+    <div class="letter">1</div>
+    <div class="content"><h3>Overview first</h3><p>The overview carries the email, with findings linked inline. Every paper gets a "why read it" line and a short summary. Closest to today, but tighter.</p></div>
+  </div>
+  <div class="option" data-choice="2" onclick="toggleSelect(this)">
+    <div class="letter">2</div>
+    <div class="content"><h3>Picks first</h3><p>Two "start here" papers up top with one-line hooks, then the overview, then the rest kept brief. Most direct at selling papers; the overview is no longer the first thing they read.</p></div>
+  </div>
+</div>

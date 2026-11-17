@@ -76,7 +76,7 @@ class TopicSection:
 
 @dataclass
 class EmailLinks:
-    """A recipient's self-service links (phase 3a): the List-Unsubscribe
+    """A recipient's self-service links: the List-Unsubscribe
     target (all topics), the manage page, and one unsubscribe per topic id."""
 
     manage_url: str

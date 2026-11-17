@@ -139,21 +139,6 @@ def _sent(route):
 
 
 @respx.mock
-def test_summarize_paper_posts_a_chat_request():
-    route = respx.post(OPENAI_TEST_CHAT).mock(return_value=openai_reply("  A summary.\n"))
-
-    out = Summarizer(settings=_settings()).summarize_paper("Some Title", "Some abstract.")
-
-    assert out == "A summary."
-    body = _sent(route)
-    assert body["model"] == "test-model"
-    assert body["max_completion_tokens"] == 400
-    system, user = body["messages"]
-    assert system["role"] == "system" and "3-4 sentences" in system["content"]
-    assert user == {"role": "user", "content": "Title: Some Title\n\nAbstract: Some abstract."}
-
-
-@respx.mock
 def test_write_overview_numbers_the_summaries():
     route = respx.post(OPENAI_TEST_CHAT).mock(return_value=openai_reply("Synthesized overview."))
 
@@ -173,7 +158,6 @@ def test_every_method_is_a_no_op_when_summaries_are_off():
     summarizer = Summarizer(settings=_settings(summary_backend="none"))
 
     with respx.mock:
-        assert summarizer.summarize_paper("T", "A") is None
         assert summarizer.write_overview("RLHF", ["a summary"]) is None
         assert summarizer.rate_relevance("T", "A", "RLHF", "rlhf") is None
         rated = summarizer.summarize_and_rate("T", "A", "RLHF", "rlhf")
@@ -255,35 +239,18 @@ def test_trailing_slash_in_base_url():
     route = respx.post(OPENAI_TEST_CHAT).mock(return_value=openai_reply("ok"))
     settings = _settings(openai_base_url="http://openai.test/v1/")
 
-    Summarizer(settings=settings).summarize_paper("T", "A")
+    Summarizer(settings=settings).rate_relevance("T", "A", "RLHF", "rlhf")
 
     assert route.called
 
 
-OPENAI_CHAT = "http://openai.test/v1/chat/completions"
-
-
-def _openai_settings(**overrides):
-    values = {
-        "summary_backend": "openai",
-        "openai_api_key": "test-key",
-        "openai_base_url": "http://openai.test/v1/",
-        "openai_model": "test-model",
-    }
-    return Settings(**{**values, **overrides})
-
-
-def _openai_reply(text):
-    return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": text}}]})
-
-
 @respx.mock
 def test_openai_request_and_reply():
-    route = respx.post(OPENAI_CHAT).mock(return_value=_openai_reply("  A summary.\n"))
+    route = respx.post(OPENAI_TEST_CHAT).mock(return_value=openai_reply("  A summary.\n"))
 
-    out = Summarizer(settings=_openai_settings()).summarize_paper("Some Title", "Some abstract.")
+    out = Summarizer(settings=_settings()).summarize_and_rate("Some Title", "Some abstract.", "RLHF", "rlhf")
 
-    assert out == "A summary."
+    assert out.summary == "A summary."
     request = route.calls.last.request
     assert request.headers["authorization"] == "Bearer test-key"
     body = json.loads(request.content)
@@ -296,9 +263,9 @@ def test_openai_request_and_reply():
 
 @respx.mock
 def test_openai_rated_summary_parses():
-    respx.post(OPENAI_CHAT).mock(return_value=_openai_reply("Relevance: 8\n\nA tight summary."))
+    respx.post(OPENAI_TEST_CHAT).mock(return_value=openai_reply("Relevance: 8\n\nA tight summary."))
 
-    out = Summarizer(settings=_openai_settings()).summarize_and_rate("T", "A", "RLHF", "rlhf")
+    out = Summarizer(settings=_settings()).summarize_and_rate("T", "A", "RLHF", "rlhf")
 
     assert out.summary == "A tight summary."
     assert out.relevance == 8
@@ -306,20 +273,20 @@ def test_openai_rated_summary_parses():
 
 @respx.mock
 def test_openai_without_a_key_raises_before_any_request():
-    route = respx.post(OPENAI_CHAT).mock(return_value=_openai_reply("unused"))
+    route = respx.post(OPENAI_TEST_CHAT).mock(return_value=openai_reply("unused"))
 
     with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
-        Summarizer(settings=_openai_settings(openai_api_key="")).summarize_paper("T", "A")
+        Summarizer(settings=_settings(openai_api_key="")).rate_relevance("T", "A", "RLHF", "rlhf")
     assert not route.called
 
 
 @respx.mock
 @pytest.mark.parametrize("status", [401, 429, 500])
 def test_openai_errors_raise_so_the_activity_retries(status):
-    respx.post(OPENAI_CHAT).mock(return_value=httpx.Response(status, json={"error": {}}))
+    respx.post(OPENAI_TEST_CHAT).mock(return_value=httpx.Response(status, json={"error": {}}))
 
     with pytest.raises(httpx.HTTPStatusError):
-        Summarizer(settings=_openai_settings()).summarize_paper("T", "A")
+        Summarizer(settings=_settings()).rate_relevance("T", "A", "RLHF", "rlhf")
 
 
 @respx.mock
@@ -327,7 +294,7 @@ def test_server_down_raises():
     respx.post(OPENAI_TEST_CHAT).mock(side_effect=httpx.ConnectError("connection refused"))
 
     with pytest.raises(httpx.ConnectError):
-        Summarizer(settings=_settings()).summarize_paper("T", "A")
+        Summarizer(settings=_settings()).rate_relevance("T", "A", "RLHF", "rlhf")
 
 
 def test_test_session_never_reads_the_local_env_file():

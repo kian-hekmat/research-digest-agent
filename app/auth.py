@@ -4,10 +4,10 @@ from fastapi import Header, HTTPException
 
 from app.config import get_settings
 
-# Routes served without the admin token. Everything else is admin-only via the
-# routers' dependencies; Phase 3 adds its public signup routes here, and a test
-# checks that nothing listed here returns emails, descriptions or cadence, or
-# accepts a cadence or description.
+# Routes served without the admin token (the public pages). Everything else is
+# admin-only via the routers' dependencies. A test checks that nothing listed
+# here returns emails, descriptions or cadence, or accepts a cadence or
+# description.
 PUBLIC_PATHS = {
     "/health", "/signup", "/manage-link", "/terms", "/privacy", "/confirm",
     "/manage", "/manage/{action}", "/unsubscribe", "/resubscribe",

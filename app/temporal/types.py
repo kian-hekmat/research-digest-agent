@@ -237,7 +237,7 @@ class DigestEmailContent:
     subject: str
     text_body: str
     html_body: str
-    # Extra message headers, e.g. List-Unsubscribe (phase 3a).
+    # Extra message headers, e.g. List-Unsubscribe.
     headers: dict[str, str] = field(default_factory=dict)
 
 
@@ -265,7 +265,7 @@ class MarkSentInput:
 
 @dataclass
 class AccountEmailInput:
-    """A confirmation or manage-link email (phase 3a). `kind` is "confirm"
+    """A confirmation or manage-link email. `kind` is "confirm"
     or "manage"; `url` is the signed link it carries."""
 
     kind: str

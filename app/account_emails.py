@@ -1,4 +1,4 @@
-"""Account emails for the public pages (phase 3a): the confirmation link
+"""Account emails for the public pages: the confirmation link
 and the manage link. Sent by SendAccountEmailWorkflow so a failed SMTP send
 retries; started from the API's background task."""
 from __future__ import annotations

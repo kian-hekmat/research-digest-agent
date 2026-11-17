@@ -6,8 +6,7 @@ swappable via `http_client`.
 
 Ingest rates each new paper with `rate_relevance`. Send prep summarizes each
 topic's top papers with `summarize_and_rate` (storing only the summary) and
-writes the topic's overview with `write_overview`. `summarize_paper`
-(summary only) remains for the backfill script. Both rating calls accept a
+writes the topic's overview with `write_overview`. Both rating calls accept a
 `RatingContext`: the topic's description in the reader's words.
 
 With `SUMMARY_BACKEND=none` (`Settings.summaries_enabled` is False), every
@@ -42,13 +41,6 @@ from app.services.spend import (
 )
 
 logger = logging.getLogger(__name__)
-
-_PER_PAPER_SYSTEM = (
-    "You summarize academic paper abstracts for a research alerting digest. "
-    "Given a title and abstract, reply with a single paragraph of 3-4 sentences "
-    "covering the problem, the approach, and the headline result. Be concrete "
-    "and neutral. No preamble, no lists, no LaTeX, no markdown."
-)
 
 _RELEVANCE_RUBRIC = (
     "Rate how central the paper is to the reader's topic from 1 to 10: 10 = the "
@@ -154,10 +146,9 @@ def parse_relevance(text: str) -> int | None:
     return _valid_relevance(match.group(1)) if match else None
 
 
-# ---------- phase 2d: the paper blurb ----------
-# One per paper, shared by every topic that includes it, so it never names a
-# topic and carries no rating (ingest rates). docs/plans/
-# 2026-11-16-phase-2d-picks-first-email-design.md
+# ---------- the picks-first email (not wired in yet; docs/rag-plan.md §5.11) ----------
+# The paper blurb: one per paper, shared by every topic that includes it, so
+# it never names a topic and carries no rating (ingest rates).
 _BLURB_SYSTEM = (
     "You write the entry for one academic paper in a research digest read by "
     "people who work in the paper's field. Reply in JSON with two fields. "
@@ -215,7 +206,7 @@ def parse_paper_blurb(text: str) -> PaperBlurb | None:
     return PaperBlurb(hook, what) if hook and what else None
 
 
-# ---------- phase 2d: overview and picks ----------
+# ---------- the picks-first email: overview and picks ----------
 _OVERVIEW_AND_PICKS_SYSTEM = (
     "You write one topic's section opener in a weekly research digest read by "
     "people who work in the field. You are given this period's papers, best "
@@ -419,16 +410,6 @@ class Summarizer:
         self._ledger = ledger
         self._topic_id = topic_id
 
-    def summarize_paper(self, title: str, abstract: str) -> str | None:
-        if not self._settings.summaries_enabled:
-            return None
-        return self._complete(
-            system=_PER_PAPER_SYSTEM,
-            user=f"Title: {title}\n\nAbstract: {abstract}",
-            max_tokens=400,
-            purpose="summary",
-        )
-
     def summarize_and_rate(
         self,
         title: str,
@@ -497,7 +478,7 @@ class Summarizer:
     def write_overview_and_picks(
         self, topic_name: str, papers: list[OverviewPaper], previous: list[str] = ()
     ) -> OverviewAndPicks | None:
-        """The phase 2d overview and picks for one topic's period. `papers`
+        """The picks-first email's overview and picks for one topic's period. `papers`
         is best first: the first 25 are offered and the first 5 are the pick
         pool. `previous` (earlier overviews) is shown only so they aren't
         repeated. None in no-summary mode, when the budget stopped it,
@@ -528,7 +509,7 @@ class Summarizer:
         return parse_overview_and_picks(text, [p.arxiv_id for p in offered], pool)
 
     def write_blurb(self, title: str, abstract: str) -> PaperBlurb | None:
-        """The phase 2d blurb (hook + what) for one paper, or None when the
+        """The picks-first email's blurb (hook + what) for one paper, or None when the
         summaries are off, the budget stopped it, or the reply didn't parse."""
         if not self._settings.summaries_enabled:
             return None

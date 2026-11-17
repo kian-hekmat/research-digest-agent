@@ -1,6 +1,6 @@
 """What an OpenAI call costs, and the contract for recording it.
 
-Pure functions and types, no DB imports: `Summarizer` (and, from Phase 2b,
+Pure functions and types, no DB imports: `Summarizer` (and
 the OpenAI embedder) depend on the `SpendLedger` protocol, and
 app.spend_ledger.DbLedger implements it against Postgres. Tests pass a fake
 ledger, or none.
@@ -43,10 +43,6 @@ class SpendLimitReached(RuntimeError):
     """OpenAI refused a call: hard spend limit reached or out of credits.
     Raised where returning "no result" isn't an option (embeddings); retrying
     can't help until the limit resets."""
-
-
-class BudgetExhausted(Exception):
-    """The monthly budget is spent: chat calls are skipped until the 1st."""
 
 
 @dataclass(frozen=True)

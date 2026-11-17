@@ -219,7 +219,7 @@ class Paper(Base):
     arxiv_id = Column(String, nullable=False, unique=True)
     title = Column(String, nullable=False)
     abstract = Column(Text, nullable=True)
-    summary = Column(Text, nullable=True)  # LLM-generated summary, filled in Phase 2
+    summary = Column(Text, nullable=True)  # LLM-written, filled in by send prep for each topic's top K
     published_at = Column(DateTime(timezone=True), nullable=True, index=True)
     # arXiv's free-text author comment and journal reference - where an
     # "Accepted at ..." note lives. Refreshed whenever arXiv returns the paper.

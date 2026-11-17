@@ -51,7 +51,7 @@ history.
 - **2d Round 1:** blurb and overview-and-picks prompts plus their eval script. Not wired in; that's Round 2, after launch.
 - **3a:** signup, confirmation, manage page, one-click unsubscribe, delete my data, rate limits, Turnstile, a hand-admitted waitlist, and unsubscribe headers and links in digests. Signup fails closed until real Turnstile keys are set.
 
-Each built phase's plan and outcome is in `docs/plans/`.
+The per-phase plans were deleted on 2026-11-17; they're in git history. What's still useful from them is below.
 
 ---
 
@@ -133,6 +133,25 @@ The commands are in `docs/deploy.md`.
 | Dropping the unused columns and tables (`papers.related_note`, `papers.fulltext_status`, `papers.fulltext_checked_at`, `topic_embeddings`) | Any convenient migration; they're harmless meanwhile |
 | Full text | arXiv says in writing that it's allowed. The code is in git history before 2026-11-16 |
 | OpenAlex as a paper source | Owner raises it again |
+
+### Notes for the picks-first email (2d Round 2), kept from the deleted plans
+
+- **Already built (Round 1):**
+  - `Summarizer.write_blurb` (a hook plus what the paper did) and `Summarizer.write_overview_and_picks` (a 70–110 word overview citing `[arXiv IDs]`, plus up to 2 picks from the top 5), both returning strict JSON;
+  - the citation check `_check_citations`, which drops IDs that weren't offered;
+  - the eval `evals.email_prompts`, with its reviewer prompt in `evals/email_prompts_review_prompt.md`.
+- **Still to build:**
+  - **Storage:** store each paper's hook next to `summary`, with a prompt-version marker; store the edition's overview text with its `[ID]` markers, and its picks (paper, hook, order).
+  - **Prep:** call `write_overview_and_picks` in place of `write_overview`. Take its input and pick pool from `rank_edition`'s deduped `top`, not `paper_ids`. A failed or budget-blocked call stores the edition without overview and picks.
+  - **The email, per topic section:**
+    - a header (label, date range, "N new papers, your top K below");
+    - **Start here:** the picks, with hooks;
+    - **The period in brief:** the overview, with offered `[ID]`s linked to arXiv;
+    - **Also new:** the rest, as hook plus what;
+    - a fallback edition renders "Also new" only.
+  - **Escaping and links:** escape all model text and labels before linkifying, and link only offered IDs.
+  - **Before IDs become links:** run pick hooks through the citation check too.
+- **Known gaps:** the review failed 3 of 4 gates (rag-plan §5.11). The prompts were tightened but not re-evaluated; re-run the eval before wiring it in.
 
 ---
 

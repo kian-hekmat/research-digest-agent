@@ -3,9 +3,8 @@ the DB, arXiv, Semantic Scholar, or the LLM. Each activity opens and closes its 
 - activities are stateless invocations, potentially retried or run on a
 different worker process entirely.
 
-These are Phase 2's `run_digest` steps (that function is retired), split at
-I/O boundaries so `DigestWorkflow` can apply a retry policy per boundary and
-stay itself free of I/O.
+They're split at I/O boundaries so each workflow can apply a retry policy per
+boundary and stay itself free of I/O.
 
 `fetch_arxiv` runs on its own task queue
 (`workflows.arxiv_queue`), served by a worker that runs one activity at a
@@ -429,7 +428,7 @@ def gather_digest_content(input: GatherContentInput) -> GatheredContent | None:
         subscriber_id: str | None = None
         for window in input.topics:
             # Re-checked at send time: an unsubscribe, pause or waitlist
-            # between listing and delivery is honoured (phase 3a).
+            # between listing and delivery is honoured.
             current = (
                 crud.active_subscriptions_query(db)
                 .filter(models.Subscription.id == window.subscription_id)

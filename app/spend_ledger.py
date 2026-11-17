@@ -65,7 +65,7 @@ def _state_for(spent: Decimal, settings: Settings) -> SpendState:
 
 def spend_state(db: Session, now: datetime, settings: Settings | None = None) -> SpendState:
     """"hard" at or over the monthly budget, "soft" at or over the alert line
-    (new topics wait, from Phase 3), else "ok"."""
+    (new topics wait), else "ok"."""
     return _state_for(month_to_date_usd(db, now), settings or get_settings())
 
 

@@ -55,7 +55,6 @@ def _summarizer(ledger, **overrides):
 @pytest.mark.parametrize(
     "call,purposes",
     [
-        (lambda s: s.summarize_paper("T", "A"), ["summary"]),
         (lambda s: s.summarize_and_rate("T", "A", "RLHF", "rlhf"), ["summary"]),
         (lambda s: s.rate_relevance("T", "A", "RLHF", "rlhf"), ["rating"]),
         (lambda s: s.write_overview("RLHF", ["s1", "s2"]), ["overview"]),
@@ -84,7 +83,6 @@ def test_blocked_purpose_makes_no_http_call_and_returns_no_text():
     assert s.summarize_and_rate("T", "A", "RLHF", "rlhf") == RatedSummary(summary=None, relevance=None)
     assert s.rate_relevance("T", "A", "RLHF", "rlhf") is None
     assert s.write_overview("RLHF", ["s1"]) is None
-    assert s.summarize_paper("T", "A") is None
     assert not route.called
     assert ledger.records == []
 
@@ -129,9 +127,9 @@ def test_usage_recorded_even_if_content_is_malformed():
     ledger = FakeLedger()
 
     with pytest.raises(IndexError):
-        _summarizer(ledger).summarize_paper("T", "A")
+        _summarizer(ledger).write_overview("RLHF", ["s1"])
 
-    assert [r["purpose"] for r in ledger.records] == ["summary"]
+    assert [r["purpose"] for r in ledger.records] == ["overview"]
 
 
 @respx.mock
@@ -151,7 +149,7 @@ def test_missing_usage_is_estimated():
 def test_unknown_model_fails_before_http():
     route = respx.post(OPENAI_CHAT).mock(return_value=_reply("x"))
     with pytest.raises(UnknownModelPrice):
-        _summarizer(FakeLedger(), openai_model="gpt-9").summarize_paper("T", "A")
+        _summarizer(FakeLedger(), openai_model="gpt-9").write_overview("RLHF", ["s1"])
     assert not route.called
 
 
@@ -159,7 +157,7 @@ def test_unknown_model_fails_before_http():
 def test_no_ledger_records_nothing_and_still_works():
     respx.post(OPENAI_CHAT).mock(return_value=_reply("A summary."))
     s = Summarizer(settings=_settings(openai_model="unpriced-test-model"))
-    assert s.summarize_paper("T", "A") == "A summary."
+    assert s.write_overview("RLHF", ["s1"]) == "A summary."
 
 
 @respx.mock

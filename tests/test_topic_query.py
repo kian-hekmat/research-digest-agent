@@ -38,5 +38,5 @@ def test_public_accepts_and_normalizes():
 
 def test_limit_defaults():
     s = Settings()
-    assert (s.max_subscribers, s.max_topics_per_subscriber, s.max_active_topics, s.max_query_length) == (200, 5, 100, 200)
+    assert (s.max_subscribers, s.max_active_topics, s.max_query_length) == (200, 100, 200)
     assert (s.public_papers_per_topic_min, s.public_papers_per_topic_max, s.public_papers_per_topic_default) == (5, 10, 5)

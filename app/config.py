@@ -102,7 +102,7 @@ class Settings(BaseSettings):
 
     # --- spend (app.services.spend, app.spend_ledger) ---
     # Hard monthly cap on OpenAI spend, enforced in the app: at
-    # spend_alert_fraction of it the owner is alerted (and, from Phase 3, new
+    # spend_alert_fraction of it the owner is alerted (and new
     # topics wait); at 100% AI text stops until the 1st (UTC). Raising the cap
     # is this one setting. docs/public-launch-plan.md §3.6.
     openai_monthly_budget_usd: float = 50.0
@@ -224,7 +224,7 @@ class Settings(BaseSettings):
     # sends the bare address.
     smtp_from_name: str = ""
 
-    # --- public signup and self-service (phase 3a) ---
+    # --- public signup and self-service ---
     # Signs confirm/manage/unsubscribe/csrf links (app.tokens). Public routes
     # return 503 while it's empty: fail closed.
     secret_key: str = ""
@@ -240,7 +240,6 @@ class Settings(BaseSettings):
     # Caps that keep a small public service within its budget: arXiv and
     # OpenAI cost scale with active topics, so both people and topics are bounded.
     max_subscribers: int = 200
-    max_topics_per_subscriber: int = 5
     max_active_topics: int = 100  # distinct topics across all subscribers
     max_query_length: int = 200
     # Papers per topic a public subscriber may ask for, and the default.

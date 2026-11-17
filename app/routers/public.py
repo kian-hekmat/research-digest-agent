@@ -1,5 +1,5 @@
-"""Public pages (phase 3a): signup, the manage-link form, and the terms
-and privacy pages. Plain server-rendered forms; Phase 4 styles them. Everything
+"""Public pages: signup, the manage-link form, confirm, manage,
+unsubscribe, and the terms and privacy pages. Plain server-rendered forms. Everything
 that depends on whether an address exists runs in a BackgroundTask, so the
 response can't tell new, pending and confirmed addresses apart."""
 from __future__ import annotations

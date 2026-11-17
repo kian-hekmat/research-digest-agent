@@ -813,7 +813,7 @@ owner-written labels. Reports:
 
 ### 5.11 Phase 2d prompts, round 1 (2026-11-16)
 
-These are the new email prompts from `docs/plans/2026-11-16-phase-2d-picks-first-email-design.md`: a shared paper blurb (hook plus what it did), and one overview-and-picks call. Both return strict JSON.
+These are the new email prompts for the picks-first email (its Round 2 notes are in `docs/public-launch-plan.md`): a shared paper blurb (hook plus what it did), and one overview-and-picks call. Both return strict JSON.
 
 **How it was run:** `venv/bin/python -m evals.email_prompts`. It rebuilt 17 Monday-to-Monday windows of at least 5 papers each: Numerical Analysis 7, PINNs 9, RLHF 1. All 17 are used, with no padding (owner's call). It also made 20 blind blurb pairs, each comparing today's prep summary (`summarize_and_rate`, re-run on `gpt-5.4-mini`) with the new blurb.
 
