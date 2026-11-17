@@ -61,7 +61,7 @@ Each built phase's plan and outcome is in `docs/plans/`.
 
 - [x] Pick a name: **Papers Weekly**, `papersweekly.com` (chosen 2026-11-16). Nothing in the name may imply arXiv endorsement.
 - [x] Register `papersweekly.com` (Cloudflare Registrar; done 2026-11-17).
-- [ ] Email: create a Resend account, add and verify `papersweekly.com` (its DNS records go in Cloudflare), add DMARC at `p=none`, and create an API key with sending access (decided 2026-11-17; replaces Gmail SMTP).
+- [x] Email (2026-11-17): Resend account created and `papersweekly.com` verified. The DKIM and SPF records are in Cloudflare, plus DMARC at `p=none`. The server's `.env` has the Resend API key and sends as `Papers Weekly <digest@papersweekly.com>`. A test email from the server was delivered.
 - [x] Cloudflare Turnstile: keys are in `.env` and the running API has loaded them (2026-11-16). Make sure the widget's hostname list includes `papersweekly.com`.
 - [x] OpenAI: set the project's hard monthly limit to about $55 (done 2026-11-17).
 - [x] Hetzner: a CX23 in Nürnberg, Ubuntu 24.04, at 91.99.205.127, Backups are off (owner's call; see the backup line in section 3). The DNS records are verified (2026-11-17).
