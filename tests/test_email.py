@@ -86,6 +86,33 @@ def test_email_sender_skips_login_without_credentials():
     assert fake.login_args is None
 
 
+def test_from_header_carries_the_display_name_and_the_envelope_the_bare_address():
+    """Readers see "Papers Weekly <digest@papersweekly.com>"; SMTP's MAIL FROM
+    must stay the bare address."""
+    fake = FakeSMTPClient()
+    settings = Settings(
+        smtp_from_address="digest@papersweekly.com", smtp_from_name="Papers Weekly",
+        smtp_use_tls=False, smtp_username="",
+    )
+    EmailSender(settings=settings, smtp_client_factory=lambda: fake).send(
+        "someone@example.com", DigestEmailContent(subject="S", text_body="t", html_body="<p>h</p>")
+    )
+
+    from_addr, _, raw = fake.sendmail_args
+    assert from_addr == "digest@papersweekly.com"
+    assert message_from_string(raw)["From"] == "Papers Weekly <digest@papersweekly.com>"
+
+
+def test_from_header_is_the_bare_address_without_a_display_name():
+    fake = FakeSMTPClient()
+    settings = Settings(smtp_from_address="digest@example.com", smtp_from_name="", smtp_use_tls=False, smtp_username="")
+    EmailSender(settings=settings, smtp_client_factory=lambda: fake).send(
+        "someone@example.com", DigestEmailContent(subject="S", text_body="t", html_body="<p>h</p>")
+    )
+
+    assert message_from_string(fake.sendmail_args[2])["From"] == "digest@example.com"
+
+
 def test_email_sender_builds_a_well_formed_multipart_message():
     """What a mail client actually receives: multipart/alternative with a
     plain-text and an HTML part, both decoding back to exactly what was

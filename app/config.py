@@ -220,6 +220,9 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_use_tls: bool = False
     smtp_from_address: str = "digest@example.com"
+    # Display name in the From header ("Papers Weekly <digest@...>"); empty
+    # sends the bare address.
+    smtp_from_name: str = ""
 
     # --- public signup and self-service (phase 3a) ---
     # Signs confirm/manage/unsubscribe/csrf links (app.tokens). Public routes

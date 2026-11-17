@@ -18,7 +18,7 @@ history.
 |---|---|---|---|
 | Audience at launch | Up to 200 strangers, after a 3-week closed beta of about 20 | 5–10 invited readers. They are the beta | Owner's call: get it running for real people first |
 | Topic preview, broad-phrase refusal, similar-topic suggestions (3b) | To build before launch | **Cut** (confirmed by the owner 2026-11-16). Broad topics: raise `ARXIV_MAX_RESULTS` from 25 to 100 instead | Suggestions had no calibrated threshold for the current embedding model anyway. With a handful of readers, the owner can eyeball topics |
-| Email delivery | Brevo free tier on the service's own domain, with SPF, DKIM and DMARC | **Gmail SMTP**, the account the service already sends from (owner's call, 2026-11-16) | Already works. A personal Gmail account allows about 500 recipients a day, far above 10 readers' weekly digests |
+| Email delivery | Brevo free tier on the service's own domain, with SPF, DKIM and DMARC | **Resend** (free tier: 3,000 emails a month, 100 a day), sending as `Papers Weekly <digest@papersweekly.com>`. Replies aren't received (owner's call, 2026-11-17). Gmail SMTP was used from 2026-11-16 to 2026-11-17 | The owner didn't want mail coming from a personal address. Resend's SMTP needs no code change beyond a display name, and adds no branding |
 | Picks-first email (2d Round 2) | Before launch | **After launch.** Launch with today's email (summaries plus overview) | Quality tuning was already deferred to after launch (decision #20) |
 | Cost and load rehearsal (2e) | 200 subscribers, 100 topics, a week of measurement | **Cut** | Measured on the first live cycle: about $0.007 per topic per send. 10 readers × 5 topics is a few dollars a month against $50 |
 | Website (Phase 4) | Landing page, Playwright end-to-end tests in CI, axe-core scans | A short intro on `/signup`, one small stylesheet, real terms and privacy text, and a check on a phone | |
@@ -39,7 +39,7 @@ history.
 | Cadence | Weekly, Monday 08:00 `America/New_York` (prep 01:00, ingest 21:30 daily) |
 | arXiv content | Metadata and abstracts only (CC0). No full text, no bulk download |
 | Host | One Hetzner CX23 (2 vCPU / 4 GB) in the EU, about €6/month |
-| Email | Gmail SMTP with an app password (about 500 recipients a day); mail comes from that Gmail address |
+| Email | Resend SMTP, from `Papers Weekly <digest@papersweekly.com>`, with SPF, DKIM and DMARC on the domain (100 emails a day on the free tier) |
 
 ---
 
@@ -61,7 +61,7 @@ Each built phase's plan and outcome is in `docs/plans/`.
 
 - [x] Pick a name: **Papers Weekly**, `papersweekly.com` (chosen 2026-11-16). Nothing in the name may imply arXiv endorsement.
 - [x] Register `papersweekly.com` (Cloudflare Registrar; done 2026-11-17).
-- [x] Email: stay on Gmail SMTP (no Brevo, no DNS mail records).
+- [ ] Email: create a Resend account, add and verify `papersweekly.com` (its DNS records go in Cloudflare), add DMARC at `p=none`, and create an API key with sending access (decided 2026-11-17; replaces Gmail SMTP).
 - [x] Cloudflare Turnstile: keys are in `.env` and the running API has loaded them (2026-11-16). Make sure the widget's hostname list includes `papersweekly.com`.
 - [x] OpenAI: set the project's hard monthly limit to about $55 (done 2026-11-17).
 - [x] Hetzner: a CX23 in Nürnberg, Ubuntu 24.04, at 91.99.205.127, Backups are off (owner's call; see the backup line in section 3). The DNS records are verified (2026-11-17).
@@ -75,7 +75,7 @@ Each built phase's plan and outcome is in `docs/plans/`.
 - [x] Replace the placeholder `/terms` and `/privacy` text with short real versions:
   - **What's stored:** email, topics, labels, papers per topic, and send history.
   - **Rate limits:** they use hashed IP addresses.
-  - **Who processes data:** Hetzner, Google (Gmail sends the email), OpenAI (topics and abstracts only, never addresses) and Cloudflare.
+  - **Who processes data:** Hetzner, Resend (sends the email), OpenAI (topics and abstracts only, never addresses) and Cloudflare.
   - **Where data is stored:** in the EU.
   - **Deleting data:** done from the manage page.
 - [x] Tests for each change (`tests/test_launch_pages.py`, `tests/test_ingestion.py`); full suite 585 passed. Still to do by hand: a look on a real phone.
@@ -112,7 +112,7 @@ The commands are in `docs/deploy.md`.
 
 - [ ] Sign up through the real page, confirm, and check the manage link.
 - [ ] Trigger a send (or wait for Monday), then check the digest's unsubscribe link and `List-Unsubscribe` header.
-- [ ] Send a digest to a non-Gmail address too (e.g. Outlook) and check it lands in the inbox, not spam.
+- [ ] Send a digest to a Gmail and an Outlook address and check both land in the inbox, with SPF, DKIM and DMARC passing in the raw headers.
 - [ ] Invite the 5–10 readers.
 
 **Exit:** the owner gets a Monday digest from production, and the invited readers are signed up.
@@ -127,7 +127,7 @@ The commands are in `docs/deploy.md`.
 | Topic preview and broad-phrase refusal | A topic regularly hits `ARXIV_MAX_RESULTS`, or strangers start signing up |
 | Alerts beyond spend and failed ratings/summaries; uptime check; Sentry | A missed Monday goes unnoticed |
 | CI image builds, rollback rehearsal, restore drill | The service has readers who aren't the owner's contacts |
-| Own-domain email (Brevo or Amazon SES, with SPF, DKIM and DMARC) | Gmail's daily limit gets close, digests land in spam, or mail should come from `@papersweekly.com` |
+| A paid Resend plan, or Amazon SES | Daily sends get close to Resend's free 100 a day |
 | 3a review's deferred minors (rate-limit races, CSRF error page, `Referrer-Policy`, ...) | Real abuse, or open public signup |
 | Dropping the unused columns and tables (`papers.related_note`, `papers.fulltext_status`, `papers.fulltext_checked_at`, `topic_embeddings`) | Any convenient migration; they're harmless meanwhile |
 | Full text | arXiv says in writing that it's allowed. The code is in git history before 2026-11-16 |
@@ -147,7 +147,7 @@ The commands are in `docs/deploy.md`.
 | 6 | Topics | Phrases only for the public; no preview or suggestions at launch (3b cut, reconfirmed 2026-11-16) |
 | 7 | Cadence | Weekly, Monday 08:00 Eastern |
 | 8 | Audience | US residents (signup checkbox), age 13+ |
-| 9 | Email | Gmail SMTP for now (2026-11-16); own-domain email deferred |
+| 9 | Email | Resend SMTP as `Papers Weekly <digest@papersweekly.com>`, no reply inbox (2026-11-17; was Gmail SMTP from 2026-11-16) |
 | 10 | Hosting | One Hetzner CX23 in the EU, `git pull` deploys, nightly dumps |
 | 11 | Name and domain | Papers Weekly, `papersweekly.com` (decided 2026-11-16; registration pending) |
 | 12 | Email format | Today's format at launch; picks-first after launch |

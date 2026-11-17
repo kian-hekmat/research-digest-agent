@@ -19,6 +19,7 @@ from __future__ import annotations
 import dataclasses
 import re
 import smtplib
+from email.utils import formataddr
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from email.mime.multipart import MIMEMultipart
@@ -349,7 +350,7 @@ class EmailSender:
     def send(self, to: str, content: DigestEmailContent) -> None:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = content.subject
-        msg["From"] = self._settings.smtp_from_address
+        msg["From"] = formataddr((self._settings.smtp_from_name, self._settings.smtp_from_address))
         msg["To"] = to
         for name, value in (content.headers or {}).items():
             msg[name] = value

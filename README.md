@@ -91,7 +91,7 @@ Three passes, on a schedule in `America/New_York`:
              │                  Temporal ◀──────────────▶ Worker (one process) ─────┼──▶ arXiv API (1 request / 3 s)
              │                                                                      ├──▶ OpenAI (gpt-5.4-mini, embeddings)
              │                                                                      ├──▶ OpenAlex / Semantic Scholar
-             └──────────────────────────────────────────────────────────────────────┴──▶ Gmail SMTP
+             └──────────────────────────────────────────────────────────────────────┴──▶ Resend (SMTP)
 ```
 
 - **FastAPI** serves the public pages: server-rendered Jinja signup, confirm, manage, unsubscribe, terms and privacy. It also serves a token-protected JSON admin API. It never makes slow external calls itself.
@@ -147,7 +147,7 @@ The summarization model moved from a local Gemma 3 12B to `gpt-5.4-mini` on 2026
 - **Server:** one Hetzner CX23 (2 vCPU, 4 GB) in Nürnberg, running [`docker-compose.prod.yml`](docker-compose.prod.yml).
 - **HTTPS:** Caddy is the only thing on ports 80 and 443, and gets Let's Encrypt certificates itself. Postgres and Temporal aren't reachable from outside; the Temporal UI is reached over an SSH tunnel.
 - **Secrets:** the server's `.env`, mode 600 (template: [`.env.production.example`](.env.production.example)).
-- **Email:** Gmail SMTP for now. Digests carry `List-Unsubscribe` headers.
+- **Email:** sent as `Papers Weekly <digest@papersweekly.com>` through Resend's SMTP, with SPF and DKIM on the domain and DMARC set to `p=none`. Digests carry `List-Unsubscribe` headers.
 - **Deploys:** `git pull` and `docker compose up -d --build` on the server, after the suite passes locally and in CI.
 - **Backups:** a nightly `pg_dump` with 14 days kept ([`scripts/backup.sh`](scripts/backup.sh)).
 
@@ -183,7 +183,7 @@ venv/bin/python -m pytest -q       # 595 tests; needs the local Postgres
 | `ADMIN_TOKEN` | unset | Required for the admin API; when unset, the API refuses everything |
 | `SECRET_KEY` / `PUBLIC_BASE_URL` | unset / `http://localhost:8000` | Signs confirm, manage and unsubscribe links. The public pages return 503 without it |
 | `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | unset | Cloudflare Turnstile on signup; with no secret, every signup is refused |
-| `SMTP_*` | Mailpit | Outgoing email (production uses Gmail SMTP) |
+| `SMTP_*`, `SMTP_FROM_NAME` | Mailpit | Outgoing email (production: Resend, as "Papers Weekly") |
 | `ARXIV_MAX_RESULTS` / `ARXIV_LOOKBACK_DAYS` | `100` / `7` | Papers per topic per fetch, and the window for arXiv's announcement lag |
 | `SEMANTIC_SCHOLAR_API_KEY` | unset | Optional; without it, author h-indices come from OpenAlex |
 

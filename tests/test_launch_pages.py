@@ -40,7 +40,7 @@ def test_privacy_policy_says_what_is_stored_and_who_processes_it(anon_client):
     for phrase in (
         "email address", "topics", "labels", "papers per topic", "send history",  # what's stored
         "hashed",  # rate limits keep IPs only as keyed hashes
-        "Hetzner", "Google", "OpenAI", "Cloudflare",  # processors
+        "Hetzner", "Resend", "OpenAI", "Cloudflare",  # processors
         "never your email address",  # what OpenAI sees
         "European Union",  # where it's stored
         "manage page", "delete",  # how to delete
