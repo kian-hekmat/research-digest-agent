@@ -29,14 +29,14 @@ It's a small public service for 5–10 invited readers first.
 - **Docs:**
   - `docs/public-launch-plan.md` (v3, lean): the launch checklist, what was cut or deferred and why, and the notes for the picks-first email (2d Round 2). Read it before starting new work. Per-phase plans were deleted on 2026-11-17; they're in git history.
   - `docs/deploy.md`: the server runbook.
-  - `docs/rag-plan.md`: every retrieval and prompt measurement and the decision it led to.
+  - `docs/rag-plan.md`: a condensed log of every retrieval and prompt evaluation and its decision. Section numbers (§5.x) are cited in code comments. Eval reports go to `evals/results/`, which is gitignored.
 
 ## Commands
 
 **Local (development).** The venv's console scripts point at an old path, so always invoke tools as modules. The shell is macOS bash 3.2 (no `timeout`), and local Compose is the standalone `docker-compose` binary.
 
 ```bash
-venv/bin/python -m pytest -q                                  # full suite (~95 s, 595 tests); local Postgres must be up
+venv/bin/python -m pytest -q                                  # full suite (~90 s, 596 tests); local Postgres must be up
 venv/bin/python -m pytest tests/test_prep_pass.py::test_name -q   # one test
 docker-compose up -d db temporal mailpit api                  # dev stack; leave the worker stopped
 venv/bin/python -m evals.rag run --variant baseline --repeats 2 --summaries 0   # rating eval (costs OpenAI money)
@@ -129,7 +129,7 @@ There is no linter or formatter configured. CI (`.github/workflows/ci.yml`) runs
 - **Worker:** exactly one.
 - **Temporal:** the dev server with SQLite on a volume; its UI is on `127.0.0.1:8233`, reached over an SSH tunnel.
 - **Postgres:** on the compose network only.
-- **The server's `.env`** is mode 600, filled from the template. Never print it.
+- **The server's `.env`** is mode 600, filled from the template, with `API_DOCS=false` so there's no public `/docs`, `/redoc` or `/openapi.json`. Never print it.
 - **Backups:** nightly dumps in `/var/backups/papersweekly` (14 days). There are no Hetzner Backups; the owner copies a dump to the Mac now and then.
 
 ## Working in this repo

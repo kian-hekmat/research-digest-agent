@@ -36,7 +36,7 @@ when it was a personal tool.)
   - responses that never reveal who has signed up.
 - **Production on one VM.**
   - Docker Compose behind Caddy with automatic HTTPS, and nightly database dumps.
-  - Covered by 595 tests run against real Postgres and Temporal's time-skipping server.
+  - Covered by 596 tests run against real Postgres and Temporal's time-skipping server.
 
 ## What a digest looks like
 
@@ -106,7 +106,7 @@ Three passes, on a schedule in `America/New_York`:
 The LLM originally saw one abstract at a time. Five retrieval features were
 then built and measured against that abstract-only baseline before deciding
 whether to ship each one. Every number, review and decision is in
-[`docs/rag-plan.md`](docs/rag-plan.md); the raw reports are in `evals/results/`.
+[`docs/rag-plan.md`](docs/rag-plan.md).
 
 The summarization model moved from a local Gemma 3 12B to `gpt-5.4-mini` on 2026-11-05:
 
@@ -162,13 +162,13 @@ cp .env.example .env               # set OPENAI_API_KEY and ADMIN_TOKEN; add SEC
 docker-compose up -d --build       # Postgres + pgvector, Temporal, Mailpit, API, worker
 docker-compose exec api alembic upgrade head
 python -m venv venv && venv/bin/pip install -r requirements.txt
-venv/bin/python -m pytest -q       # 595 tests; needs the local Postgres
+venv/bin/python -m pytest -q       # 596 tests; needs the local Postgres
 ```
 
 | URL | What |
 |---|---|
 | http://localhost:8000/signup | The public signup page (Turnstile needs keys in `.env`) |
-| http://localhost:8000/docs | The admin API (every route needs the `X-Admin-Token` header) |
+| http://localhost:8000/docs | The admin API (every route needs the `X-Admin-Token` header; off in production) |
 | http://localhost:8233 | Temporal UI: workflow runs, retries, schedules |
 | http://localhost:8025 | Mailpit: every email sent locally lands here |
 
@@ -190,5 +190,5 @@ venv/bin/python -m pytest -q       # 595 tests; needs the local Postgres
 ## Further reading
 
 - [`docs/public-launch-plan.md`](docs/public-launch-plan.md): the launch plan. It covers what's done, what was cut to launch lean, and what's deferred.
-- [`docs/rag-plan.md`](docs/rag-plan.md): the retrieval work, every measurement and the decision it led to.
+- [`docs/rag-plan.md`](docs/rag-plan.md): every retrieval and prompt evaluation, and the decision it led to.
 - [`docs/deploy.md`](docs/deploy.md): the production runbook.

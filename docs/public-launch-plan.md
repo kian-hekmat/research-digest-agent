@@ -130,9 +130,15 @@ The commands are in `docs/deploy.md`.
 | CI image builds, rollback rehearsal, restore drill | The service has readers who aren't the owner's contacts |
 | A paid Resend plan, or Amazon SES | Daily sends get close to Resend's free 100 a day |
 | 3a review's deferred minors (rate-limit races, CSRF error page, `Referrer-Policy`, ...) | Real abuse, or open public signup |
-| Dropping the unused columns and tables (`papers.related_note`, `papers.fulltext_status`, `papers.fulltext_checked_at`, `topic_embeddings`) | Any convenient migration; they're harmless meanwhile |
 | Full text | arXiv says in writing that it's allowed. The code is in git history before 2026-11-16 |
 | OpenAlex as a paper source | Owner raises it again |
+
+### Cleanup (2026-11-17)
+
+- The per-phase plans were deleted, and `docs/rag-plan.md` was condensed to a decisions log; both are in git history.
+- Code nothing used was deleted: the summary backfill script, `summarize_paper`, the gated ranking mode, an unused exception and an unused setting.
+- Migration `0a1b2c3d4e5f` drops the removed features' leftovers: `papers.related_note`, `fulltext_status` and `fulltext_checked_at`, the `topic_embeddings` table, and the `preview` spend purpose.
+- `API_DOCS=false` hides `/docs`, `/redoc` and `/openapi.json` in production.
 
 ### Notes for the picks-first email (2d Round 2), kept from the deleted plans
 
