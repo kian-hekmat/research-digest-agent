@@ -288,6 +288,21 @@ def test_max_papers_keeps_the_highest_ranked_not_the_newest():
     assert section.omitted == 2
 
 
+def test_max_papers_of_one_keeps_only_the_best_paper():
+    """Readers can pick 1 to 10 papers (docs/frontend-plan.md, decision 8)."""
+    papers = [
+        _paper("weak", day=12, relevance=2, max_author_h_index=3),
+        _paper("best", day=8, relevance=10, max_author_h_index=40),
+        _paper("mid", day=10, relevance=6, max_author_h_index=10),
+    ]
+
+    section = build_topic_section("RLHF", [_digest(papers)], max_papers=1)
+    content = render_digest_email([section])
+
+    assert [p.arxiv_id for p in section.papers] == ["best"]
+    assert content.text_body.count("https://arxiv.org/abs/") == 1
+
+
 def test_kept_papers_are_laid_out_newest_day_first_best_first_within_a_day():
     papers = [
         _paper("d12-weak", day=12, hour=18, relevance=3),

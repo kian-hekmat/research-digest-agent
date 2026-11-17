@@ -13,7 +13,7 @@ NOW = datetime.now(timezone.utc)
 
 
 def _pending(db, email="new@example.com", queries=("reward modeling",)):
-    _, sub = signup.record_signup(db, email, [signup.SignupTopic(q, None, 5) for q in queries], NOW)
+    _, sub = signup.record_signup(db, email, [signup.SignupTopic(q, 5) for q in queries], NOW)
     return sub
 
 

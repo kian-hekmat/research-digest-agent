@@ -247,7 +247,7 @@ class Settings(BaseSettings):
     max_active_topics: int = 100  # distinct topics across all subscribers
     max_query_length: int = 200
     # Papers per topic a public subscriber may ask for, and the default.
-    public_papers_per_topic_min: int = 5
+    public_papers_per_topic_min: int = 1
     public_papers_per_topic_max: int = 10
     public_papers_per_topic_default: int = 5
     # Public topics are plain phrases: letters, digits and light punctuation

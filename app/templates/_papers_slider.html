@@ -1,0 +1,6 @@
+{# A 1-10 papers-per-email slider. Needs `name`, `value` and `id`. #}
+<div class="papers">
+  <label for="{{ id }}">Papers per email</label>
+  <input type="range" id="{{ id }}" name="{{ name }}" min="1" max="10" step="1" value="{{ value }}">
+  <output for="{{ id }}">{{ value }}</output>
+</div>

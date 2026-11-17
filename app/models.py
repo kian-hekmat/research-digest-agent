@@ -442,9 +442,6 @@ class Subscription(Base):
         nullable=False,
         index=True,
     )
-    # The subscriber's own display name for this shared topic. Display only:
-    # never sent to the LLM, which sees the normalized query.
-    label = Column(String(200), nullable=True)
     # Set while this subscription's topic is held back by the topic cap.
     waitlisted_at = Column(DateTime(timezone=True), nullable=True)
     cadence = Column(

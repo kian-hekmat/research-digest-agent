@@ -17,7 +17,7 @@ def test_signup_page_introduces_the_service(anon_client):
 def test_public_pages_share_one_phone_width_stylesheet(anon_client, path):
     page = anon_client.get(path).text
     assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in page
-    assert "<style>" in page and "max-width" in page
+    assert 'href="/static/site.css"' in page and "max-width" in anon_client.get("/static/site.css").text
     # Every page links the legal pages.
     assert 'href="/terms"' in page and 'href="/privacy"' in page
 
@@ -38,7 +38,7 @@ def test_privacy_policy_says_what_is_stored_and_who_processes_it(anon_client):
     text = page.text
     assert "will be published before launch" not in text
     for phrase in (
-        "email address", "topics", "labels", "papers per topic", "send history",  # what's stored
+        "email address", "topics", "papers per topic", "send history",  # what's stored
         "hashed",  # rate limits keep IPs only as keyed hashes
         "Hetzner", "Resend", "OpenAI", "Cloudflare",  # processors
         "never your email address",  # what OpenAI sees

@@ -62,7 +62,7 @@ def test_sender_sets_headers_on_the_message():
 
 
 def _member(db, email="me@example.com", query="rlhf"):
-    _, sub = signup.record_signup(db, email, [signup.SignupTopic(query, None, 5)], NOW)
+    _, sub = signup.record_signup(db, email, [signup.SignupTopic(query, 5)], NOW)
     signup.confirm_subscriber(db, sub, NOW, NOW)
     db.refresh(sub)
     return sub

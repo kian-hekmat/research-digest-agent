@@ -44,7 +44,7 @@ def _csrf(c):
 
 def form(c, **overrides):
     data = {"email": "new@example.com", "topic_0": "physics-informed neural networks",
-            "label_0": "PINNs", "papers_0": "5", "us_resident": "on",
+            "papers_0": "5", "us_resident": "on",
             "cf-turnstile-response": "ok", "csrf": _csrf(c)}
     data.update(overrides)
     return {k: v for k, v in data.items() if v is not None}
@@ -72,7 +72,7 @@ def test_new_signup_creates_pending_subscriber_and_starts_confirm_email(anon_cli
     sub = _subscriber(db_session, "new@example.com")
     assert sub.confirmed_at is None and sub.us_resident_attested_at is not None
     [s] = sub.subscriptions
-    assert (s.max_papers, s.label, s.topic.normalized_query) == (5, "PINNs", "physics-informed neural networks")
+    assert (s.max_papers, s.topic.normalized_query) == (5, "physics-informed neural networks")
     assert [c["kind"] for c in sent] == ["confirm"] and "/confirm?token=" in sent[0]["url"]
 
 
@@ -100,7 +100,7 @@ def test_confirmed_address_gets_manage_email_and_no_changes(anon_client, db_sess
 
 def test_pending_signup_replaces_its_topics(anon_client, db_session, turnstile, sent):
     anon_client.post("/signup", data=form(anon_client))
-    anon_client.post("/signup", data=form(anon_client, topic_0="reward modeling", label_0=None))
+    anon_client.post("/signup", data=form(anon_client, topic_0="reward modeling"))
     sub = _subscriber(db_session, "new@example.com")
     assert [s.topic.normalized_query for s in sub.subscriptions] == ["reward modeling"]
 
@@ -143,16 +143,9 @@ def test_empty_topic_message_is_friendly(anon_client, turnstile, sent):
     assert resp.status_code == 422 and "at least one topic" in resp.text.lower()
 
 
-@pytest.mark.parametrize("papers", ["4", "11", "ten"])
-def test_papers_outside_5_10_rejected(anon_client, turnstile, sent, papers):
+@pytest.mark.parametrize("papers", ["0", "11", "ten"])
+def test_papers_outside_1_10_rejected(anon_client, turnstile, sent, papers):
     assert anon_client.post("/signup", data=form(anon_client, papers_0=papers)).status_code == 422
-
-
-def test_label_html_escaped_and_control_chars_stripped(anon_client, db_session, turnstile, sent):
-    resp = anon_client.post("/signup", data=form(anon_client, label_0="<b>x</b>\x07y", us_resident=None))
-    assert "<b>x</b>" not in resp.text and "&lt;b&gt;x&lt;/b&gt;" in resp.text
-    anon_client.post("/signup", data=form(anon_client, label_0="<b>x</b>\x07y"))
-    assert _subscriber(db_session, "new@example.com").subscriptions[0].label == "<b>x</b>y"
 
 
 def test_crlf_in_email_rejected(anon_client, turnstile, sent):
@@ -207,14 +200,12 @@ def test_503_when_secret_key_empty(anon_client, monkeypatch):
     assert anon_client.get("/signup").status_code == 503
 
 
-def test_no_public_page_shows_other_subscribers_email_or_labels(anon_client, db_session, turnstile, sent):
+def test_no_public_page_shows_other_subscribers_email(anon_client, db_session, turnstile, sent):
     a = make_subscriber(db_session, "alice@example.com")
     topic = models.Topic(name="RLHF", query="rlhf", normalized_query="rlhf")
     db_session.add(topic)
     db_session.commit()
-    sub = subscribe(db_session, topic, a)
-    sub.label = "alice's secret label"
-    db_session.commit()
+    subscribe(db_session, topic, a)
     pages = [anon_client.get("/signup").text, anon_client.post("/signup", data=form(anon_client)).text]
     assert all("alice" not in p for p in pages)
 

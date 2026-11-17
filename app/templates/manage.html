@@ -1,47 +1,59 @@
 {% extends "base.html" %}
 {% block title %}Manage your topics{% endblock %}
+{% block nav %}{% endblock %}
+{% macro hidden_fields() %}<input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="token" value="{{ token }}">{% endmacro %}
 {% block content %}
-<h1>Manage your topics</h1>
-{% for line in notice %}<p role="status">{{ line }}</p>{% endfor %}
-{% if error %}<p role="alert"><em>{{ error }}</em></p>{% endif %}
+<h1>Your topics</h1>
+{% for line in notice %}<p class="notice" role="status">{{ line }}</p>{% endfor %}
+{% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
+
 {% for s in subs %}
-<section>
-  <h2>{{ s.topic.name }}</h2>
-  {% if s.waitlisted_at %}<p>On the waitlist: you'll get this topic once there's room.</p>{% endif %}
-  {% if not s.active %}<p>Paused.</p>{% endif %}
+<div class="topic-card">
+  <div class="topic-head"><h2 class="topic-name">{{ s.topic.name }}</h2></div>
+  {% if s.waitlisted_at %}<span class="badge">On the waitlist</span>{% endif %}
+  {% if not s.active %}<span class="badge">Paused</span>{% endif %}
+  {% if s.waitlisted_at %}<p class="muted">You'll get this topic once there's room.</p>{% endif %}
+  <div class="topic-preview" hidden></div>
   <form method="post" action="/manage/update">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <input type="hidden" name="token" value="{{ token }}">
+    {{ hidden_fields() }}
     <input type="hidden" name="topic_id" value="{{ s.topic_id }}">
-    <label>Label <input name="label" value="{{ s.label or '' }}" maxlength="200"></label>
-    <label>Papers per email <input type="number" name="papers" min="5" max="10" value="{{ s.max_papers or 5 }}"></label>
-    <button type="submit">Save</button>
+    {% with name="papers", id="papers-" ~ s.topic_id, value=s.max_papers or 5 %}{% include "_papers_slider.html" %}{% endwith %}
+    <div class="topic-actions">
+      <button type="submit" class="button-quiet">Save</button>
+      <button type="submit" class="button-quiet" formaction="/manage/remove">Remove topic</button>
+    </div>
   </form>
-  <form method="post" action="/manage/remove">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <input type="hidden" name="token" value="{{ token }}">
-    <input type="hidden" name="topic_id" value="{{ s.topic_id }}">
-    <button type="submit">Remove this topic</button>
-  </form>
-</section>
+</div>
 {% else %}
-<p>You don't follow any topics.</p>
+<p class="muted">You don't follow any topics yet.</p>
 {% endfor %}
-<h2>Add a topic</h2>
-<form method="post" action="/manage/add">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-  <input type="hidden" name="token" value="{{ token }}">
-  <label>Phrase <input name="topic" maxlength="200" required></label>
-  <label>Label (optional) <input name="label" maxlength="200"></label>
-  <label>Papers per email <input type="number" name="papers" min="5" max="10" value="5"></label>
-  <button type="submit">Add</button>
-</form>
-<h2>Pause, unsubscribe or delete</h2>
-{% for action, text in [("pause", "Pause all topics"), ("resume", "Resume all topics"), ("unsubscribe-all", "Unsubscribe from everything"), ("delete", "Delete my data")] %}
-<form method="post" action="/manage/{{ action }}">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-  <input type="hidden" name="token" value="{{ token }}">
-  <button type="submit">{{ text }}</button>
-</form>
-{% endfor %}
+
+<div class="topic-card">
+  <form method="post" action="/manage/add">
+    {{ hidden_fields() }}
+    <label class="field-label" for="new-topic">Add a topic</label>
+    <input type="text" id="new-topic" name="topic" maxlength="200" required placeholder="reward modeling">
+    <div class="topic-preview" hidden></div>
+    {% with name="papers", id="papers-new", value=5 %}{% include "_papers_slider.html" %}{% endwith %}
+    <div class="topic-actions"><button type="submit">Add topic</button></div>
+  </form>
+</div>
+
+<h2>Pause</h2>
+<p class="muted">Pausing stops every topic until you resume. Your topics are kept.</p>
+<div class="account-actions">
+  <form method="post" action="/manage/pause">{{ hidden_fields() }}<button type="submit" class="button-quiet">Pause all topics</button></form>
+  <form method="post" action="/manage/resume">{{ hidden_fields() }}<button type="submit" class="button-quiet">Resume all topics</button></form>
+</div>
+
+<section class="danger-zone">
+  <h2>Leave</h2>
+  <p class="muted">Unsubscribing stops all email and keeps your topics in case you come back. Deleting removes your
+  email address and topics right away.</p>
+  <div class="account-actions">
+    <form method="post" action="/manage/unsubscribe-all">{{ hidden_fields() }}<button type="submit" class="button-quiet">Unsubscribe from everything</button></form>
+    <form method="post" action="/manage/delete">{{ hidden_fields() }}<button type="submit" class="button-danger">Delete my data</button></form>
+  </div>
+</section>
 {% endblock %}

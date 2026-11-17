@@ -1,10 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Check your inbox{% endblock %}
 {% block content %}
+<div class="panel">
 <h1>Check your inbox</h1>
-{% if error %}<p role="alert"><em>{{ error }}</em></p>{% endif %}
+{% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
 <p>If that address can sign up, we've sent it an email with a link. It can take a few minutes to arrive; check your spam folder too.</p>
 <p>Already subscribed? We'll send you a link to manage your topics instead.</p>
 <h2>Lost your manage link?</h2>
 {% include "_manage_link_form.html" %}
+</div>
 {% endblock %}

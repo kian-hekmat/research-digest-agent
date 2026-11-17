@@ -1,5 +1,5 @@
-<form method="post" action="/manage-link">
+<form method="post" action="/manage-link" class="inline-form">
   <input type="hidden" name="csrf" value="{{ csrf }}">
-  <label>Email <input type="email" name="email" required></label>
-  <button type="submit">Email me a manage link</button>
+  <input type="email" name="email" required placeholder="you@university.edu" aria-label="Email" autocomplete="email">
+  <button type="submit" class="button-quiet">Email me a manage link</button>
 </form>

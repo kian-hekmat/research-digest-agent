@@ -1,4 +1,7 @@
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app.config import Settings, get_settings
 from app.routers import admin, topics, papers, digests, subscriptions, public
@@ -23,6 +26,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(subscriptions.router)
     app.include_router(admin.router)
     app.include_router(public.router)
+    # The public pages' stylesheet and script (docs/frontend-plan.md).
+    app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent / "static"), name="static")
 
     @app.get("/health")
     def health():

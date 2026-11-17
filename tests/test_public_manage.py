@@ -18,7 +18,7 @@ def _csrf(c):
 
 def _active_member(db, email="me@example.com", queries=("rlhf",)):
     """A confirmed subscriber with active subscriptions to `queries`."""
-    _, sub = signup.record_signup(db, email, [signup.SignupTopic(q, None, 5) for q in queries], NOW)
+    _, sub = signup.record_signup(db, email, [signup.SignupTopic(q, 5) for q in queries], NOW)
     signup.confirm_subscriber(db, sub, NOW, NOW)
     db.refresh(sub)
     return sub
@@ -43,19 +43,18 @@ def test_manage_page_lists_only_this_subscribers_topics(anon_client, db_session)
     assert "pinns" not in page.text and "other@example.com" not in page.text
 
 
-def test_update_label_and_papers(anon_client, db_session):
+def test_update_papers(anon_client, db_session):
     me = _active_member(db_session)
     topic_id = _subs(db_session, me.id)["rlhf"].topic_id
-    resp = _post(anon_client, "/manage/update", tokens.manage_token(me), topic_id=topic_id, label="My <RLHF>", papers="8")
-    assert resp.status_code == 200 and "My &lt;RLHF&gt;" in resp.text
-    s = _subs(db_session, me.id)["rlhf"]
-    assert (s.label, s.max_papers) == ("My <RLHF>", 8)
+    resp = _post(anon_client, "/manage/update", tokens.manage_token(me), topic_id=topic_id, papers="8")
+    assert resp.status_code == 200
+    assert _subs(db_session, me.id)["rlhf"].max_papers == 8
 
 
 def test_update_rejects_papers_out_of_range(anon_client, db_session):
     me = _active_member(db_session)
     topic_id = _subs(db_session, me.id)["rlhf"].topic_id
-    resp = _post(anon_client, "/manage/update", tokens.manage_token(me), topic_id=topic_id, label="", papers="12")
+    resp = _post(anon_client, "/manage/update", tokens.manage_token(me), topic_id=topic_id, papers="12")
     assert resp.status_code == 422
     assert _subs(db_session, me.id)["rlhf"].max_papers == 5
 
@@ -71,23 +70,23 @@ def test_remove_topic_leaves_topic_row(anon_client, db_session):
 def test_add_topic_validates_and_caps_at_five(anon_client, db_session):
     me = _active_member(db_session, queries=("a one", "b two", "c three", "d four"))
     token = tokens.manage_token(me)
-    assert _post(anon_client, "/manage/add", token, topic="cat:cs.LG", label="", papers="5").status_code == 422
-    assert _post(anon_client, "/manage/add", token, topic="e five", label="", papers="5").status_code == 200
-    resp = _post(anon_client, "/manage/add", token, topic="f six", label="", papers="5")
+    assert _post(anon_client, "/manage/add", token, topic="cat:cs.LG", papers="5").status_code == 422
+    assert _post(anon_client, "/manage/add", token, topic="e five", papers="5").status_code == 200
+    resp = _post(anon_client, "/manage/add", token, topic="f six", papers="5")
     assert resp.status_code == 422 and "5 topics" in resp.text
     assert set(_subs(db_session, me.id)) == {"a one", "b two", "c three", "d four", "e five"}
 
 
 def test_add_existing_topic_twice_rejected(anon_client, db_session):
     me = _active_member(db_session)
-    resp = _post(anon_client, "/manage/add", tokens.manage_token(me), topic="RLHF", label="", papers="5")
+    resp = _post(anon_client, "/manage/add", tokens.manage_token(me), topic="RLHF", papers="5")
     assert resp.status_code == 422
 
 
 def test_add_new_topic_over_cap_waitlisted(anon_client, db_session, monkeypatch):
     me = _active_member(db_session)
     monkeypatch.setattr(get_settings(), "max_active_topics", 1)
-    resp = _post(anon_client, "/manage/add", tokens.manage_token(me), topic="reward modeling", label="", papers="5")
+    resp = _post(anon_client, "/manage/add", tokens.manage_token(me), topic="reward modeling", papers="5")
     assert resp.status_code == 200 and "waitlist" in resp.text.lower()
     assert _subs(db_session, me.id)["reward modeling"].waitlisted_at is not None
 
@@ -164,7 +163,7 @@ def test_resubscribe_topic_recreates_with_defaults_and_rechecks_caps(anon_client
     resp = _post(anon_client, "/resubscribe", _resubscribe_token(page))
     assert resp.status_code == 200
     s = _subs(db_session, me.id)["rlhf"]
-    assert (s.max_papers, s.label) == (5, None) and s.waitlisted_at is not None
+    assert s.max_papers == 5 and s.waitlisted_at is not None
 
 
 def test_resubscribe_all_clears_unsubscribed(anon_client, db_session):
@@ -245,7 +244,7 @@ MANAGE_POSTS = ["/manage/update", "/manage/remove", "/manage/add", "/manage/paus
 def test_bad_links_render_expired_400_on_every_route(anon_client, db_session, kind):
     manage_bad, unsub_bad = _bad_tokens(db_session)[kind]
     responses = [anon_client.get("/manage", params={"token": manage_bad})]
-    responses += [_post(anon_client, p, manage_bad, topic_id="x", topic="y", label="", papers="5") for p in MANAGE_POSTS]
+    responses += [_post(anon_client, p, manage_bad, topic_id="x", topic="y", papers="5") for p in MANAGE_POSTS]
     responses += [anon_client.get("/unsubscribe", params={"token": unsub_bad}),
                   _post(anon_client, "/resubscribe", unsub_bad)]
     if kind != "deleted":  # a deleted subscriber's one-click link is a 200 no-op (above)
@@ -268,7 +267,7 @@ def test_resignup_after_unsubscribe_needs_confirmation(anon_client, db_session):
     me = _active_member(db_session)
     anon_client.post("/unsubscribe?token=" + tokens.unsubscribe_token(me.id, None))
     db_session.expire_all()
-    kind, sub = signup.record_signup(db_session, "me@example.com", [signup.SignupTopic("pinns", None, 5)], NOW)
+    kind, sub = signup.record_signup(db_session, "me@example.com", [signup.SignupTopic("pinns", 5)], NOW)
     assert kind == "confirm"
     assert crud.active_subscriptions_query(db_session).count() == 0
     signup.confirm_subscriber(db_session, sub, datetime.now(timezone.utc), datetime.now(timezone.utc))

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Unsubscribed{% endblock %}
 {% block content %}
+<div class="panel">
 <h1>You're unsubscribed{% if topic %} from {{ topic.name }}{% endif %}</h1>
 <p>Changed your mind?</p>
 <form method="post" action="/resubscribe">
@@ -8,4 +9,5 @@
   <input type="hidden" name="token" value="{{ token }}">
   <button type="submit">Re-subscribe</button>
 </form>
+</div>
 {% endblock %}

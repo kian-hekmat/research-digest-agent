@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Re-subscribed{% endblock %}
 {% block content %}
-{% if error %}<h1>Couldn't re-subscribe</h1><p role="alert">{{ error }}</p>
+<div class="panel">
+{% if error %}<h1>Couldn't re-subscribe</h1><p class="alert" role="alert">{{ error }}</p>
 {% else %}<h1>You're subscribed again{% if topic %} to {{ topic.name }}{% endif %}</h1>
 {% for reason in reasons %}<p>{{ reason }}</p>{% endfor %}
 <p>Digests arrive Monday mornings.</p>{% endif %}
+</div>
 {% endblock %}

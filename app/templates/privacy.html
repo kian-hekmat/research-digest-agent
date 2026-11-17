@@ -1,13 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Privacy policy{% endblock %}
 {% block content %}
+<article class="prose">
 <h1>Privacy policy</h1>
-<p class="muted">Last updated: November 16, 2026</p>
+<p class="muted">Last updated: November 17, 2026</p>
 
 <h2>What we store</h2>
 <ul>
   <li>Your email address, and when you confirmed it and agreed to the terms.</li>
-  <li>Your topics, their labels, and the number of papers per topic you asked for.</li>
+  <li>Your topics and the number of papers per topic you asked for.</li>
   <li>Your send history: when each digest went out.</li>
   <li>For rate limits, your IP address and email address only as hashed keys, deleted after two days.</li>
 </ul>
@@ -22,6 +23,8 @@ it, show ads, or track whether you open or click our emails.</p>
     never your email address.</li>
   <li><strong>Cloudflare</strong> runs the Turnstile check on the signup form, which sees your IP address and
     browser.</li>
+  <li><strong>Google Fonts</strong> serves the fonts these pages use, so Google sees your IP address and browser
+    when a page loads.</li>
 </ul>
 
 <h2>Where it's stored</h2>
@@ -36,4 +39,5 @@ within 14 days. To get your manage link again, use "Already subscribed?" on the 
 <p>We don't track you across other sites, so browser Do Not Track signals don't change anything here. The service is not
 for children under 13. Questions: email <a href="mailto:kianhekmatnejad@gmail.com">kianhekmatnejad@gmail.com</a>. If this policy changes, the new version is posted here
 with a new date.</p>
+</article>
 {% endblock %}

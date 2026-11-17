@@ -189,7 +189,7 @@ async def manage_action(action: str, request: Request, db: Session = Depends(get
         return _expired(request)
     token, now = form["token"], _now()
     if action == "update":
-        error = signup.update_topic(db, sub, form.get("topic_id", ""), form.get("label"), form.get("papers"))
+        error = signup.update_topic(db, sub, form.get("topic_id", ""), form.get("papers"))
         return _manage_page(request, sub, token, 422 if error else 200, ["Saved."] if not error else [], error)
     if action == "remove":
         s = signup.subscription_for(sub, form.get("topic_id"))
@@ -199,7 +199,7 @@ async def manage_action(action: str, request: Request, db: Session = Depends(get
             db.refresh(sub)
         return _manage_page(request, sub, token, notice=["Removed."])
     if action == "add":
-        reasons, error = signup.add_topic(db, sub, form.get("topic", ""), form.get("label"), form.get("papers"), now)
+        reasons, error = signup.add_topic(db, sub, form.get("topic", ""), form.get("papers"), now)
         db.refresh(sub)
         return _manage_page(request, sub, token, 422 if error else 200, reasons or (["Added."] if not error else []), error)
     if action in ("pause", "resume"):

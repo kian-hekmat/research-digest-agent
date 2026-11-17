@@ -1,37 +1,63 @@
 {% extends "base.html" %}
 {% block title %}Sign up{% endblock %}
 {% block head %}<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>{% endblock %}
+{% set examples = ["reward modeling", "diffusion language models", "mechanistic interpretability", "protein structure prediction", "retrieval-augmented generation"] %}
 {% block content %}
-<h1>Papers Weekly</h1>
-<p class="lead">A short weekly email of the new arXiv papers worth your time for the topics you follow.</p>
-<p>Pick up to five topics as plain phrases, like "reward modeling." Each week, we read every new paper that matches,
-rank them, and send you the best few with short summaries and an overview of the week.
-Digests arrive every Monday morning for free.</p>
-{% if errors %}<p role="alert">Please fix the highlighted fields.</p>{% endif %}
+<section class="hero">
+  <h1>The new arXiv papers worth your time, every Monday.</h1>
+  <p class="lead">Papers Weekly is a short weekly email for the topics you follow. Each week we read every new paper
+  that matches, rank them, and send you the best few with short summaries and an overview of the week.
+  Digests arrive every Monday morning for free.</p>
+</section>
+
+<ol class="steps">
+  <li class="step"><span class="step-num">1</span> Pick up to five topics as plain phrases</li>
+  <li class="step"><span class="step-num">2</span> We read and rank every new paper</li>
+  <li class="step"><span class="step-num">3</span> The best arrive Monday morning</li>
+</ol>
+
+{% if errors %}<p class="alert" role="alert">Please fix the highlighted fields.</p>{% endif %}
 <form method="post" action="/signup">
   <input type="hidden" name="csrf" value="{{ csrf }}">
-  <p><label>Email <input type="email" name="email" value="{{ form.get('email', '') }}" required></label>
-  {% if errors.email %}<br><em>{{ errors.email }}</em>{% endif %}</p>
-  {% if errors.topics %}<p><em>{{ errors.topics }}</em></p>{% endif %}
-  {% for i in range(5) %}
-  <fieldset>
-    <legend>Topic {{ i + 1 }}</legend>
-    <label>Phrase <input name="topic_{{ i }}" value="{{ form.get('topic_' ~ i, '') }}" maxlength="200"></label>
-    {% if errors['topic_' ~ i] %}<br><em>{{ errors['topic_' ~ i] }}</em>{% endif %}
-    <label>Label (optional) <input name="label_{{ i }}" value="{{ form.get('label_' ~ i, '') }}" maxlength="200"></label>
-    {% if errors['label_' ~ i] %}<br><em>{{ errors['label_' ~ i] }}</em>{% endif %}
-    <label>Papers per email <input type="number" name="papers_{{ i }}" min="5" max="10" value="{{ form.get('papers_' ~ i, '5') }}"></label>
-    {% if errors['papers_' ~ i] %}<br><em>{{ errors['papers_' ~ i] }}</em>{% endif %}
-  </fieldset>
-  {% endfor %}
-  <p><label><input type="checkbox" name="us_resident" {% if form.get('us_resident') %}checked{% endif %}>
-  I live in the United States and am 13 or older. I agree to the <a href="/terms">terms</a> and the <a href="/privacy">privacy policy</a>.</label>
-  {% if errors.us_resident %}<br><em>{{ errors.us_resident }}</em>{% endif %}</p>
+  <div class="field">
+    <label class="field-label" for="email">Email</label>
+    <input type="email" id="email" name="email" value="{{ form.get('email', '') }}" required autocomplete="email" placeholder="you@university.edu">
+    {% if errors.email %}<span class="error">{{ errors.email }}</span>{% endif %}
+  </div>
+
+  <h2 class="section-title">Your topics</h2>
+  {% if errors.topics %}<p class="error">{{ errors.topics }}</p>{% endif %}
+  <div data-topic-list>
+    {% for i in range(5) %}
+    <div class="topic-card">
+      <label class="field-label" for="topic_{{ i }}">Topic</label>
+      <div class="topic-head">
+        <input type="text" id="topic_{{ i }}" name="topic_{{ i }}" value="{{ form.get('topic_' ~ i, '') }}" maxlength="200" placeholder="{{ examples[i] }}">
+        <button type="button" class="icon-button" data-remove-topic aria-label="Remove this topic" hidden>&times;</button>
+      </div>
+      {% if errors['topic_' ~ i] %}<span class="error">{{ errors['topic_' ~ i] }}</span>{% endif %}
+      <div class="topic-preview" hidden></div>
+      {% with name="papers_" ~ i, id="papers_" ~ i, value=form.get('papers_' ~ i) or 5 %}{% include "_papers_slider.html" %}{% endwith %}
+      {% if errors['papers_' ~ i] %}<span class="error">{{ errors['papers_' ~ i] }}</span>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  <div class="topic-tools" data-topic-tools hidden>
+    <button type="button" class="button-add" data-add-topic>+ Add another topic</button>
+    <span data-topic-count aria-live="polite">1 of 5</span>
+  </div>
+
+  <label class="check"><input type="checkbox" name="us_resident" {% if form.get('us_resident') %}checked{% endif %}>
+  <span>I live in the United States and am 13 or older. I agree to the <a href="/terms">terms</a> and the <a href="/privacy">privacy policy</a>.</span></label>
+  {% if errors.us_resident %}<p class="error">{{ errors.us_resident }}</p>{% endif %}
   <div class="cf-turnstile" data-sitekey="{{ site_key }}"></div>
-  {% if errors.turnstile %}<p><em>{{ errors.turnstile }}</em></p>{% endif %}
-  <p><button type="submit">Sign up</button></p>
+  {% if errors.turnstile %}<p class="error">{{ errors.turnstile }}</p>{% endif %}
+  <button type="submit">Sign up</button>
 </form>
-<h2>Already subscribed?</h2>
-<p>Get a link to edit your topics, pause, unsubscribe or delete your data.</p>
-{% include "_manage_link_form.html" %}
+
+<section class="aside" id="manage">
+  <h2>Already subscribed?</h2>
+  <p class="muted">Get a link to edit your topics, pause, unsubscribe or delete your data.</p>
+  {% include "_manage_link_form.html" %}
+</section>
 {% endblock %}

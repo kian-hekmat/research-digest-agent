@@ -1,10 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Confirm your subscription{% endblock %}
 {% block content %}
+<div class="panel">
 <h1>Confirm your subscription</h1>
 <form method="post" action="/confirm">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <input type="hidden" name="token" value="{{ token }}">
   <button type="submit">Confirm my subscription</button>
 </form>
+</div>
 {% endblock %}

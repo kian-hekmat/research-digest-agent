@@ -4,36 +4,28 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Papers Weekly{% endblock %} · Papers Weekly</title>
-<style>
-  :root { color-scheme: light dark; --fg: #1d1d1f; --bg: #fdfdfb; --muted: #5f6368; --line: #d9d9d4; --accent: #1a5fb4; }
-  @media (prefers-color-scheme: dark) { :root { --fg: #e8e8e3; --bg: #161616; --muted: #a0a3a8; --line: #3a3a38; --accent: #8ab4f8; } }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main, footer { max-width: 40rem; margin: 0 auto; padding: 1.5rem 1rem; }
-  h1 { font-size: 1.6rem; line-height: 1.25; margin: 0.5rem 0 1rem; }
-  h2 { font-size: 1.2rem; margin-top: 2rem; }
-  a { color: var(--accent); }
-  fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 1rem; padding: 0.75rem 1rem; }
-  legend { padding: 0 0.25rem; font-weight: 600; }
-  label { display: block; margin: 0.4rem 0; }
-  input:not([type=checkbox]), button { font: inherit; width: 100%; max-width: 100%; padding: 0.5rem 0.6rem; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: inherit; }
-  input[type=number] { max-width: 7rem; }
-  button { width: auto; cursor: pointer; background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
-  em { color: #c5221f; font-style: normal; }
-  [role=alert] { border-left: 3px solid #c5221f; padding-left: 0.75rem; }
-  .lead { font-size: 1.1rem; }
-  .muted, footer { color: var(--muted); font-size: 0.9rem; }
-  footer { border-top: 1px solid var(--line); }
-</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500&display=swap">
+<link rel="stylesheet" href="/static/site.css">
 {% block head %}{% endblock %}
 </head>
 <body>
+<div class="site-header-bar">
+<header class="site-header">
+  <a class="wordmark" href="/signup">Papers Weekly</a>
+  <nav>{% block nav %}<a href="/signup#manage">Manage subscription</a>{% endblock %}</nav>
+</header>
+</div>
 <main>
 {% block content %}{% endblock %}
 </main>
-<footer>
+<div class="site-footer-bar">
+<footer class="site-footer">
   <p>Papers Weekly · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></p>
   <p>Thank you to arXiv for use of its open access interoperability. Papers Weekly is not affiliated with or endorsed by arXiv.</p>
 </footer>
+</div>
+<script src="/static/site.js" defer></script>
 </body>
 </html>

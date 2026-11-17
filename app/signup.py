@@ -3,7 +3,6 @@ app.routers.public parse forms and render; everything that touches the
 database for a subscriber lives here."""
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Mapping
@@ -19,15 +18,12 @@ from app.models import gen_uuid
 from app.topic_query import validate_public_query
 
 MAX_TOPIC_ROWS = 5
-MAX_LABEL = 200
-_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 _TYPOGRAPHIC_APOSTROPHES = str.maketrans({"’": "'", "‘": "'"})
 
 
 @dataclass
 class SignupTopic:
     query: str  # normalized phrase
-    label: str | None
     max_papers: int
 
 
@@ -52,14 +48,6 @@ def parse_topic(raw: str) -> str:
         raise
 
 
-def parse_label(raw: str | None) -> tuple[str | None, str | None]:
-    """(label, error)."""
-    label = _CONTROL.sub("", raw or "").strip()
-    if len(label) > MAX_LABEL:
-        return None, f"Labels can be at most {MAX_LABEL} characters."
-    return label or None, None
-
-
 def parse_papers(raw: str | None) -> tuple[int | None, str | None]:
     s = get_settings()
     if not (raw or "").strip():
@@ -78,7 +66,7 @@ def parse_papers(raw: str | None) -> tuple[int | None, str | None]:
 
 def parse_signup(form: Mapping[str, str]) -> tuple[str | None, list[SignupTopic], dict[str, str]]:
     """(normalized email, topics, field errors) from the signup form: fields
-    `email`, `us_resident`, and `topic_i` / `label_i` / `papers_i` for i in 0..4."""
+    `email`, `us_resident`, and `topic_i` / `papers_i` for i in 0..4."""
     errors: dict[str, str] = {}
     email = parse_email(form.get("email"))
     if email is None:
@@ -98,14 +86,11 @@ def parse_signup(form: Mapping[str, str]) -> tuple[str | None, list[SignupTopic]
             errors[f"topic_{i}"] = "You already listed this topic."
             continue
         seen.add(query)
-        label, label_error = parse_label(form.get(f"label_{i}"))
         papers, papers_error = parse_papers(form.get(f"papers_{i}"))
-        if label_error:
-            errors[f"label_{i}"] = label_error
         if papers_error:
             errors[f"papers_{i}"] = papers_error
-        if not (label_error or papers_error):
-            topics.append(SignupTopic(query, label, papers))
+        else:
+            topics.append(SignupTopic(query, papers))
     if not topics and not any(k.startswith("topic_") for k in errors):
         errors["topics"] = "Add at least one topic."
     if form.get("us_resident") not in ("on", "yes", "true", "1"):
@@ -160,7 +145,7 @@ def record_signup(
     for t in topics:
         db.add(models.Subscription(
             topic_id=topic_for(db, t.query).id, subscriber_id=sub.id,
-            max_papers=t.max_papers, label=t.label, active=True,
+            max_papers=t.max_papers, active=True,
         ))
     sub.us_resident_attested_at = now
     db.commit()
@@ -197,7 +182,7 @@ def subscription_for(sub: models.Subscriber, topic_id: str | None) -> models.Sub
 
 
 def add_topic(
-    db: Session, sub: models.Subscriber, raw_topic: str, raw_label: str | None, raw_papers: str | None, now: datetime
+    db: Session, sub: models.Subscriber, raw_topic: str, raw_papers: str | None, now: datetime
 ) -> tuple[list[str], str | None]:
     """(waitlist reasons, error) for adding one topic from the manage page.
     Same rules as signup, at most five topics, then the cap check. Commits."""
@@ -209,16 +194,15 @@ def add_topic(
         query = parse_topic((raw_topic or "").strip())
     except ValueError as exc:
         return [], str(exc)
-    label, error = parse_label(raw_label)
     papers, papers_error = parse_papers(raw_papers)
-    if error or papers_error:
-        return [], error or papers_error
+    if papers_error:
+        return [], papers_error
     topic = topic_for(db, query)
     if subscription_for(sub, topic.id) is not None:
         db.rollback()
         return [], "You already follow this topic."
     new = models.Subscription(
-        topic_id=topic.id, subscriber_id=sub.id, max_papers=papers, label=label, active=True, last_sent_at=now
+        topic_id=topic.id, subscriber_id=sub.id, max_papers=papers, active=True, last_sent_at=now
     )
     db.add(new)
     db.flush()
@@ -227,16 +211,15 @@ def add_topic(
     return reasons, None
 
 
-def update_topic(db: Session, sub: models.Subscriber, topic_id: str, raw_label: str | None, raw_papers: str | None) -> str | None:
-    """Edit one topic's label and papers per email; an error message or None. Commits."""
+def update_topic(db: Session, sub: models.Subscriber, topic_id: str, raw_papers: str | None) -> str | None:
+    """Edit one topic's papers per email; an error message or None. Commits."""
     s = subscription_for(sub, topic_id)
     if s is None:
         return "That topic isn't in your list."
-    label, error = parse_label(raw_label)
     papers, papers_error = parse_papers(raw_papers)
-    if error or papers_error:
-        return error or papers_error
-    s.label, s.max_papers = label, papers
+    if papers_error:
+        return papers_error
+    s.max_papers = papers
     db.commit()
     return None
 
