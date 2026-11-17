@@ -64,7 +64,8 @@ Each built phase's plan and outcome is in `docs/plans/`.
 - [x] Email: stay on Gmail SMTP (no Brevo, no DNS mail records).
 - [x] Cloudflare Turnstile: keys are in `.env` and the running API has loaded them (2026-11-16). Make sure the widget's hostname list includes `papersweekly.com`.
 - [x] OpenAI: set the project's hard monthly limit to about $55 (done 2026-11-17).
-- [x] Hetzner: a CX23 in Nürnberg, Ubuntu 24.04, at 91.99.205.127, with a firewall allowing only 22, 80 and 443. Backups are off (owner's call; see the backup line in section 3). The DNS records and the Turnstile hostname are in place (2026-11-17).
+- [x] Hetzner: a CX23 in Nürnberg, Ubuntu 24.04, at 91.99.205.127, Backups are off (owner's call; see the backup line in section 3). The DNS records are verified (2026-11-17).
+- [ ] Confirm the Hetzner firewall (TCP 22, 80, 443 and UDP 443 only) is applied, and that Turnstile lists `papersweekly.com`.
 
 ### 2. Small code changes (one sitting)
 
