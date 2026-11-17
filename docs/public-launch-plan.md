@@ -17,7 +17,8 @@ history.
 | Area | v2.2 | v3 | Why |
 |---|---|---|---|
 | Audience at launch | Up to 200 strangers, after a 3-week closed beta of about 20 | 5–10 invited readers. They are the beta | Owner's call: get it running for real people first |
-| Topic preview, broad-phrase refusal, similar-topic suggestions (3b) | To build before launch | **Cut.** Broad topics: raise `ARXIV_MAX_RESULTS` from 25 to 100 instead | Suggestions had no calibrated threshold for the current embedding model anyway. With a handful of readers, the owner can eyeball topics |
+| Topic preview, broad-phrase refusal, similar-topic suggestions (3b) | To build before launch | **Cut** (confirmed by the owner 2026-11-16). Broad topics: raise `ARXIV_MAX_RESULTS` from 25 to 100 instead | Suggestions had no calibrated threshold for the current embedding model anyway. With a handful of readers, the owner can eyeball topics |
+| Email delivery | Brevo free tier on the service's own domain, with SPF, DKIM and DMARC | **Gmail SMTP**, the account the service already sends from (owner's call, 2026-11-16) | Already works. A personal Gmail account allows about 500 recipients a day, far above 10 readers' weekly digests |
 | Picks-first email (2d Round 2) | Before launch | **After launch.** Launch with today's email (summaries plus overview) | Quality tuning was already deferred to after launch (decision #20) |
 | Cost and load rehearsal (2e) | 200 subscribers, 100 topics, a week of measurement | **Cut** | Measured on the first live cycle: about $0.007 per topic per send. 10 readers × 5 topics is a few dollars a month against $50 |
 | Website (Phase 4) | Landing page, Playwright end-to-end tests in CI, axe-core scans | A short intro on `/signup`, one small stylesheet, real terms and privacy text, and a check on a phone | |
@@ -38,7 +39,7 @@ history.
 | Cadence | Weekly, Monday 08:00 `America/New_York` (prep 01:00, ingest 21:30 daily) |
 | arXiv content | Metadata and abstracts only (CC0). No full text, no bulk download |
 | Host | One Hetzner CX23 (2 vCPU / 4 GB) in the EU, about €6/month |
-| Email | Brevo free tier over SMTP (300/day) |
+| Email | Gmail SMTP with an app password (about 500 recipients a day); mail comes from that Gmail address |
 
 ---
 
@@ -60,8 +61,8 @@ Each built phase's plan and outcome is in `docs/plans/`.
 
 - [x] Pick a name: **Papers Weekly**, `papersweekly.com` (chosen 2026-11-16). Nothing in the name may imply arXiv endorsement.
 - [ ] Register `papersweekly.com` (Cloudflare Registrar, about $10.50/year at cost).
-- [ ] Brevo: create the account; authenticate the sending domain (SPF, DKIM); publish DMARC at `p=none`.
-- [ ] Cloudflare Turnstile: create a site key for the domain.
+- [x] Email: stay on Gmail SMTP (no Brevo, no DNS mail records).
+- [x] Cloudflare Turnstile: keys are in `.env` and the running API has loaded them (2026-11-16). Make sure the widget's hostname list includes `papersweekly.com`.
 - [ ] OpenAI: set the project's hard monthly limit to about $55.
 - [ ] Hetzner: create the account and a CX23 in Nuremberg or Helsinki (fallback: the EU ARM plan).
 
@@ -73,7 +74,7 @@ Each built phase's plan and outcome is in `docs/plans/`.
 - [ ] Replace the placeholder `/terms` and `/privacy` text with short real versions:
   - **What's stored:** email, topics, labels, papers per topic, and send history.
   - **Rate limits:** they use hashed IP addresses.
-  - **Who processes data:** Hetzner, Brevo, OpenAI (topics and abstracts only, never addresses) and Cloudflare.
+  - **Who processes data:** Hetzner, Google (Gmail sends the email), OpenAI (topics and abstracts only, never addresses) and Cloudflare.
   - **Where data is stored:** in the EU.
   - **Deleting data:** done from the manage page.
 - [ ] Tests for each change. The full suite stays green.
@@ -89,14 +90,24 @@ Each built phase's plan and outcome is in `docs/plans/`.
 - [ ] The server's `.env` holds the real secrets:
   - fresh `SECRET_KEY`, `ADMIN_TOKEN` and DB password;
   - the OpenAI key;
-  - Brevo SMTP settings;
+  - the Gmail SMTP settings (`smtp.gmail.com`, port 587, TLS, an app password) with `SMTP_FROM_ADDRESS` set to that Gmail address, since Gmail rewrites any other From;
   - the Turnstile keys;
   - `PUBLIC_BASE_URL` set to the domain;
   - `ALERT_EMAIL`.
-- [ ] Move the data:
-  1. `pg_dump` from the Mac and restore it on the server.
-  2. Run `alembic upgrade head`.
-  3. Let the worker recreate the schedules on a fresh Temporal.
+- [ ] Move the data by dump and restore (decided 2026-11-16), not a fresh start. A fresh database would lose:
+  - this month's `llm_usage`, so the budget guard would undercount spend;
+  - the topic watermarks, so every topic would refetch and re-rate a week of papers;
+  - the edition chain and earlier overviews that prep reads;
+  - the 90-day novelty history;
+  - the owner's own subscription.
+
+  The restore also proves the backups actually work. Steps:
+  1. Pause the schedules and stop the Mac worker.
+  2. Back up with `pg_dump`.
+  3. Optionally delete the dead full-text chunk rows (`paper_embeddings` where `kind = 'chunk'`), about 200 MB of the 222 MB database. This is permanent, so ask the owner first.
+  4. Run `pg_dump -Fc` and restore it on the server.
+  5. Run `alembic upgrade head`.
+  6. Start the worker on a fresh Temporal; it recreates the schedules.
 - [ ] Nightly `pg_dump` cron, copied off the box and kept for 14 days.
 - [ ] Deploys: `git pull && docker-compose -f docker-compose.prod.yml up -d --build`, then migrations. Stop the worker first when a deploy changes a workflow.
 - [ ] Stop the Mac stack once the server is live, so two workers never send.
@@ -105,7 +116,7 @@ Each built phase's plan and outcome is in `docs/plans/`.
 
 - [ ] Sign up through the real page, confirm, and check the manage link.
 - [ ] Trigger a send (or wait for Monday), then check the digest's unsubscribe link and `List-Unsubscribe` header.
-- [ ] mail-tester.com score of 9/10 or better, and SPF, DKIM and DMARC passing in the raw headers.
+- [ ] Send a digest to a non-Gmail address too (e.g. Outlook) and check it lands in the inbox, not spam.
 - [ ] Invite the 5–10 readers.
 
 **Exit:** the owner gets a Monday digest from production, and the invited readers are signed up.
@@ -120,6 +131,7 @@ Each built phase's plan and outcome is in `docs/plans/`.
 | Topic preview and broad-phrase refusal | A topic regularly hits `ARXIV_MAX_RESULTS`, or strangers start signing up |
 | Alerts beyond spend and failed ratings/summaries; uptime check; Sentry | A missed Monday goes unnoticed |
 | CI image builds, rollback rehearsal, restore drill | The service has readers who aren't the owner's contacts |
+| Own-domain email (Brevo or Amazon SES, with SPF, DKIM and DMARC) | Gmail's daily limit gets close, digests land in spam, or mail should come from `@papersweekly.com` |
 | 3a review's deferred minors (rate-limit races, CSRF error page, `Referrer-Policy`, ...) | Real abuse, or open public signup |
 | Dropping the unused columns and tables (`papers.related_note`, `papers.fulltext_status`, `papers.fulltext_checked_at`, `topic_embeddings`, full-text chunk rows) | Any convenient migration; they're harmless meanwhile |
 | Full text | arXiv says in writing that it's allowed. The code is in git history before 2026-11-16 |
@@ -136,11 +148,12 @@ Each built phase's plan and outcome is in `docs/plans/`.
 | 3 | LLM | `gpt-5.4-mini` for ratings, summaries and overviews |
 | 4 | Embeddings | `text-embedding-3-small` at 768 dimensions |
 | 5 | Full text | Off; code removed 2026-11-16 |
-| 6 | Topics | Phrases only for the public; no preview or suggestions at launch |
+| 6 | Topics | Phrases only for the public; no preview or suggestions at launch (3b cut, reconfirmed 2026-11-16) |
 | 7 | Cadence | Weekly, Monday 08:00 Eastern |
 | 8 | Audience | US residents (signup checkbox), age 13+ |
-| 9 | Email | Brevo free tier over SMTP |
+| 9 | Email | Gmail SMTP for now (2026-11-16); own-domain email deferred |
 | 10 | Hosting | One Hetzner CX23 in the EU, `git pull` deploys, nightly dumps |
 | 11 | Name and domain | Papers Weekly, `papersweekly.com` (decided 2026-11-16; registration pending) |
 | 12 | Email format | Today's format at launch; picks-first after launch |
 | 13 | Beta | The 5–10 invited readers are the beta |
+| 14 | Data on the server | The Mac's database, moved by dump and restore (2026-11-16) |
