@@ -96,8 +96,8 @@ The commands are in `docs/deploy.md`.
 - [x] `.env.production.example`: every value the server's `.env` needs (fresh secrets, Gmail SMTP, Turnstile, `PUBLIC_BASE_URL=https://papersweekly.com`, `ALERT_EMAIL`).
 - [x] `scripts/backup.sh`: a nightly `pg_dump -Fc` with 14 days kept on the server. Hetzner Backups are off to save money; the owner copies a dump to the Mac now and then.
 - [x] Prepare the server (2026-11-17): packages updated and rebooted, Docker 29.1, Compose 2.40 and git installed, the repo cloned to `/opt/papersweekly`, and `.env` created (mode 600) with the database password, `SECRET_KEY` and `ADMIN_TOKEN` generated on the server.
-- [ ] Fill in the owner's values in the server's `.env`: OpenAI key, alert email, Gmail username, app password and From address, and the Turnstile keys.
-- [ ] Move the Mac's database by dump and restore (decided 2026-11-16). A fresh start would lose:
+- [x] Fill in the owner's values in the server's `.env` (2026-11-17): OpenAI key, alert email, Gmail username, app password and From address, and the Turnstile keys.
+- [x] Move the Mac's database by dump and restore (done 2026-11-17). An 8.2 MB dump restored with identical row counts at migration `f0a1b2c3d4e5`. The stack is live at https://papersweekly.com with a Let's Encrypt certificate, and the worker recreated the three schedules. Caddy runs on the host network so IPv6 visitors keep their real address for rate limits. A fresh start would lose:
   - this month's `llm_usage`, so the budget guard would undercount spend;
   - the topic watermarks, so every topic would refetch and re-rate a week of papers;
   - the edition chain and earlier overviews that prep reads;
@@ -105,8 +105,8 @@ The commands are in `docs/deploy.md`.
   - the owner's own subscription.
 
   Dead full-text chunk rows were already deleted (2026-11-17, owner's OK; 21,256 rows). The database went from 222 MB to 30 MB. The backup taken first is `~/research-digest-backups/digest_db_20261117_pre-chunk-delete.sql`.
-- [ ] Install the backup cron and run it once by hand.
-- [ ] Stop the Mac worker for good once the server is live, so two workers never send.
+- [x] Install the backup cron and run it once by hand (03:15 UTC nightly; the first dump was 8.3 MB).
+- [x] Stop the Mac worker for good, so two workers never send. Its schedules are paused too (2026-11-17); the Mac stack is now for development only.
 
 ### 4. Smoke test and invite
 
