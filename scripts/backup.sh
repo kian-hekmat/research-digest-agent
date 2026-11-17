@@ -2,8 +2,8 @@
 # Nightly database dump on the production server (launch plan v3, section 3).
 # Run by root's crontab (docs/deploy.md):
 #   15 3 * * * /opt/papersweekly/scripts/backup.sh >> /var/log/papersweekly-backup.log 2>&1
-# Keeps 14 days of custom-format dumps in BACKUP_DIR. Hetzner's server backups
-# (enabled in the console) carry them off the box.
+# Keeps 14 days of custom-format dumps in BACKUP_DIR, on the server itself.
+# Copy one to the Mac now and then for an off-server copy (docs/deploy.md).
 set -eu
 
 APP_DIR=${APP_DIR:-/opt/papersweekly}

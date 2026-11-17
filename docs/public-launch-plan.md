@@ -64,7 +64,7 @@ Each built phase's plan and outcome is in `docs/plans/`.
 - [x] Email: stay on Gmail SMTP (no Brevo, no DNS mail records).
 - [x] Cloudflare Turnstile: keys are in `.env` and the running API has loaded them (2026-11-16). Make sure the widget's hostname list includes `papersweekly.com`.
 - [x] OpenAI: set the project's hard monthly limit to about $55 (done 2026-11-17).
-- [ ] Hetzner: create the account and a CX23 in Nuremberg or Helsinki (fallback: the EU ARM plan), with Backups on and a firewall allowing only 22, 80 and 443. Then add the DNS records and the Turnstile hostname. The steps are in `docs/deploy.md` §1.
+- [x] Hetzner: a CX23 in Nürnberg, Ubuntu 24.04, at 91.99.205.127, with a firewall allowing only 22, 80 and 443. Backups are off (owner's call; see the backup line in section 3). The DNS records and the Turnstile hostname are in place (2026-11-17).
 
 ### 2. Small code changes (one sitting)
 
@@ -93,8 +93,10 @@ The commands are in `docs/deploy.md`.
   - Covered by `tests/test_prod_config.py`.
 - [x] `Caddyfile`: `papersweekly.com` is served by the API, `/` redirects to `/signup`, and `www` redirects to the bare domain.
 - [x] `.env.production.example`: every value the server's `.env` needs (fresh secrets, Gmail SMTP, Turnstile, `PUBLIC_BASE_URL=https://papersweekly.com`, `ALERT_EMAIL`).
-- [x] `scripts/backup.sh`: a nightly `pg_dump -Fc` with 14 days kept. Hetzner's server backups carry the dumps off the box.
-- [ ] Prepare the server, then move the Mac's database by dump and restore (decided 2026-11-16). A fresh start would lose:
+- [x] `scripts/backup.sh`: a nightly `pg_dump -Fc` with 14 days kept on the server. Hetzner Backups are off to save money; the owner copies a dump to the Mac now and then.
+- [x] Prepare the server (2026-11-17): packages updated and rebooted, Docker 29.1, Compose 2.40 and git installed, the repo cloned to `/opt/papersweekly`, and `.env` created (mode 600) with the database password, `SECRET_KEY` and `ADMIN_TOKEN` generated on the server.
+- [ ] Fill in the owner's values in the server's `.env`: OpenAI key, alert email, Gmail username, app password and From address, and the Turnstile keys.
+- [ ] Move the Mac's database by dump and restore (decided 2026-11-16). A fresh start would lose:
   - this month's `llm_usage`, so the budget guard would undercount spend;
   - the topic watermarks, so every topic would refetch and re-rate a week of papers;
   - the edition chain and earlier overviews that prep reads;

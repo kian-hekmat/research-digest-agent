@@ -13,7 +13,7 @@ it's the standalone `docker-compose` binary.
    - **Type and image:** CX23, Ubuntu 24.04.
    - **Location:** Nuremberg or Helsinki.
    - **Network:** public IPv4 and IPv6.
-   - **Backups:** turn them on. They cost about 20% of the server price and carry the nightly dumps off the box.
+   - **Backups:** off (owner's call, 2026-11-17). The nightly dumps stay on the server, and you copy one to the Mac now and then.
 3. Create a firewall for the server that allows inbound TCP 22, 80 and 443, and UDP 443. Allow nothing else.
 
 **Cloudflare DNS** (papersweekly.com). Every record is **DNS only** (grey cloud), so Caddy can get its own certificate:
@@ -71,7 +71,12 @@ crontab -e   # add:
 ```
 
 Check the setup by running `scripts/backup.sh` once by hand. It keeps 14 days
-in `/var/backups/papersweekly`.
+in `/var/backups/papersweekly`, on the server only. For an off-server copy,
+pull the newest dump to the Mac now and then:
+
+```bash
+scp "root@SERVER_IP:$(ssh root@SERVER_IP 'ls -t /var/backups/papersweekly/*.dump | head -1')" ~/research-digest-backups/
+```
 
 ## Everyday operations
 
