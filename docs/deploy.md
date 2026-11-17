@@ -55,8 +55,9 @@ On the server, in `/opt/papersweekly`:
 ```bash
 docker compose -f docker-compose.prod.yml up -d db
 docker compose -f docker-compose.prod.yml exec -T db pg_restore -U digest_user -d digest_db --no-owner < /root/move.dump
+docker compose -f docker-compose.prod.yml build api worker
 docker compose -f docker-compose.prod.yml run --rm worker alembic upgrade head
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml up -d
 docker compose -f docker-compose.prod.yml logs --tail=20 worker   # "Workers polling ..."
 ```
 
@@ -81,7 +82,13 @@ scp "root@SERVER_IP:$(ssh root@SERVER_IP 'ls -t /var/backups/papersweekly/*.dump
 ## Everyday operations
 
 - **Deploy:** `git pull && docker compose -f docker-compose.prod.yml up -d --build`.
-  - If the pull added a migration, run `docker compose -f docker-compose.prod.yml run --rm worker alembic upgrade head` first.
+  - **If the pull added a migration:**
+    1. run `scripts/backup.sh`;
+    2. rebuild with `docker compose -f docker-compose.prod.yml build api worker`;
+    3. migrate with `docker compose -f docker-compose.prod.yml run --rm worker alembic upgrade head`;
+    4. then `up -d`.
+
+    `run` uses the image as last built, so a migration added by the pull only exists after the build.
   - If it changes a workflow, first check nothing is running, then stop the worker.
 - **Temporal UI:** `ssh -L 8233:127.0.0.1:8233 root@SERVER_IP`, then open http://localhost:8233.
 - **Logs:** `docker compose -f docker-compose.prod.yml logs -f api worker caddy`.

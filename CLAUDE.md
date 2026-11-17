@@ -50,7 +50,7 @@ venv/bin/python -m evals.rag run --variant baseline --repeats 2 --summaries 0   
 ```bash
 C="docker compose -f docker-compose.prod.yml"
 git pull && $C up -d --build                                  # deploy what's pushed to main
-$C run --rm worker alembic upgrade head                       # migrate (back up first)
+scripts/backup.sh && $C build api worker && $C run --rm worker alembic upgrade head && $C up -d   # deploy with a migration: build BEFORE migrating, since `run` uses the last-built image
 $C exec -T temporal temporal workflow list --query "ExecutionStatus='Running'"
 $C exec -T temporal temporal schedule list
 $C exec -T db psql -U digest_user -d digest_db                # live DB
