@@ -101,7 +101,7 @@ The commands are in `docs/deploy.md`.
   - the 90-day novelty history;
   - the owner's own subscription.
 
-  Optionally, delete the dead full-text chunk rows first (`paper_embeddings` where `kind = 'chunk'`, about 200 MB of the 222 MB). This is permanent, so ask the owner first.
+  Dead full-text chunk rows were already deleted (2026-11-17, owner's OK; 21,256 rows). The database went from 222 MB to 30 MB. The backup taken first is `~/research-digest-backups/digest_db_20261117_pre-chunk-delete.sql`.
 - [ ] Install the backup cron and run it once by hand.
 - [ ] Stop the Mac worker for good once the server is live, so two workers never send.
 
@@ -126,7 +126,7 @@ The commands are in `docs/deploy.md`.
 | CI image builds, rollback rehearsal, restore drill | The service has readers who aren't the owner's contacts |
 | Own-domain email (Brevo or Amazon SES, with SPF, DKIM and DMARC) | Gmail's daily limit gets close, digests land in spam, or mail should come from `@papersweekly.com` |
 | 3a review's deferred minors (rate-limit races, CSRF error page, `Referrer-Policy`, ...) | Real abuse, or open public signup |
-| Dropping the unused columns and tables (`papers.related_note`, `papers.fulltext_status`, `papers.fulltext_checked_at`, `topic_embeddings`, full-text chunk rows) | Any convenient migration; they're harmless meanwhile |
+| Dropping the unused columns and tables (`papers.related_note`, `papers.fulltext_status`, `papers.fulltext_checked_at`, `topic_embeddings`) | Any convenient migration; they're harmless meanwhile |
 | Full text | arXiv says in writing that it's allowed. The code is in git history before 2026-11-16 |
 | OpenAlex as a paper source | Owner raises it again |
 
