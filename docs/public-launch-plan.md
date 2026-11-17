@@ -58,7 +58,8 @@ Each built phase's plan and outcome is in `docs/plans/`.
 
 ### 1. Owner actions (no code)
 
-- [ ] Pick a name and register the domain. Nothing in the name may imply arXiv endorsement.
+- [x] Pick a name: **Papers Weekly**, `papersweekly.com` (chosen 2026-11-16). Nothing in the name may imply arXiv endorsement.
+- [ ] Register `papersweekly.com` (Cloudflare Registrar, about $10.50/year at cost).
 - [ ] Brevo: create the account; authenticate the sending domain (SPF, DKIM); publish DMARC at `p=none`.
 - [ ] Cloudflare Turnstile: create a site key for the domain.
 - [ ] OpenAI: set the project's hard monthly limit to about $55.
@@ -140,6 +141,6 @@ Each built phase's plan and outcome is in `docs/plans/`.
 | 8 | Audience | US residents (signup checkbox), age 13+ |
 | 9 | Email | Brevo free tier over SMTP |
 | 10 | Hosting | One Hetzner CX23 in the EU, `git pull` deploys, nightly dumps |
-| 11 | Name and domain | **Open**: owner picks |
+| 11 | Name and domain | Papers Weekly, `papersweekly.com` (decided 2026-11-16; registration pending) |
 | 12 | Email format | Today's format at launch; picks-first after launch |
 | 13 | Beta | The 5–10 invited readers are the beta |
