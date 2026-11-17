@@ -8,7 +8,8 @@ ARXIV_THANKS = "Thank you to arXiv for use of its open access interoperability."
 def test_signup_page_introduces_the_service(anon_client):
     page = anon_client.get("/signup").text
     assert "Papers Weekly" in page
-    assert "Monday mornings" in page
+    assert "Digests arrive every Monday morning for free." in page
+    assert "AI-written" not in page  # owner's copy, 2026-11-17
     assert ARXIV_THANKS in page
 
 

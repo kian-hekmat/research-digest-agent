@@ -3,10 +3,10 @@
 {% block head %}<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>{% endblock %}
 {% block content %}
 <h1>Papers Weekly</h1>
-<p class="lead">A short weekly email of the new arXiv papers worth your time, for the topics you follow.</p>
-<p>Pick up to five topics as plain phrases, like "reward modeling". Each week we read every new paper that matches,
-rank them, mostly by how central each is to your topic, and send you the best few with short AI-written summaries and an
-overview of the week. Digests arrive Monday mornings. It's free.</p>
+<p class="lead">A short weekly email of the new arXiv papers worth your time for the topics you follow.</p>
+<p>Pick up to five topics as plain phrases, like "reward modeling." Each week, we read every new paper that matches,
+rank them, and send you the best few with short summaries and an overview of the week.
+Digests arrive every Monday morning for free.</p>
 {% if errors %}<p role="alert">Please fix the highlighted fields.</p>{% endif %}
 <form method="post" action="/signup">
   <input type="hidden" name="csrf" value="{{ csrf }}">
