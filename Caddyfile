@@ -6,7 +6,7 @@ papersweekly.com {
 	encode zstd gzip
 	# The signup page is the home page.
 	redir / /signup
-	reverse_proxy api:8000
+	reverse_proxy 127.0.0.1:8000
 }
 
 www.papersweekly.com {

@@ -2,9 +2,12 @@
 #
 #   docker compose -f docker-compose.prod.yml up -d --build
 #
-# Only Caddy is reachable from the internet (80/443). Postgres, Temporal and
-# the API sit on the compose network; the Temporal UI is published on the
-# server's loopback only, for an SSH tunnel (docs/deploy.md). Secrets come
+# Only Caddy is reachable from the internet (80/443). It runs on the host's
+# network so it sees visitors' real IPv4 and IPv6 addresses; Docker's IPv6
+# proxy would otherwise hide every IPv6 visitor behind its gateway address,
+# putting them all in one rate-limit bucket. The API is published on the
+# server's loopback for Caddy; Postgres and Temporal stay on the compose
+# network, and the Temporal UI is on loopback for an SSH tunnel (docs/deploy.md). Secrets come
 # from the server's .env (template: .env.production.example), never this file.
 # Images are pinned; the app image is built from this checkout.
 
@@ -60,9 +63,11 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://digest_user:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/digest_db
       TEMPORAL_ADDRESS: temporal:7233
+    ports:
+      - "127.0.0.1:8000:8000"   # for Caddy on the host network; not public
     # --proxy-headers: the client IP (rate limits) and https scheme come from
     # Caddy's X-Forwarded-* headers. Trusting any peer is safe because the api
-    # publishes no port: only containers on this network, i.e. Caddy, reach it.
+    # is published on loopback only: only Caddy and the host itself reach it.
     command: >
       uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
       --proxy-headers --forwarded-allow-ips *
@@ -87,10 +92,8 @@ services:
     image: caddy:2.8.4-alpine
     depends_on:
       - api
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"   # HTTP/3
+    # Binds 80, 443 and 443/udp (HTTP/3) on the host directly.
+    network_mode: host
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data     # TLS certificates

@@ -22,15 +22,19 @@ def _command(service: dict) -> str:
     return " ".join(cmd) if isinstance(cmd, list) else cmd
 
 
-def test_only_caddy_is_published_to_the_internet():
-    for name, service in _services().items():
-        ports = [str(p) for p in service.get("ports", [])]
+def test_only_caddy_faces_the_internet():
+    """Caddy runs on the host's network so it sees visitors' real IPv4 and
+    IPv6 addresses (Docker's IPv6 proxy hides them behind its gateway, which
+    would put every IPv6 visitor in one rate-limit bucket). Everything else
+    publishes on the host's loopback at most."""
+    services = _services()
+    assert services["caddy"].get("network_mode") == "host"
+    assert not services["caddy"].get("ports")
+    for name, service in services.items():
         if name == "caddy":
-            assert sorted(p.split(":")[0] for p in ports) == ["443", "443", "80"]
-        else:
-            # The Temporal UI may be reachable from the host itself (SSH
-            # tunnel), never from outside.
-            assert all(p.startswith("127.0.0.1:") for p in ports), (name, ports)
+            continue
+        ports = [str(p) for p in service.get("ports", [])]
+        assert all(p.startswith("127.0.0.1:") for p in ports), (name, ports)
 
 
 def test_every_image_is_pinned():
@@ -59,13 +63,13 @@ def test_exactly_one_worker_and_no_mailpit():
 
 def test_api_trusts_caddy_for_the_client_ip():
     """Rate limits key on the visitor's IP. Behind Caddy that's only right
-    if uvicorn reads X-Forwarded-For; the api isn't published, so only
-    Caddy can reach it."""
+    if uvicorn reads X-Forwarded-For; the api is published on the host's
+    loopback only, so only Caddy (and the host itself) can reach it."""
     api = _services()["api"]
     command = _command(api)
     assert "--proxy-headers" in command
     assert "--forwarded-allow-ips" in command
-    assert not api.get("ports")
+    assert [str(p) for p in api.get("ports", [])] == ["127.0.0.1:8000:8000"]
 
 
 def test_secrets_come_from_the_server_env_not_the_file():
@@ -86,7 +90,7 @@ def test_temporal_keeps_its_state_on_a_volume():
 def test_caddy_serves_the_domain_and_redirects_www():
     text = CADDYFILE.read_text()
     assert re.search(r"^papersweekly\.com \{", text, re.M)
-    assert "reverse_proxy api:8000" in text
+    assert "reverse_proxy 127.0.0.1:8000" in text
     assert re.search(r"^www\.papersweekly\.com \{\s*redir https://papersweekly\.com\{uri\}", text, re.M)
 
 
