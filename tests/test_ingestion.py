@@ -86,6 +86,38 @@ def test_search_arxiv_search_query(query, expected):
     assert route.calls.last.request.url.params["search_query"] == expected
 
 
+def test_arxiv_max_results_defaults_to_100():
+    """Broad topics get a bigger sample instead of a signup-time refusal
+    (launch plan v3: 3b was cut)."""
+    assert Settings.model_fields["arxiv_max_results"].default == 100
+
+
+@respx.mock
+def test_search_arxiv_asks_for_the_configured_number_of_results():
+    route = respx.get("https://export.arxiv.org/api/query").mock(
+        return_value=httpx.Response(200, text=ATOM)
+    )
+
+    search_arxiv("retrieval", delay=0)
+
+    assert route.calls.last.request.url.params["max_results"] == str(Settings().arxiv_max_results)
+
+
+@respx.mock
+def test_search_arxiv_sends_a_user_agent_naming_the_service():
+    """arXiv asks API clients to identify themselves. The service and its
+    site only - never a personal address."""
+    route = respx.get("https://export.arxiv.org/api/query").mock(
+        return_value=httpx.Response(200, text=ATOM)
+    )
+
+    search_arxiv("retrieval", delay=0)
+
+    agent = route.calls.last.request.headers["user-agent"]
+    assert "PapersWeekly" in agent and "papersweekly.com" in agent
+    assert "@" not in agent
+
+
 @respx.mock
 def test_search_arxiv_raises_on_http_error():
     respx.get("https://export.arxiv.org/api/query").mock(

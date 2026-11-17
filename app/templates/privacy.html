@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Privacy policy{% endblock %}
+{% block content %}
+<h1>Privacy policy</h1>
+<p class="muted">Last updated: November 16, 2026</p>
+
+<h2>What we store</h2>
+<ul>
+  <li>Your email address, and when you confirmed it and agreed to the terms.</li>
+  <li>Your topics, their labels, and the number of papers per topic you asked for.</li>
+  <li>Your send history: when each digest went out.</li>
+  <li>For rate limits, your IP address and email address only as hashed keys, deleted after two days.</li>
+</ul>
+<p>We use this only to send you the digest and the emails you ask for (confirmation and manage links). We don't sell
+it, show ads, or track whether you open or click our emails.</p>
+
+<h2>Who processes it</h2>
+<ul>
+  <li><strong>Hetzner</strong> hosts the server and database.</li>
+  <li><strong>Google</strong> (Gmail) sends our emails, so it sees your email address and the digest.</li>
+  <li><strong>OpenAI</strong> writes summaries and ratings. It sees topic phrases and paper abstracts,
+    never your email address.</li>
+  <li><strong>Cloudflare</strong> runs the Turnstile check on the signup form, which sees your IP address and
+    browser.</li>
+</ul>
+
+<h2>Where it's stored</h2>
+<p>On a server in the European Union (Germany or Finland).</p>
+
+<h2>Your choices</h2>
+<p>The manage page linked from every digest lets you edit your topics, pause, unsubscribe, or delete your data.
+Deleting removes your email address and subscriptions right away; nightly backups that still hold them are deleted
+within 14 days. To get your manage link again, use "Already subscribed?" on the <a href="/signup">signup page</a>.</p>
+
+<h2>Other things</h2>
+<p>We don't track you across other sites, so browser Do Not Track signals don't change anything here. The service is not
+for children under 13. Questions: reply to any digest email. If this policy changes, the new version is posted here
+with a new date.</p>
+{% endblock %}

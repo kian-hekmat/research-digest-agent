@@ -180,7 +180,9 @@ class Settings(BaseSettings):
 
     # --- arXiv ingestion ---
     arxiv_api_url: str = "https://export.arxiv.org/api/query"
-    arxiv_max_results: int = 25
+    # Newest results per topic per fetch. 100 gives a broad phrase a real
+    # sample instead of a signup-time refusal (launch plan v3 cut 3b).
+    arxiv_max_results: int = 100
     arxiv_page_delay: float = 3.0  # arXiv asks clients to space requests out
     # A paper's `published` timestamp is its submission time, but it only
     # appears in the API once announced - typically 1-3 days later (longer

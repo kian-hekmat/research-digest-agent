@@ -68,16 +68,16 @@ Each built phase's plan and outcome is in `docs/plans/`.
 
 ### 2. Small code changes (one sitting)
 
-- [ ] Set `ARXIV_MAX_RESULTS=100` (a setting, not code). Ingest and rating cost go up a little for broad topics; the budget covers it.
-- [ ] Give arXiv API requests a `User-Agent` that names the service and its site. No personal email, per CLAUDE.md.
-- [ ] Add a short intro to `/signup`: what it is, "Digests arrive Monday mornings", and the arXiv thank-you. Plus one small stylesheet that works at phone width.
-- [ ] Replace the placeholder `/terms` and `/privacy` text with short real versions:
+- [x] Set `ARXIV_MAX_RESULTS=100` (now the default; 2026-11-16). Ingest and rating cost go up a little for broad topics; the budget covers it.
+- [x] Give arXiv API requests a `User-Agent` (`PapersWeekly/1.0 (+https://papersweekly.com)`) that names the service and its site. No personal email, per CLAUDE.md.
+- [x] Add a short intro to `/signup` (plus an "Already subscribed?" manage-link form, and a footer with the legal links and the arXiv thank-you on every page): what it is, "Digests arrive Monday mornings", and the arXiv thank-you. Plus one small stylesheet that works at phone width.
+- [x] Replace the placeholder `/terms` and `/privacy` text with short real versions:
   - **What's stored:** email, topics, labels, papers per topic, and send history.
   - **Rate limits:** they use hashed IP addresses.
   - **Who processes data:** Hetzner, Google (Gmail sends the email), OpenAI (topics and abstracts only, never addresses) and Cloudflare.
   - **Where data is stored:** in the EU.
   - **Deleting data:** done from the manage page.
-- [ ] Tests for each change. The full suite stays green.
+- [x] Tests for each change (`tests/test_launch_pages.py`, `tests/test_ingestion.py`); full suite 585 passed. Still to do by hand: a look on a real phone.
 
 ### 3. Production host
 

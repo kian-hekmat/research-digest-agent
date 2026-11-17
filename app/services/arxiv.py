@@ -19,6 +19,9 @@ from app.config import get_settings
 
 _VERSION_SUFFIX = re.compile(r"v\d+$")  # 2408.12345v2 -> 2408.12345 (stable dedupe key)
 FIELD_PREFIX = re.compile(r"^(ti|au|abs|co|jr|cat|rn|id|all):")  # arXiv search fields
+# arXiv asks API clients to identify themselves: the service and its site,
+# never a personal address.
+USER_AGENT = "PapersWeekly/1.0 (+https://papersweekly.com)"
 _last_request_at = 0.0
 _throttle_lock = threading.Lock()
 
@@ -42,8 +45,7 @@ def _clean(text: str | None) -> str | None:
 
 def throttle(delay: float) -> None:
     """Space consecutive arXiv requests at least `delay` seconds apart,
-    across every thread in this process - searches and full-text fetches
-    alike. arXiv's terms allow one request every 3 seconds over a single
+    across every thread in this process. arXiv's terms allow one request every 3 seconds over a single
     connection, and digests for different topics run concurrently on the
     worker's activity thread pool, so the gate is a lock held while waiting:
     callers queue up and go out one at a time."""
@@ -127,7 +129,7 @@ def search_arxiv(
     owns_client = client is None
     client = client or httpx.Client(timeout=30.0, follow_redirects=True)
     try:
-        resp = client.get(settings.arxiv_api_url, params=params)
+        resp = client.get(settings.arxiv_api_url, params=params, headers={"User-Agent": USER_AGENT})
         resp.raise_for_status()
     finally:
         if owns_client:

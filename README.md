@@ -487,7 +487,7 @@ All settings are environment variables (see [`.env.example`](.env.example)).
 | `OPENAI_PRICES` | `gpt-5.4-mini` and `text-embedding-3-small` | USD per 1M tokens per model, as JSON. A model with no price can't be called, so spend is never unrecorded |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_USE_TLS` / `SMTP_FROM_ADDRESS` | Mailpit | Outgoing email |
 | `SEMANTIC_SCHOLAR_API_KEY` | unset | Optional; without it, h-indices come from OpenAlex |
-| `ARXIV_MAX_RESULTS` / `ARXIV_LOOKBACK_DAYS` | `25` / `7` | Fetch size and publication-lag window |
+| `ARXIV_MAX_RESULTS` / `ARXIV_LOOKBACK_DAYS` | `100` / `7` | Fetch size and publication-lag window |
 | `ARXIV_PAGE_DELAY` | `3.0` | Minimum seconds between any two arXiv requests |
 | `RAG_ENABLED` | `true` | Embeddings and every retrieval feature (also off when `SUMMARY_BACKEND=none`) |
 | `EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model, requested at 768 dimensions; it needs a `RETRIEVAL_CALIBRATION` row (the worker refuses to start without one) |

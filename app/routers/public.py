@@ -1,5 +1,5 @@
-"""Public pages (phase 3a): signup, the manage-link form, and the legal
-placeholders. Plain server-rendered forms; Phase 4 styles them. Everything
+"""Public pages (phase 3a): signup, the manage-link form, and the terms
+and privacy pages. Plain server-rendered forms; Phase 4 styles them. Everything
 that depends on whether an address exists runs in a BackgroundTask, so the
 response can't tell new, pending and confirmed addresses apart."""
 from __future__ import annotations
@@ -123,12 +123,12 @@ async def manage_link_submit(
 
 @router.get("/terms")
 def terms(request: Request):
-    return web.render(request, "legal.html", title="Terms of use")
+    return web.render(request, "terms.html")
 
 
 @router.get("/privacy")
 def privacy(request: Request):
-    return web.render(request, "legal.html", title="Privacy policy")
+    return web.render(request, "privacy.html")
 
 
 def _expired(request: Request):
