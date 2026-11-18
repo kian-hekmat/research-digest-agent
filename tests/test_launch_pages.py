@@ -22,6 +22,12 @@ def test_public_pages_share_one_phone_width_stylesheet(anon_client, path):
     assert 'href="/terms"' in page and 'href="/privacy"' in page
 
 
+@pytest.mark.parametrize("path", ["/signup", "/terms", "/privacy"])
+def test_footer_links_the_public_source_code(anon_client, path):
+    page = anon_client.get(path).text
+    assert '<a href="https://github.com/kian-hekmat/research-digest-agent">Source</a>' in page
+
+
 def test_terms_are_real(anon_client):
     page = anon_client.get("/terms")
     assert page.status_code == 200
